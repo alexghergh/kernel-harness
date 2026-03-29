@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-RUN_NAME="${RUN_NAME:-kb_codex_experiment}"
+RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"

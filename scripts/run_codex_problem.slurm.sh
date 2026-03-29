@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=kb-codex-smoke
+#SBATCH --job-name=kernelbench-codex
 #YBATCH -r h100_1
 #SBATCH --gres=gpu:1
 #SBATCH --time=13:00:00
-#SBATCH --output=slurm-out
-#SBATCH --error=slurm-err
+#SBATCH --output=slurm-out/%x-%j.out
+#SBATCH --error=slurm-err/%x-%j.err
 
 module load cuda
 
@@ -14,7 +14,7 @@ KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-/home/alexghergh/KernelBench}"
 PYENV_ENV="${PYENV_ENV:-kernelbench-3.10}"
 HARDWARE_NAME="${HARDWARE_NAME:-H100_tsubame}"
 
-RUN_NAME="${RUN_NAME:-kb_smoke}"
+RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"

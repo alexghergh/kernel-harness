@@ -112,7 +112,7 @@ export GPU_NAME=H100
 
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
-RUN_NAME=kb_smoke \
+RUN_NAME=kernelbench-codex-h100-v1 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5-codex \
@@ -172,7 +172,7 @@ export KERNELBENCH_ROOT=/path/to/KernelBench
 export KERNELBENCH_PYTHON="${KERNELBENCH_ROOT}/.venv/bin/python"
 export EAGER_BASELINE_FILE="${KERNELBENCH_ROOT}/results/timing/H100_PCIe_LambdaLabs/baseline_time_torch.json"
 export COMPILE_BASELINE_FILE="${KERNELBENCH_ROOT}/results/timing/H100_PCIe_LambdaLabs/baseline_time_torch_compile_inductor_default.json"
-RUN_NAME=kb_h100 \
+RUN_NAME=kernelbench-codex-h100-v1 \
 LEVEL=1 \
 PROBLEM_ID=23 \
 MODEL=gpt-5-codex \
@@ -193,21 +193,21 @@ Runs accumulate naturally as long as you reuse the same `RUN_NAME`.
 Single problems:
 
 ```bash
-RUN_NAME=kb_h100 LEVEL=1 PROBLEM_ID=23 ./scripts/run_codex_problem.sh
-RUN_NAME=kb_h100 LEVEL=1 PROBLEM_ID=24 ./scripts/run_codex_problem.sh
+RUN_NAME=kernelbench-codex-h100-v1 LEVEL=1 PROBLEM_ID=23 ./scripts/run_codex_problem.sh
+RUN_NAME=kernelbench-codex-h100-v1 LEVEL=1 PROBLEM_ID=24 ./scripts/run_codex_problem.sh
 ```
 
 Ranges:
 
 ```bash
-RUN_NAME=kb_h100 LEVEL=1 START_PROBLEM_ID=0 END_PROBLEM_ID=20 ./scripts/run_codex_range.sh
-RUN_NAME=kb_h100 LEVEL=2 START_PROBLEM_ID=50 END_PROBLEM_ID=100 ./scripts/run_codex_range.sh
+RUN_NAME=kernelbench-codex-h100-v1 LEVEL=1 START_PROBLEM_ID=0 END_PROBLEM_ID=20 ./scripts/run_codex_range.sh
+RUN_NAME=kernelbench-codex-h100-v1 LEVEL=2 START_PROBLEM_ID=50 END_PROBLEM_ID=100 ./scripts/run_codex_range.sh
 ```
 
 Explicit lists:
 
 ```bash
-RUN_NAME=kb_h100 LEVEL=3 PROBLEM_IDS=1,7,9,42 ./scripts/run_codex_range.sh
+RUN_NAME=kernelbench-codex-h100-v1 LEVEL=3 PROBLEM_IDS=1,7,9,42 ./scripts/run_codex_range.sh
 ```
 
 `run_codex_range.sh` launches one Codex session per problem and supports limited planning parallelism via `MAX_PARALLEL_SOLVERS`. GPU work still respects the shared lease count controlled by `NUM_GPUS`. Launching the same `(run_name, level, problem_id)` twice is unsupported and now fails fast through the per-problem solver lock.
@@ -420,7 +420,7 @@ If the problem workspace still exists, use the workspace-local best mirror direc
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
 export PROJECT_ROOT="$(pwd)"
-export BEST_KERNEL="${PROJECT_ROOT}/.runtime/workspaces/kb_smoke/level_1/problem_1/samples/best_sample.py"
+export BEST_KERNEL="${PROJECT_ROOT}/.runtime/workspaces/kernelbench-codex-h100-v1/level_1/problem_1/samples/best_sample.py"
 ```
 
 That file is the exact winning `ModelNew` source mirrored into the workspace for local inspection and reruns.
@@ -432,7 +432,7 @@ This reproduces the harness evaluation path without launching Codex again:
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
 export PROJECT_ROOT="$(pwd)"
-export BEST_KERNEL="${PROJECT_ROOT}/.runtime/workspaces/kb_smoke/level_1/problem_1/samples/best_sample.py"
+export BEST_KERNEL="${PROJECT_ROOT}/.runtime/workspaces/kernelbench-codex-h100-v1/level_1/problem_1/samples/best_sample.py"
 
 PYTHONPATH="${PROJECT_ROOT}/src" \
 "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli run-candidate \
@@ -566,13 +566,13 @@ To remove the local state for a run before rerunning it:
 
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
-RUN_NAME=kb_smoke ./scripts/clear_run.sh
+RUN_NAME=kernelbench-codex-h100-v1 ./scripts/clear_run.sh
 ```
 
 Positional form:
 
 ```bash
-./scripts/clear_run.sh kb_smoke
+./scripts/clear_run.sh kernelbench-codex-h100-v1
 ```
 
 This removes:
@@ -625,7 +625,7 @@ The helper CLI includes a summary command:
 ```bash
 export PYTHONPATH="$(pwd)/src"
 ${KERNELBENCH_PYTHON} -m kernel_bench_experiment_agents.cli summarize-run \
-  --run-name kb_h100 \
+  --run-name kernelbench-codex-h100-v1 \
   --kernelbench-root "${KERNELBENCH_ROOT}" \
   --level 1 \
   --eager-baseline-file "${KERNELBENCH_ROOT}/results/timing/H100_PCIe_LambdaLabs/baseline_time_torch.json" \
@@ -657,7 +657,7 @@ To request different pass@k values:
 
 ```bash
 ${KERNELBENCH_PYTHON} -m kernel_bench_experiment_agents.cli summarize-run \
-  --run-name kb_h100 \
+  --run-name kernelbench-codex-h100-v1 \
   --kernelbench-root "${KERNELBENCH_ROOT}" \
   --pass-k 1,5,20
 ```
