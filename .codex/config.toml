@@ -1,0 +1,17 @@
+personality = "pragmatic"
+# preferred mode for compatible hosts; the launcher currently overrides this to
+# danger-full-access by default on the shared cluster because workspace-write fails there
+sandbox_mode = "workspace-write"
+web_search = "live"
+project_doc_max_bytes = 65536
+model_auto_compact_token_limit = 240000
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+[sandbox_workspace_write]
+network_access = false
+
+[tools]
+web_search = { context_size = "low", allowed_domains = ["docs.nvidia.com"] }
