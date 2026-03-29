@@ -47,7 +47,7 @@ codex login --device-auth
 codex login status
 ```
 
-The launcher reuses that saved repo-local login for every problem. No `OPENAI_API_KEY` export is needed once this login succeeds.
+The launcher reuses that saved repo-local login for every problem. Each problem run then gets its own derived runtime `CODEX_HOME` under `.runtime/codex_home/...`, so parallel planners do not share mutable Codex state. No `OPENAI_API_KEY` export is needed once this login succeeds.
 
 3. create and activate a Python 3.10 environment
 
@@ -155,7 +155,7 @@ The default entrypoint is [run_codex_problem.sh](/home/alex/projects/uni-researc
 
 - prepares a single-problem workspace under `.runtime/workspaces/...` inside this repo by default
 - writes a workspace-local `SPEC.md`, `AGENTS.md`, `HARDWARE.md`, generated status files, a fixed-scaffold `candidate_model_new.py`, and local wrapper scripts into that workspace
-- sets `CODEX_HOME` to the repo-local `.codex/` and expects Codex to already be logged in there
+- checks login against the repo-local `.codex/`, then creates an isolated per-problem runtime `CODEX_HOME` under `.runtime/codex_home/...`
 - keeps the helper import path on the wrapper side instead of exposing the whole harness to the solver by default
 - enforces one active solver per `(run_name, level, problem_id)` with a per-problem session lock
 - captures the raw `codex exec --json` event stream for the problem
@@ -580,6 +580,7 @@ This removes:
 - `runs/<RUN_NAME>/`
 - `artifacts/<RUN_NAME>/`
 - `build/<RUN_NAME>/`
+- `.runtime/codex_home/<RUN_NAME>/`
 - `.runtime/workspaces/<RUN_NAME>/`
 - stale run-scoped artifact and solver lock files
 

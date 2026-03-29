@@ -7,6 +7,27 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+prepare_runtime_codex_home() {
+  local base_home="$1"
+  local runtime_home="$2"
+  local entry
+
+  rm -rf "${runtime_home}"
+  mkdir -p "${runtime_home}"
+
+  for entry in .personality_migration auth.json config.toml version.json yusa_auth.json; do
+    if [[ -f "${base_home}/${entry}" ]]; then
+      cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
+    fi
+  done
+
+  for entry in agents rules; do
+    if [[ -d "${base_home}/${entry}" ]]; then
+      cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
+    fi
+  done
+}
+
 RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
@@ -43,7 +64,8 @@ if [[ -z "${COMPILE_BASELINE_FILE}" || ! -f "${COMPILE_BASELINE_FILE}" ]]; then
   exit 1
 fi
 
-export CODEX_HOME="${PROJECT_ROOT}/.codex"
+CODEX_BASE_HOME="${PROJECT_ROOT}/.codex"
+CODEX_RUNTIME_ROOT="${PROJECT_ROOT}/.runtime/codex_home"
 PROJECT_PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 RUN_OUTPUT_DIR="${PROJECT_ROOT}/runs/${RUN_NAME}"
@@ -57,6 +79,7 @@ mkdir -p \
   "${CODEX_ARTIFACT_DIR}" \
   "${BUILD_PROBLEM_DIR}" \
   "${PROJECT_ROOT}/.runtime" \
+  "${CODEX_RUNTIME_ROOT}" \
   "${PROJECT_ROOT}/.runtime/gpu_locks" \
   "${PROJECT_ROOT}/.runtime/artifact_locks" \
   "${PROJECT_ROOT}/.runtime/solver_locks"
@@ -69,6 +92,7 @@ fi
 mkdir -p "${PROJECT_ROOT}/.runtime/solver_locks"
 SAFE_RUN_NAME="$(printf '%s' "${RUN_NAME}" | tr -c 'A-Za-z0-9._-' '_')"
 SOLVER_LOCK_PATH="${PROJECT_ROOT}/.runtime/solver_locks/${SAFE_RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
+CODEX_RUNTIME_HOME="${CODEX_RUNTIME_ROOT}/${SAFE_RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 exec 9>"${SOLVER_LOCK_PATH}"
 if ! flock -n 9; then
   echo "Another solver is already active for run=${RUN_NAME} level=${LEVEL} problem=${PROBLEM_ID}." >&2
@@ -108,13 +132,16 @@ CONVERSATION_PATH="${CODEX_ARTIFACT_DIR}/conversation.json"
 COMPLETION_PATH="${CODEX_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 
-if ! codex login status >/dev/null 2>&1; then
-  echo "Codex is not logged in for CODEX_HOME=${CODEX_HOME}." >&2
-  echo "Run: CODEX_HOME=\"${CODEX_HOME}\" codex login --device-auth" >&2
+if ! CODEX_HOME="${CODEX_BASE_HOME}" codex login status >/dev/null 2>&1; then
+  echo "Codex is not logged in for CODEX_HOME=${CODEX_BASE_HOME}." >&2
+  echo "Run: CODEX_HOME=\"${CODEX_BASE_HOME}\" codex login --device-auth" >&2
   exit 1
 fi
 
-echo "Launching Codex in ${WORKSPACE}" >&2
+prepare_runtime_codex_home "${CODEX_BASE_HOME}" "${CODEX_RUNTIME_HOME}"
+export CODEX_HOME="${CODEX_RUNTIME_HOME}"
+
+echo "Launching Codex in ${WORKSPACE} with runtime CODEX_HOME=${CODEX_HOME}" >&2
 rm -f "${FINAL_MESSAGE_PATH}" "${CONVERSATION_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}"
 
 CODEX_ARGS=(
