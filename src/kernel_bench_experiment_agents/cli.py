@@ -453,6 +453,28 @@ def _elapsed_minutes(created_at: str | None) -> float | None:
     return max(elapsed, 0.0)
 
 
+def _sum_numeric_field(payloads: list[dict[str, Any]], key: str) -> float:
+    total = 0.0
+    for payload in payloads:
+        value = _as_float(payload.get(key))
+        if value is None:
+            continue
+        total += value
+    return max(total, 0.0)
+
+
+def _profile_entries(ncu_dir: Path) -> list[dict[str, Any]]:
+    if not ncu_dir.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    for path in sorted(ncu_dir.glob("*.json")):
+        try:
+            entries.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return entries
+
+
 def _goal_status_snapshot(
     *,
     run_name: str,
@@ -489,12 +511,20 @@ def _goal_status_snapshot(
         and compile_ms is not None
         and best_runtime_ms < compile_ms
     )
-    elapsed_minutes = _elapsed_minutes(metadata.get("created_at"))
+    elapsed_minutes_wall_clock = _elapsed_minutes(metadata.get("created_at"))
     time_budget_minutes = _as_float(metadata.get("time_budget_minutes"))
+    ncu_dir = artifact_problem_dir(run_name, level, problem_id) / "ncu"
+    profile_payloads = _profile_entries(ncu_dir)
+    gpu_wait_minutes_total = (
+        _sum_numeric_field(entries, "gpu_wait_seconds")
+        + _sum_numeric_field(profile_payloads, "gpu_wait_seconds")
+    ) / 60.0
+    elapsed_minutes = None
+    if elapsed_minutes_wall_clock is not None:
+        elapsed_minutes = max(elapsed_minutes_wall_clock - gpu_wait_minutes_total, 0.0)
     remaining_minutes = None
     if elapsed_minutes is not None and time_budget_minutes is not None:
         remaining_minutes = max(time_budget_minutes - elapsed_minutes, 0.0)
-    ncu_dir = artifact_problem_dir(run_name, level, problem_id) / "ncu"
     profile_runs = sorted(ncu_dir.glob("*.json")) if ncu_dir.exists() else []
 
     succeeded_entries = [entry for entry in entries if entry.get("status") == "succeeded"]
@@ -512,7 +542,9 @@ def _goal_status_snapshot(
         "problem_id": problem_id,
         "problem_name": metadata.get("problem_name"),
         "time_budget_minutes": time_budget_minutes,
+        "elapsed_minutes_wall_clock": elapsed_minutes_wall_clock,
         "elapsed_minutes": elapsed_minutes,
+        "gpu_wait_minutes_total": gpu_wait_minutes_total,
         "remaining_minutes": remaining_minutes,
         "num_timing_runs": len(entries),
         "num_profile_runs": max(
@@ -546,6 +578,8 @@ def _goal_status_markdown(snapshot: dict[str, Any]) -> str:
     eager_baseline = snapshot.get("eager_baseline_ms")
     compile_baseline = snapshot.get("compile_baseline_ms")
     problem_name = snapshot.get("problem_name") or "unknown"
+    elapsed_minutes = _as_float(snapshot.get("elapsed_minutes"))
+    gpu_wait_minutes_total = _as_float(snapshot.get("gpu_wait_minutes_total"))
     remaining_minutes = _as_float(snapshot.get("remaining_minutes"))
     time_budget_minutes = _as_float(snapshot.get("time_budget_minutes"))
     substantial_budget_remains = (
@@ -562,6 +596,7 @@ def _goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Timing and profiling are normal tools, not expensive last resorts. Use them even for small constant or layout changes.",
             "- Wrapper commands are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
             "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, and try a new branch.",
+            "- The time budget is enforced by the harness. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
             "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh`.",
         ]
     else:
@@ -608,6 +643,8 @@ def _goal_status_markdown(snapshot: dict[str, Any]) -> str:
         - timing calls: {snapshot["num_timing_runs"]}
         - profiler calls: {profiler_line}
         - best correct sample: {snapshot.get("best_correct_sample_id")}
+        - elapsed minutes counted against budget: {elapsed_minutes}
+        - gpu wait minutes excluded from budget: {gpu_wait_minutes_total}
         - remaining minutes: {remaining_line}
         - local sample history: `samples/`
         - local best sample mirror: `samples/best_sample.py`
@@ -679,6 +716,7 @@ def _workspace_spec_markdown(
         4. The harness or environment is genuinely broken in a way that prevents truthful progress -> `harness_failure`.
 
         A plain assistant message is NEVER a valid exit. The ONLY exit is `./bin/complete_problem.sh`.
+        The harness enforces the budget. You must end cleanly through `./bin/complete_problem.sh --decision budget_exhausted` before remaining time reaches zero.
 
         ## Loop
 
@@ -698,6 +736,7 @@ def _workspace_spec_markdown(
 
         - total budget: `{metadata["time_budget_minutes"]}` minutes
         - remaining budget: see `GOAL_STATUS.md`
+        - recorded GPU lock wait time is excluded from the remaining budget
         - tens or hundreds of attempts are normal
         - a failed attempt is not a reason to stop
         - a series of failed attempts is not a reason to stop
@@ -1438,6 +1477,8 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - check `./bin/goal_status.sh` before deciding whether to stop
         - re-read `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` before any major strategy change and before any stop decision
         - measured status comes from `goal_status.json` and `GOAL_STATUS.md`, including the remaining time budget
+        - the harness enforces the corrected remaining budget; do not run past it
+        - if remaining time is close to zero and the target is still unresolved, call `./bin/complete_problem.sh --decision budget_exhausted` before the harness stops the run
         - do not call the search stalled while substantial budget remains unless you have already profiled a strong candidate, consulted `HARDWARE.md` and NVIDIA documentation, and then tried a new branch informed by that evidence
         - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.details.txt`, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch
         - treat shell networking as forbidden even if the launcher allows it for cluster compatibility
@@ -1476,6 +1517,7 @@ def _generate_initial_prompt(args: argparse.Namespace) -> str:
         Remaining budget is tracked in `GOAL_STATUS.md`; you are allowed to keep working autonomously for hours until the budget is genuinely exhausted. Prefer using the `runner` and `profiler` subagents to keep your own context clean during long searches.
         There is no human confirmation step during this run. Keep acting autonomously inside the budget, and keep re-reading `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` so the goal, hardware limits, and current status stay explicit.
         NEVER STOP EARLY. DO NOT ask whether you should continue. Continue working until you either beat both baselines or truthfully terminate through `./bin/complete_problem.sh`.
+        The harness enforces the corrected remaining budget. Do not let remaining time reach zero without first calling `./bin/complete_problem.sh --decision budget_exhausted` if the target is still unresolved.
 
         If you think you are stalled while substantial budget remains, first consult `HARDWARE.md`, then the linked NVIDIA docs, run `./bin/profile_ncu.sh` on a strong candidate, and try at least one new branch informed by that evidence. Only then may you consider `stalled`.
 

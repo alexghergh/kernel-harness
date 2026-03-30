@@ -126,6 +126,12 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 - added Codex trace capture:
   - raw `codex exec --json` output is stored per problem
   - a normalized `conversation.json` is derived for easier inspection
+- changed Codex runtime isolation:
+  - repo-local `.codex/` remains the canonical login/config source
+  - each problem launch now gets its own derived runtime `CODEX_HOME` under `.runtime/codex_home/...`
+- changed budget handling:
+  - remaining budget now excludes recorded GPU lock wait time from timing and profiling
+  - the launcher stops unresolved runs at the corrected budget limit and records `budget_exhausted`
 
 ### current limitations
 

@@ -31,6 +31,7 @@ The experiment root contains:
 Runtime-created directories will include:
 
 - `runs/<run_name>/...` for official-style evaluated kernel artifacts
+- `.runtime/codex_home/<run_name>/level_<level>/problem_<problem_id>/...` for isolated per-problem Codex runtime state
 - `.runtime/workspaces/<run_name>/level_<level>/problem_<problem_id>/...` by default for a single Codex session
 - `artifacts/<run_name>/...` for manifests, summaries, and profiler outputs
 - `build/<run_name>/...` for compilation/build cache outputs
@@ -85,6 +86,7 @@ Custom agents live in `.codex/agents/`:
 
 The main session remains the planner. The helper agents are narrow and summary-oriented.
 The planner is expected to use the full per-problem budget when needed, and should lean on subagents during long searches to keep its own context compact. Critical solver guidance now lives directly in the generated workspace docs rather than in any optional discovery layer.
+The launcher now treats the repo-local `.codex/` as the canonical login/config source and derives a fresh runtime `CODEX_HOME` per problem, so parallel planners do not share mutable Codex state.
 
 ## kernelbench integration boundary
 
@@ -196,6 +198,7 @@ Project-local artifacts:
 - workspace-local `SPEC.md` as the stable optimization target
 - workspace-local `HARDWARE.md` as the stable hardware reference derived from `GPU_NAME`
 - `goal_status.json` and `GOAL_STATUS.md` as measured status snapshots derived from artifacts, including current timing-call and profiler-call counts
+- corrected remaining budget computed from wall-clock elapsed time minus recorded GPU lock wait time
 - `history.jsonl` for terminal evaluated attempts, including failures
 - `sample_<id>.json` per-attempt manifests that are created before evaluation and finalized afterward
 - `candidate_model_new.py` as the only evaluated solution file
@@ -215,6 +218,7 @@ Project-local artifacts:
 `completion.json` also stores raw diagnostic outcome fields such as `raw_best_correct_runtime_ms`, `raw_beats_*`, and `outside_harness_success`. These are reference-only fields for later manual inspection; they do not override audit invalidation or harness success semantics.
 `conversation.json` stores a normalized aggregate trace plus an `audit` result. If the audit detects out-of-scope shell work, forbidden compiled-artifact inspection, or forbidden file changes, the run is invalidated and `completion.json` is rewritten to `decision = "harness_failure"`.
 The same completion-materialization path also enforces a simple stop-policy check: a solver-written `stalled` decision is invalidated if substantial budget remains and no profiler run was recorded.
+Separately, the launcher enforces the corrected budget directly: if remaining time reaches zero before Codex writes a completion artifact, the launcher terminates the Codex process and records `budget_exhausted`.
 
 The profiling wrapper now has a stricter contract than before: it must produce readable text exports from the Nsight Compute report, not just a binary report artifact. The solver is expected to read those text exports only.
 

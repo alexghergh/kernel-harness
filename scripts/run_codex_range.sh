@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
+RUN_STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+RUN_STARTED_EPOCH="$(date +%s)"
 
 if [[ -n "${PROBLEM_IDS:-}" ]]; then
   IFS=',' read -r -a PROBLEM_ID_LIST <<< "${PROBLEM_IDS}"
@@ -25,6 +27,23 @@ trim() {
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "${value}"
 }
+
+report_elapsed_time() {
+  local exit_code=$?
+  local finished_at elapsed hours minutes seconds
+
+  finished_at="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+  elapsed=$(( $(date +%s) - RUN_STARTED_EPOCH ))
+  hours=$(( elapsed / 3600 ))
+  minutes=$(( (elapsed % 3600) / 60 ))
+  seconds=$(( elapsed % 60 ))
+
+  echo "Range run ${RUN_NAME} finished at ${finished_at} with exit code ${exit_code} after ${hours}h ${minutes}m ${seconds}s" >&2
+}
+
+trap report_elapsed_time EXIT
+
+echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT} (level=${LEVEL}, problems=${#PROBLEM_ID_LIST[@]}, max_parallel_solvers=${MAX_PARALLEL_SOLVERS})" >&2
 
 active_jobs=0
 failures=0

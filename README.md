@@ -158,6 +158,7 @@ The default entrypoint is [run_codex_problem.sh](/home/alex/projects/uni-researc
 - checks login against the repo-local `.codex/`, then creates an isolated per-problem runtime `CODEX_HOME` under `.runtime/codex_home/...`
 - keeps the helper import path on the wrapper side instead of exposing the whole harness to the solver by default
 - enforces one active solver per `(run_name, level, problem_id)` with a per-problem session lock
+- enforces the corrected per-problem budget in the launcher and records `budget_exhausted` if Codex does not finish first
 - captures the raw `codex exec --json` event stream for the problem
 - launches `codex exec` on exactly that problem
 - grants Codex write access only to the runtime output directories it needs
@@ -183,6 +184,7 @@ TIME_BUDGET_MINUTES=720 \
 ```
 
 Default time budget is 12 hours per problem unless you override `TIME_BUDGET_MINUTES`.
+Recorded GPU lock wait is excluded from the remaining budget shown to the solver and from the launcher-side stop check.
 
 Keep `EAGER_BASELINE_FILE` and `COMPILE_BASELINE_FILE` exported for later single-problem and range invocations.
 

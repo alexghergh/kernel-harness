@@ -28,6 +28,22 @@ prepare_runtime_codex_home() {
   done
 }
 
+terminate_codex_pipeline() {
+  local parent_pid="$1"
+
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -TERM -P "${parent_pid}" 2>/dev/null || true
+  fi
+  kill -TERM "${parent_pid}" 2>/dev/null || true
+  sleep 5
+  if kill -0 "${parent_pid}" 2>/dev/null; then
+    if command -v pkill >/dev/null 2>&1; then
+      pkill -KILL -P "${parent_pid}" 2>/dev/null || true
+    fi
+    kill -KILL "${parent_pid}" 2>/dev/null || true
+  fi
+}
+
 RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
@@ -42,6 +58,7 @@ CODEX_SANDBOX_NETWORK_ACCESS="${CODEX_SANDBOX_NETWORK_ACCESS:-true}"
 KERNELBENCH_PYTHON="${KERNELBENCH_PYTHON:-${KERNELBENCH_ROOT:-}/.venv/bin/python}"
 EAGER_BASELINE_FILE="${EAGER_BASELINE_FILE:-}"
 COMPILE_BASELINE_FILE="${COMPILE_BASELINE_FILE:-}"
+BUDGET_POLL_SECONDS="${BUDGET_POLL_SECONDS:-30}"
 
 if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
   echo "KERNELBENCH_ROOT must point to the official KernelBench checkout." >&2
@@ -131,6 +148,7 @@ FINAL_MESSAGE_PATH="${CODEX_ARTIFACT_DIR}/final_message.txt"
 CONVERSATION_PATH="${CODEX_ARTIFACT_DIR}/conversation.json"
 COMPLETION_PATH="${CODEX_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
+BUDGET_EXHAUSTED_MARKER_PATH="${CODEX_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
 
 if ! CODEX_HOME="${CODEX_BASE_HOME}" codex login status >/dev/null 2>&1; then
   echo "Codex is not logged in for CODEX_HOME=${CODEX_BASE_HOME}." >&2
@@ -142,7 +160,7 @@ prepare_runtime_codex_home "${CODEX_BASE_HOME}" "${CODEX_RUNTIME_HOME}"
 export CODEX_HOME="${CODEX_RUNTIME_HOME}"
 
 echo "Launching Codex in ${WORKSPACE} with runtime CODEX_HOME=${CODEX_HOME}" >&2
-rm -f "${FINAL_MESSAGE_PATH}" "${CONVERSATION_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}"
+rm -f "${FINAL_MESSAGE_PATH}" "${CONVERSATION_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 CODEX_ARGS=(
   -a never
@@ -164,22 +182,99 @@ if [[ "${CODEX_SANDBOX_MODE}" == "workspace-write" ]]; then
   CODEX_ARGS+=(-c "sandbox_workspace_write.network_access=${CODEX_SANDBOX_NETWORK_ACCESS}")
 fi
 
-set +e
-codex "${CODEX_ARGS[@]}" \
-  --output-last-message "${FINAL_MESSAGE_PATH}" \
-  "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
-CODEX_EXIT=$?
-set -e
-
-if [[ ! -f "${COMPLETION_PATH}" ]]; then
-  PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli complete-problem \
+refresh_goal_status() {
+  PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli goal-status \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
-    --workspace "${WORKSPACE}" \
-    --decision failed_to_generate \
-    --summary "codex exited with code ${CODEX_EXIT} without writing completion.json" \
-    --allow-overwrite >/dev/null
+    --workspace "${WORKSPACE}" >/dev/null 2>&1
+}
+
+mark_budget_exhausted_if_needed() {
+  local status_path="${WORKSPACE}/goal_status.json"
+  local exhausted=""
+
+  refresh_goal_status || return 1
+  exhausted="$(
+    STATUS_PATH="${status_path}" "${KERNELBENCH_PYTHON}" -c '
+import json
+import os
+
+path = os.environ["STATUS_PATH"]
+payload = json.loads(open(path, "r", encoding="utf-8").read())
+remaining = payload.get("remaining_minutes")
+print("false" if remaining is None else ("true" if float(remaining) <= 0 else "false"))
+'
+  )"
+  if [[ "${exhausted}" == "true" ]]; then
+    cp -f "${status_path}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
+    return 0
+  fi
+  return 1
+}
+
+watch_budget_limit() {
+  local remaining=""
+  while kill -0 "${CODEX_PIPE_PID}" 2>/dev/null; do
+    if [[ -f "${COMPLETION_PATH}" ]]; then
+      return 0
+    fi
+    if mark_budget_exhausted_if_needed; then
+      remaining="$(
+        STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" "${KERNELBENCH_PYTHON}" -c '
+import json
+import os
+
+path = os.environ["STATUS_PATH"]
+payload = json.loads(open(path, "r", encoding="utf-8").read())
+remaining = payload.get("remaining_minutes")
+print("" if remaining is None else remaining)
+'
+      )"
+      echo "Budget exhausted for run=${RUN_NAME} level=${LEVEL} problem=${PROBLEM_ID} (remaining=${remaining}); stopping Codex." >&2
+      terminate_codex_pipeline "${CODEX_PIPE_PID}"
+      return 0
+    fi
+    sleep "${BUDGET_POLL_SECONDS}"
+  done
+}
+
+set +e
+(
+  codex "${CODEX_ARGS[@]}" \
+    --output-last-message "${FINAL_MESSAGE_PATH}" \
+    "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
+) &
+CODEX_PIPE_PID=$!
+watch_budget_limit &
+BUDGET_WATCH_PID=$!
+wait "${CODEX_PIPE_PID}"
+CODEX_EXIT=$?
+kill "${BUDGET_WATCH_PID}" 2>/dev/null || true
+wait "${BUDGET_WATCH_PID}" 2>/dev/null || true
+set -e
+
+if [[ ! -f "${COMPLETION_PATH}" ]]; then
+  mark_budget_exhausted_if_needed >/dev/null 2>&1 || true
+  if [[ -f "${BUDGET_EXHAUSTED_MARKER_PATH}" ]]; then
+    PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli complete-problem \
+      --run-name "${RUN_NAME}" \
+      --level "${LEVEL}" \
+      --problem-id "${PROBLEM_ID}" \
+      --workspace "${WORKSPACE}" \
+      --decision budget_exhausted \
+      --summary "launcher stopped Codex after the corrected remaining budget reached zero without a solver-written completion" \
+      --allow-overwrite >/dev/null
+  else
+    PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli complete-problem \
+      --run-name "${RUN_NAME}" \
+      --level "${LEVEL}" \
+      --problem-id "${PROBLEM_ID}" \
+      --workspace "${WORKSPACE}" \
+      --decision failed_to_generate \
+      --summary "codex exited with code ${CODEX_EXIT} without writing completion.json" \
+      --allow-overwrite >/dev/null
+  fi
 fi
 
 if ! PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli materialize-codex-trace \
