@@ -245,7 +245,7 @@ Possible small additions if needed:
 
 - `PyYAML` if YAML output materially improves compatibility
 
-Avoid for v1:
+Avoid for v2:
 
 - LangChain
 - Autogen

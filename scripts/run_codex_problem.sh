@@ -44,7 +44,7 @@ terminate_codex_pipeline() {
   fi
 }
 
-RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
+RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v2}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"

@@ -14,7 +14,7 @@ KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-/home/alexghergh/KernelBench}"
 PYENV_ENV="${PYENV_ENV:-kernelbench-3.10}"
 HARDWARE_NAME="${HARDWARE_NAME:-H100_tsubame}"
 
-RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
+RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v2}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_IDS="${PROBLEM_IDS:-}"
 START_PROBLEM_ID="${START_PROBLEM_ID:-1}"

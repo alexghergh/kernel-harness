@@ -17,7 +17,7 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 - initial direction changed from a Python-hosted API planner to a Codex-first harness
 - Codex CLI can authenticate with an OpenAI API key, so OpenAI API credits are sufficient
 - use `codex exec` first for reproducible runs
-- do not build a Python replacement for Codex planning in v1
+- do not build a Python replacement for Codex planning in v2
 
 ### codex behavior
 

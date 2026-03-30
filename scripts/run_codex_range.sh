@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v1}"
+RUN_NAME="${RUN_NAME:-kernelbench-codex-h100-v2}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 RUN_STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
