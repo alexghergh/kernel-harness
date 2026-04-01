@@ -24,6 +24,7 @@ rm -rf \
   "${PROJECT_ROOT}/artifacts/${RUN_NAME}" \
   "${PROJECT_ROOT}/build/${RUN_NAME}" \
   "${PROJECT_ROOT}/.runtime/codex_home/${SAFE_RUN_NAME}" \
+  "${PROJECT_ROOT}/.runtime/agent_home/${SAFE_RUN_NAME}" \
   "${WORKSPACE_ROOT}/${RUN_NAME}"
 
 rm -f \

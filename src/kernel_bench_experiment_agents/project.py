@@ -111,8 +111,8 @@ def artifact_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
-def artifact_codex_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return ensure_dir(artifact_problem_dir(run_name, level, problem_id) / "codex")
+def artifact_agent_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(artifact_problem_dir(run_name, level, problem_id) / "agent")
 
 
 def build_problem_dir(
@@ -142,12 +142,17 @@ def kernelbench_root(explicit: str | None = None) -> Path:
 
 
 def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
-    pattern = re.compile(
+    kernel_pattern = re.compile(
         rf"^level_{level}_problem_{problem_id}_sample_(\d+)_kernel\.py$"
     )
+    artifact_pattern = re.compile(r"^sample_(\d+)\.json$")
     max_sample = -1
     for child in run_dir(run_name).iterdir():
-        match = pattern.match(child.name)
+        match = kernel_pattern.match(child.name)
+        if match:
+            max_sample = max(max_sample, int(match.group(1)))
+    for child in artifact_problem_dir(run_name, level, problem_id).iterdir():
+        match = artifact_pattern.match(child.name)
         if match:
             max_sample = max(max_sample, int(match.group(1)))
     return max_sample + 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=kernelbench-codex
+#SBATCH --job-name=kernelbench-claude
 #YBATCH -r h100_1
 #SBATCH --gres=gpu:1
 #SBATCH --time=13:00:00
@@ -10,4 +10,4 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-TOOL=codex "${SCRIPT_DIR}/run_agent_problem.slurm.sh"
+TOOL=claude "${SCRIPT_DIR}/run_agent_problem.slurm.sh"

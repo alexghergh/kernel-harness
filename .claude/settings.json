@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "deny": [
+      "WebFetch",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sed:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(nl:*)",
+      "Bash(cp:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(ps:*)",
+      "Bash(pgrep:*)",
+      "Bash(top:*)",
+      "Bash(htop:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(strace:*)"
+    ]
+  }
+}

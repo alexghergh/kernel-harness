@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import math
 import json
 import re
@@ -21,7 +23,7 @@ from .hardware_catalog import render_hardware_markdown, resolve_hardware_spec
 from .kernelbench import evaluate_candidate, load_problem
 from .project import (
     append_jsonl,
-    artifact_codex_dir,
+    artifact_agent_dir,
     artifact_problem_dir,
     experiment_root,
     kernelbench_root,
@@ -34,6 +36,9 @@ from .project import (
     write_json,
     write_text,
 )
+
+TOOL_CHOICES = ("codex", "claude")
+_ALLOWED_WEB_SEARCH_HOSTS = ("docs.nvidia.com",)
 
 
 def _default_parser() -> argparse.ArgumentParser:
@@ -50,6 +55,7 @@ def _default_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--workspace-root", default=None)
     prepare.add_argument("--gpu-name", default="")
     prepare.add_argument("--num-gpus", type=int, default=1)
+    prepare.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
     prepare.add_argument("--model", default="gpt-5-codex")
     prepare.add_argument("--time-budget-minutes", type=int, default=720)
     prepare.add_argument("--eager-baseline-file", required=True)
@@ -123,11 +129,21 @@ def _default_parser() -> argparse.ArgumentParser:
     complete.add_argument("--summary", default="")
     complete.add_argument("--allow-overwrite", action="store_true")
 
-    trace = subparsers.add_parser("materialize-codex-trace")
+    trace = subparsers.add_parser("materialize-agent-trace")
+    trace.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
     trace.add_argument("--events-path", required=True)
     trace.add_argument("--output-path", required=True)
     trace.add_argument("--completion-path", default=None)
+    trace.add_argument("--final-message-path", default=None)
     trace.add_argument("--workspace", default=None)
+
+    legacy_trace = subparsers.add_parser("materialize-codex-trace")
+    legacy_trace.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
+    legacy_trace.add_argument("--events-path", required=True)
+    legacy_trace.add_argument("--output-path", required=True)
+    legacy_trace.add_argument("--completion-path", default=None)
+    legacy_trace.add_argument("--final-message-path", default=None)
+    legacy_trace.add_argument("--workspace", default=None)
 
     summary = subparsers.add_parser("summarize-run")
     summary.add_argument("--run-name", required=True)
@@ -155,6 +171,15 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_tool_name(raw: Any) -> str:
+    tool = str(raw or "codex").strip().lower()
+    if tool not in TOOL_CHOICES:
+        raise SystemExit(
+            f"Unsupported tool {tool!r}. Expected one of: {', '.join(TOOL_CHOICES)}."
+        )
+    return tool
 
 
 def _candidate_runtime(result: dict[str, Any]) -> float | None:
@@ -240,7 +265,7 @@ def _history_entries(path: Path) -> list[dict[str, Any]]:
 
 
 def _trace_events_path(run_name: str, level: int, problem_id: int) -> Path:
-    return artifact_codex_dir(run_name, level, problem_id) / "events.jsonl"
+    return artifact_agent_dir(run_name, level, problem_id) / "events.jsonl"
 
 
 def _load_trace_event_entries(
@@ -280,9 +305,95 @@ def _collect_urls(payload: Any, *, urls: set[str]) -> None:
             urls.add(match)
 
 
+def _claude_content_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("type") != "assistant":
+        return []
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict)]
+
+
+def _claude_tool_use_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        block
+        for block in _claude_content_blocks(payload)
+        if block.get("type") == "tool_use"
+    ]
+
+
+def _claude_tool_name(block: dict[str, Any]) -> str:
+    return str(block.get("name") or "").strip()
+
+
+def _claude_tool_input(block: dict[str, Any]) -> dict[str, Any]:
+    value = block.get("input")
+    return value if isinstance(value, dict) else {}
+
+
+def _claude_tool_command(block: dict[str, Any]) -> str | None:
+    tool_input = _claude_tool_input(block)
+    for key in ("command", "cmd", "shell_command"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _claude_tool_path(block: dict[str, Any]) -> str | None:
+    tool_input = _claude_tool_input(block)
+    for key in ("file_path", "path", "target_path"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _web_searches_from_entries(
     raw_event_entries: list[tuple[int, dict[str, Any]]],
+    *,
+    tool: str = "codex",
 ) -> list[dict[str, Any]]:
+    tool = _normalize_tool_name(tool)
+    if tool == "claude":
+        web_searches: list[dict[str, Any]] = []
+        for line_number, payload in raw_event_entries:
+            for block in _claude_tool_use_blocks(payload):
+                if _claude_tool_name(block).strip().lower() not in {
+                    "websearch",
+                    "web_search",
+                }:
+                    continue
+                tool_input = _claude_tool_input(block)
+                query = tool_input.get("query")
+                raw_queries = tool_input.get("queries")
+                queries = (
+                    [str(value) for value in raw_queries if value]
+                    if isinstance(raw_queries, list)
+                    else ([str(query)] if query else [])
+                )
+                urls: set[str] = set()
+                _collect_urls(block, urls=urls)
+                domains = sorted(
+                    {
+                        parsed.hostname
+                        for parsed in (urlparse(url) for url in urls)
+                        if parsed.hostname
+                    }
+                )
+                web_searches.append(
+                    {
+                        "line": line_number,
+                        "query": str(query) if query else None,
+                        "queries": queries,
+                        "domains": domains,
+                    }
+                )
+        return web_searches
+
     web_searches: list[dict[str, Any]] = []
     for line_number, payload in raw_event_entries:
         if payload.get("type") != "item.completed":
@@ -326,13 +437,16 @@ def _live_trace_counts_for_problem(
     run_name: str,
     level: int,
     problem_id: int,
+    *,
+    tool: str = "codex",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     _, raw_event_entries = _load_trace_event_entries(
         _trace_events_path(run_name, level, problem_id)
     )
-    return _trace_counts_from_entries(raw_event_entries), _web_searches_from_entries(
-        raw_event_entries
-    )
+    return _trace_counts_from_entries(
+        raw_event_entries,
+        tool=tool,
+    ), _web_searches_from_entries(raw_event_entries, tool=tool)
 
 
 def _write_workspace_sample_copy(
@@ -361,7 +475,14 @@ def _write_workspace_best_sample(
 
     official_kernel = payload.get("official_kernel_path")
     if isinstance(official_kernel, str):
-        write_text(best_sample_path, Path(official_kernel).read_text(encoding="utf-8"))
+        official_kernel_path = Path(official_kernel)
+        if official_kernel_path.exists():
+            write_text(
+                best_sample_path,
+                official_kernel_path.read_text(encoding="utf-8"),
+            )
+        elif best_sample_path.exists():
+            best_sample_path.unlink()
     elif best_sample_path.exists():
         best_sample_path.unlink()
     write_json(best_result_path, payload)
@@ -374,10 +495,147 @@ def _latest_workspace_profile_paths(workspace: Path) -> dict[str, Path]:
         "details_stderr": profiles_dir / "latest.details.stderr.txt",
         "raw_csv": profiles_dir / "latest.raw.csv",
         "raw_csv_stderr": profiles_dir / "latest.raw.stderr.txt",
+        "summary": profiles_dir / "latest.summary.txt",
         "stdout": profiles_dir / "latest.stdout.txt",
         "stderr": profiles_dir / "latest.stderr.txt",
         "json": profiles_dir / "latest.json",
     }
+
+
+def _allowed_workspace_read_paths(workspace: Path) -> set[Path]:
+    return {
+        (workspace / "AGENTS.md").resolve(),
+        (workspace / "SPEC.md").resolve(),
+        (workspace / "HARDWARE.md").resolve(),
+        (workspace / "GOAL_STATUS.md").resolve(),
+        (workspace / "goal_status.json").resolve(),
+        (workspace / "problem.json").resolve(),
+        (workspace / "problem_reference.py").resolve(),
+        (workspace / "baseline.json").resolve(),
+        _workspace_candidate_path(workspace).resolve(),
+    }
+
+
+def _allowed_workspace_read_roots(workspace: Path) -> tuple[Path, ...]:
+    return (
+        _workspace_samples_dir(workspace).resolve(),
+        _workspace_profiles_dir(workspace).resolve(),
+    )
+
+
+def _is_allowed_workspace_read(path: Path, workspace: Path) -> bool:
+    resolved = path.resolve()
+    if resolved in _allowed_workspace_read_paths(workspace):
+        return True
+    return any(
+        _is_relative_to(resolved, root)
+        for root in _allowed_workspace_read_roots(workspace)
+    )
+
+
+def _summarize_ncu_raw_csv(raw_csv_text: str) -> str:
+    rows = list(csv.DictReader(io.StringIO(raw_csv_text)))
+    if not rows:
+        return (
+            "NCU summary could not be generated because the raw CSV had no data rows.\n"
+            "Read profiles/latest.details.txt for the full text report.\n"
+        )
+
+    def score(row: dict[str, str]) -> int:
+        return sum(1 for value in row.values() if isinstance(value, str) and any(ch.isdigit() for ch in value))
+
+    row = max(rows, key=score)
+
+    def first_value(*keys: str) -> str | None:
+        for key in keys:
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    lines = [
+        "# NCU Summary",
+        "",
+        "Prefer this file first. Read `profiles/latest.details.txt` only when you need the full report.",
+        "",
+    ]
+
+    metric_groups = (
+        (
+            "Key performance metrics",
+            (
+                ("duration", "gpu__time_duration.sum"),
+                ("SM throughput", "sm__throughput.avg.pct_of_peak_sustained_elapsed"),
+                (
+                    "compute+memory throughput",
+                    "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed",
+                ),
+                ("registers per thread", "launch__registers_per_thread"),
+                ("achieved occupancy", "sm__warps_active.avg.pct_of_peak_sustained_active"),
+            ),
+        ),
+        (
+            "Memory and shared-memory indicators",
+            (
+                ("L1/TEX throughput", "l1tex__throughput.avg.pct_of_peak_sustained_active"),
+                ("L2 throughput", "lts__throughput.avg.pct_of_peak_sustained_active"),
+                ("DRAM throughput", "dram__throughput.avg.pct_of_peak_sustained_elapsed"),
+                ("shared-memory conflict n-way", "derived__memory_l1_conflicts_shared_nway"),
+                (
+                    "shared-memory excessive wavefronts",
+                    "derived__memory_l1_wavefronts_shared_excessive",
+                ),
+            ),
+        ),
+        (
+            "Occupancy limiters",
+            (
+                ("block limit by registers", "launch__occupancy_limit_registers"),
+                ("block limit by shared memory", "launch__occupancy_limit_shared_mem"),
+                ("block limit by warps", "launch__occupancy_limit_warps"),
+            ),
+        ),
+    )
+
+    for title, metrics in metric_groups:
+        lines.append(f"## {title}")
+        wrote_any = False
+        for label, key in metrics:
+            value = first_value(key)
+            if value is None:
+                continue
+            lines.append(f"- {label}: {value}")
+            wrote_any = True
+        if not wrote_any:
+            lines.append("- no values found in the exported raw CSV")
+        lines.append("")
+
+    stall_entries: list[tuple[str, float, str]] = []
+    for key, value in row.items():
+        if "smsp__average_warps_issue_stalled_" not in key:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            continue
+        numeric = _as_float(value)
+        if numeric is None or numeric <= 0:
+            continue
+        stall_name = key.split("stalled_", 1)[1].split("_per_", 1)[0]
+        stall_entries.append((stall_name, numeric, value.strip()))
+
+    lines.append("## Top warp stalls")
+    if stall_entries:
+        for stall_name, _, raw_value in sorted(stall_entries, key=lambda item: -item[1])[:8]:
+            lines.append(f"- {stall_name}: {raw_value}")
+    else:
+        lines.append("- no positive warp-stall metrics were found in the exported raw CSV")
+    lines.append("")
+
+    lines.append("## Next step")
+    lines.append(
+        "- Re-read `HARDWARE.md`, then use this summary plus `profiles/latest.details.txt` to pick the next branch."
+    )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _baseline_payload_for_problem(
@@ -483,6 +741,7 @@ def _goal_status_snapshot(
     workspace: Path,
 ) -> dict[str, Any]:
     metadata = _load_workspace_metadata(workspace)
+    tool = _normalize_tool_name(metadata.get("tool"))
     baseline = _load_workspace_baseline(workspace)
     history_path = artifact_problem_dir(run_name, level, problem_id) / "history.jsonl"
     entries = _history_entries(history_path)
@@ -491,6 +750,7 @@ def _goal_status_snapshot(
         run_name,
         level,
         problem_id,
+        tool=tool,
     )
 
     best_runtime_ms = None
@@ -540,6 +800,7 @@ def _goal_status_snapshot(
         "run_name": run_name,
         "level": level,
         "problem_id": problem_id,
+        "tool": tool,
         "problem_name": metadata.get("problem_name"),
         "time_budget_minutes": time_budget_minutes,
         "elapsed_minutes_wall_clock": elapsed_minutes_wall_clock,
@@ -624,35 +885,34 @@ def _goal_status_markdown(snapshot: dict[str, Any]) -> str:
     profiler_line = str(snapshot["num_profile_runs"])
     if unresolved and int(snapshot.get("num_profile_runs") or 0) < 1:
         profiler_line += " — you cannot declare stalled until you profile at least once"
-    return dedent(
-        f"""
-        {heading}
-
-        Standing orders (active until both baselines are beaten):
-
-        {chr(10).join(standing_orders)}
-
-        ## Current State
-
-        - problem: level {snapshot["level"]} problem {snapshot["problem_id"]} ({problem_name})
-        - best correct runtime: {best_runtime_line}
-        - beats eager ({eager_baseline} ms): {snapshot["beats_eager"]}
-        - beats compile ({compile_baseline} ms): {snapshot["beats_compile"]}
-        - beats both: {snapshot["beats_both"]}
-        - attempts: {snapshot["num_attempts"]} ({snapshot["num_correct_attempts"]} correct, {snapshot["num_failed_attempts"]} failed)
-        - timing calls: {snapshot["num_timing_runs"]}
-        - profiler calls: {profiler_line}
-        - best correct sample: {snapshot.get("best_correct_sample_id")}
-        - elapsed minutes counted against budget: {elapsed_minutes}
-        - gpu wait minutes excluded from budget: {gpu_wait_minutes_total}
-        - remaining minutes: {remaining_line}
-        - local sample history: `samples/`
-        - local best sample mirror: `samples/best_sample.py`
-        - latest profiler text outputs: `profiles/latest.details.txt` and `profiles/latest.raw.csv`
-
-        Source of truth: measured from run history plus the live Codex trace. Refresh via `./bin/goal_status.sh` or `./bin/run_candidate.sh`.
-        """
-    ).strip() + "\n"
+    lines = [
+        heading,
+        "",
+        "Standing orders (active until both baselines are beaten):",
+        "",
+        *standing_orders,
+        "",
+        "## Current State",
+        "",
+        f"- problem: level {snapshot['level']} problem {snapshot['problem_id']} ({problem_name})",
+        f"- best correct runtime: {best_runtime_line}",
+        f"- beats eager ({eager_baseline} ms): {snapshot['beats_eager']}",
+        f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
+        f"- beats both: {snapshot['beats_both']}",
+        f"- attempts: {snapshot['num_attempts']} ({snapshot['num_correct_attempts']} correct, {snapshot['num_failed_attempts']} failed)",
+        f"- timing calls: {snapshot['num_timing_runs']}",
+        f"- profiler calls: {profiler_line}",
+        f"- best correct sample: {snapshot.get('best_correct_sample_id')}",
+        f"- elapsed minutes counted against budget: {elapsed_minutes}",
+        f"- gpu wait minutes excluded from budget: {gpu_wait_minutes_total}",
+        f"- remaining minutes: {remaining_line}",
+        "- local sample history: `samples/`",
+        "- local best sample mirror: `samples/best_sample.py`",
+        "- latest profiler files: `profiles/latest.summary.txt`, `profiles/latest.details.txt`, and `profiles/latest.raw.csv`",
+        "",
+        "Source of truth: measured from run history plus the live solver trace. Refresh via `./bin/goal_status.sh` or `./bin/run_candidate.sh`.",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _write_goal_status_files(
@@ -677,7 +937,7 @@ def _write_goal_status_files(
     write_json(workspace / "goal_status.json", snapshot)
     write_text(workspace / "GOAL_STATUS.md", _goal_status_markdown(snapshot))
     write_json(
-        artifact_codex_dir(run_name, level, problem_id) / "goal_status.json",
+        artifact_agent_dir(run_name, level, problem_id) / "goal_status.json",
         snapshot,
     )
     return snapshot
@@ -705,6 +965,8 @@ def _workspace_spec_markdown(
         - you succeed only when your best correct runtime is below BOTH numbers
         - optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}`
         - the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; vendor-library wrappers, Triton, and ATen compute helpers are forbidden
+        - correctness and runtime are evaluated on the harness `fp32` path
+        - internal mixed-precision math is allowed if the final outputs still pass that `fp32` correctness check
 
         ## Stopping Rules
 
@@ -741,7 +1003,7 @@ def _workspace_spec_markdown(
         - a failed attempt is not a reason to stop
         - a series of failed attempts is not a reason to stop
         - there is no human confirmation step during this run
-        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.details.txt`, re-read `samples/`, revisit NVIDIA docs, combine near-misses, or try a more radical branch
+        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read `samples/`, revisit NVIDIA docs, combine near-misses, or try a more radical branch
 
         ## Reference
 
@@ -790,7 +1052,45 @@ def _collect_text_fragments(payload: Any, fragments: list[str], limit: int = 6) 
             _collect_text_fragments(value, fragments, limit=limit)
 
 
-def _extract_trace_line(payload: dict[str, Any], line_number: int) -> dict[str, Any]:
+def _extract_trace_line(
+    payload: dict[str, Any],
+    line_number: int,
+    *,
+    tool: str = "codex",
+) -> dict[str, Any]:
+    tool = _normalize_tool_name(tool)
+    if tool == "claude":
+        blocks = _claude_content_blocks(payload)
+        command = None
+        tool_name = None
+        for block in _claude_tool_use_blocks(payload):
+            tool_name = _claude_tool_name(block) or tool_name
+            command = _claude_tool_command(block) or command
+        fragments: list[str] = []
+        _collect_text_fragments(payload, fragments)
+        excerpt = " ".join(fragment.replace("\n", " ") for fragment in fragments).strip()
+        if len(excerpt) > 400:
+            excerpt = excerpt[:397] + "..."
+        serialized = json.dumps(payload, sort_keys=True)
+        event_type = str(payload.get("type") or "unknown")
+        if payload.get("subtype"):
+            event_type = f"{event_type}:{payload.get('subtype')}"
+        role = None
+        if payload.get("type") == "assistant":
+            role = "assistant"
+        elif payload.get("type") == "user":
+            role = "user"
+        return {
+            "line": line_number,
+            "event_type": event_type,
+            "role": role,
+            "tool_name": tool_name,
+            "command": command[:400] if isinstance(command, str) else None,
+            "text": excerpt or None,
+            "sample_refs": sorted(set(re.findall(r"sample_(\d+)", serialized))),
+            "tool_blocks": len(blocks),
+        }
+
     event_type = (
         _find_first_value(payload, {"type", "event", "kind", "event_type"})
         or "unknown"
@@ -818,7 +1118,12 @@ def _extract_trace_line(payload: dict[str, Any], line_number: int) -> dict[str, 
     }
 
 
-def _trace_usage_summary(raw_events: list[dict[str, Any]]) -> dict[str, Any]:
+def _trace_usage_summary(
+    raw_events: list[dict[str, Any]],
+    *,
+    tool: str = "codex",
+) -> dict[str, Any]:
+    tool = _normalize_tool_name(tool)
     summary = {
         "turns_completed": 0,
         "input_tokens": 0,
@@ -826,6 +1131,55 @@ def _trace_usage_summary(raw_events: list[dict[str, Any]]) -> dict[str, Any]:
         "output_tokens": 0,
         "uncached_input_tokens": 0,
     }
+
+    if tool == "claude":
+        result_usage = None
+        result_turns = 0
+        for payload in raw_events:
+            if payload.get("type") != "result":
+                continue
+            usage = payload.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            result_usage = usage
+            result_turns = max(result_turns, int(_as_float(payload.get("num_turns")) or 0))
+
+        if isinstance(result_usage, dict):
+            summary["turns_completed"] = result_turns or 1
+            summary["input_tokens"] = int(_as_float(result_usage.get("input_tokens")) or 0)
+            summary["cached_input_tokens"] = int(
+                _as_float(result_usage.get("cache_read_input_tokens")) or 0
+            )
+            summary["output_tokens"] = int(
+                _as_float(result_usage.get("output_tokens")) or 0
+            )
+            summary["uncached_input_tokens"] = max(
+                summary["input_tokens"] - summary["cached_input_tokens"],
+                0,
+            )
+            return summary
+
+        for payload in raw_events:
+            if payload.get("type") != "assistant":
+                continue
+            message = payload.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            summary["turns_completed"] += 1
+            summary["input_tokens"] += int(_as_float(usage.get("input_tokens")) or 0)
+            summary["cached_input_tokens"] += int(
+                _as_float(usage.get("cache_read_input_tokens")) or 0
+            )
+            summary["output_tokens"] += int(_as_float(usage.get("output_tokens")) or 0)
+
+        summary["uncached_input_tokens"] = max(
+            summary["input_tokens"] - summary["cached_input_tokens"],
+            0,
+        )
+        return summary
 
     for payload in raw_events:
         if payload.get("type") != "turn.completed":
@@ -908,6 +1262,8 @@ _WORKSPACE_WRAPPER_NAMES = {
     "./bin/complete_problem.sh": "complete_problem_calls",
 }
 
+_CLAUDE_ALLOWED_BASH_PREFIXES = tuple(_WORKSPACE_WRAPPER_NAMES)
+
 
 def _is_relative_to(path: Path, root: Path) -> bool:
     try:
@@ -984,9 +1340,69 @@ def _empty_trace_counts() -> dict[str, Any]:
 
 def _trace_counts_from_entries(
     raw_event_entries: list[tuple[int, dict[str, Any]]],
+    *,
+    tool: str = "codex",
 ) -> dict[str, Any]:
+    tool = _normalize_tool_name(tool)
     counts = _empty_trace_counts()
     spawned_threads: set[str] = set()
+
+    if tool == "claude":
+        explicit_web_search_calls = 0
+        for _, payload in raw_event_entries:
+            for block in _claude_tool_use_blocks(payload):
+                tool_name = _claude_tool_name(block).strip().lower()
+                if tool_name == "bash":
+                    command = _claude_tool_command(block)
+                    if not isinstance(command, str):
+                        continue
+                    counts["command_executions"] += 1
+                    snippet = command.strip()
+                    cd_parts = _split_leading_cd(snippet)
+                    effective_snippet = (cd_parts[1] if cd_parts else snippet).strip()
+                    for prefix, key in _WORKSPACE_WRAPPER_NAMES.items():
+                        if effective_snippet.startswith(prefix):
+                            counts[key] += 1
+                            counts["wrapper_commands"] += 1
+                            if prefix in _GPU_WRAPPER_PREFIXES:
+                                counts["gpu_wrapper_commands"] += 1
+                            break
+                    continue
+
+                if tool_name in {"edit", "multiedit", "write"}:
+                    counts["file_change_events"] += 1
+                    continue
+
+                if tool_name in {"websearch", "web_search"}:
+                    explicit_web_search_calls += 1
+                    continue
+
+                if tool_name in {"task", "subagent", "agent"}:
+                    counts["spawn_agent_calls"] += 1
+                    counts["subagents_spawned"] += 1
+                    continue
+
+        usage_web_search_calls = 0
+        for _, payload in raw_event_entries:
+            if payload.get("type") != "result":
+                continue
+            usage = payload.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            server_tool_use = usage.get("server_tool_use")
+            if not isinstance(server_tool_use, dict):
+                continue
+            usage_web_search_calls = max(
+                usage_web_search_calls,
+                int(_as_float(server_tool_use.get("web_search_requests")) or 0),
+            )
+
+        counts["web_search_calls"] = max(
+            explicit_web_search_calls,
+            usage_web_search_calls,
+        )
+
+        return counts
 
     for _, payload in raw_event_entries:
         if payload.get("type") != "item.completed":
@@ -1051,13 +1467,193 @@ def _audit_trace(
     *,
     raw_event_entries: list[tuple[int, dict[str, Any]]],
     workspace: Path,
+    tool: str = "codex",
 ) -> dict[str, Any]:
+    tool = _normalize_tool_name(tool)
     workspace = workspace.resolve()
     allowed_edit_paths = {
         (workspace / CANDIDATE_FILENAME).resolve(),
     }
+    allowed_read_paths = _allowed_workspace_read_paths(workspace)
     violations: list[dict[str, Any]] = []
-    trace_counts = _trace_counts_from_entries(raw_event_entries)
+    trace_counts = _trace_counts_from_entries(raw_event_entries, tool=tool)
+    web_searches = _web_searches_from_entries(raw_event_entries, tool=tool)
+
+    if tool == "claude":
+        for search in web_searches:
+            domains = [
+                str(domain).strip().lower()
+                for domain in search.get("domains", [])
+                if isinstance(domain, str) and domain.strip()
+            ]
+            disallowed_domains = [
+                domain
+                for domain in domains
+                if not any(
+                    domain == allowed or domain.endswith(f".{allowed}")
+                    for allowed in _ALLOWED_WEB_SEARCH_HOSTS
+                )
+            ]
+            if disallowed_domains:
+                violations.append(
+                    {
+                        "line": search["line"],
+                        "kind": "web_search_outside_allowed_domains",
+                        "domains": disallowed_domains,
+                        "message": "web search touched domains outside the allowed NVIDIA docs scope",
+                    }
+                )
+
+    if tool == "claude":
+        for line_number, payload in raw_event_entries:
+            for block in _claude_tool_use_blocks(payload):
+                tool_name = _claude_tool_name(block).strip().lower()
+                if tool_name == "read":
+                    raw_path = _claude_tool_path(block)
+                    if not isinstance(raw_path, str) or not raw_path.strip():
+                        continue
+                    read_path = Path(raw_path).expanduser()
+                    if not read_path.is_absolute():
+                        read_path = workspace / read_path
+                    read_path = read_path.resolve()
+                    if read_path in allowed_read_paths or _is_allowed_workspace_read(
+                        read_path, workspace
+                    ):
+                        continue
+                    violations.append(
+                        {
+                            "line": line_number,
+                            "kind": "read_outside_allowed_set",
+                            "path": raw_path,
+                            "message": "file read touched a path outside the allowed workspace reading set",
+                        }
+                    )
+                    continue
+
+                if tool_name == "bash":
+                    command = _claude_tool_command(block)
+                    if not isinstance(command, str) or not command.strip():
+                        violations.append(
+                            {
+                                "line": line_number,
+                                "kind": "empty_command",
+                                "command": None,
+                                "message": "command execution was empty",
+                            }
+                        )
+                        continue
+
+                    snippet, outside_workspace_message = _normalize_workspace_snippet(
+                        command.strip(),
+                        workspace,
+                    )
+                    if outside_workspace_message is not None:
+                        violations.append(
+                            {
+                                "line": line_number,
+                                "kind": "command_outside_workspace",
+                                "command": command[:400],
+                                "message": outside_workspace_message,
+                            }
+                        )
+                        continue
+
+                    lowered_snippet = snippet.lower().strip()
+                    if any(
+                        lowered_snippet == prefix
+                        or lowered_snippet.startswith(prefix + " ")
+                        for prefix in _FORBIDDEN_MONITORING_PREFIXES
+                    ) or any(
+                        marker in lowered_snippet for marker in _FORBIDDEN_MONITORING_MARKERS
+                    ):
+                        violations.append(
+                            {
+                                "line": line_number,
+                                "kind": "forbidden_system_monitoring",
+                                "command": command[:400],
+                                "message": "system monitoring commands are forbidden; trust the local wrappers instead",
+                            }
+                        )
+                        continue
+
+                    if not snippet.startswith(_CLAUDE_ALLOWED_BASH_PREFIXES):
+                        violations.append(
+                            {
+                                "line": line_number,
+                                "kind": "command_not_allowed",
+                                "command": command[:400],
+                                "message": "Claude Bash must be limited to the local ./bin/*.sh wrapper commands; use the Read tool for allowed files",
+                            }
+                        )
+                        continue
+
+                    forbidden_hit = False
+                    for marker in _FORBIDDEN_INSPECTION_MARKERS:
+                        if marker in lowered_snippet:
+                            violations.append(
+                                {
+                                    "line": line_number,
+                                    "kind": "forbidden_compiled_artifact_inspection",
+                                    "command": command[:400],
+                                    "message": "command inspected compiled PTX, Triton, Inductor, or similar generated artifacts",
+                                }
+                            )
+                            forbidden_hit = True
+                            break
+                    if forbidden_hit:
+                        continue
+
+                    for match in re.findall(
+                        r"(?<![A-Za-z0-9._-])(/[A-Za-z0-9._~/-]+)",
+                        snippet,
+                    ):
+                        absolute = Path(match)
+                        if not _is_relative_to(absolute, workspace):
+                            violations.append(
+                                {
+                                    "line": line_number,
+                                    "kind": "absolute_path_escape",
+                                    "command": command[:400],
+                                    "message": f"command referenced absolute path outside workspace: {match}",
+                                }
+                            )
+                            break
+                    continue
+
+                if tool_name in {"edit", "multiedit", "write"}:
+                    raw_path = _claude_tool_path(block)
+                    if not isinstance(raw_path, str):
+                        continue
+                    changed_path = Path(raw_path).expanduser()
+                    if not changed_path.is_absolute():
+                        changed_path = workspace / changed_path
+                    changed_path = changed_path.resolve()
+                    if changed_path not in allowed_edit_paths:
+                        violations.append(
+                            {
+                                "line": line_number,
+                                "kind": "file_change_outside_allowed_set",
+                                "path": raw_path,
+                                "message": "file change touched a path outside candidate_model_new.py",
+                            }
+                        )
+
+        summary = (
+            "trace stayed within the enforced workspace command and file-change contract"
+            if not violations
+            else violations[0]["message"]
+        )
+        return {
+            "valid": not violations,
+            "summary": summary,
+            "num_violations": len(violations),
+            "command_count": trace_counts["command_executions"],
+            "file_change_count": trace_counts["file_change_events"],
+            "wrapper_commands": trace_counts["wrapper_commands"],
+            "gpu_wrapper_commands": trace_counts["gpu_wrapper_commands"],
+            "trace_counts": trace_counts,
+            "violations": violations,
+        }
 
     for line_number, payload in raw_event_entries:
         if payload.get("type") != "item.completed":
@@ -1388,6 +1984,7 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - stay inside this workspace
         - read `SPEC.md` and `HARDWARE.md` first, then keep referring back to them so the goal does not drift
         - the project goal is narrow: test whether raw custom CUDA code, without vendor-library wrappers or ATen compute helpers, can beat optimized PyTorch baselines
+        - the harness evaluates the problem in `fp32`; optimize for that judged path
         - do not inspect unrelated problems
         - do not inspect maintainer docs in the repository unless explicitly asked
         - do not inspect harness source code, wrapper scripts, or repository internals to reverse-engineer the evaluator
@@ -1415,7 +2012,7 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - `stalled`
         - `harness_failure`
 
-        `failed_to_generate` is reserved for the launcher if Codex exits without writing completion.
+        `failed_to_generate` is reserved for the launcher if the agent exits without writing completion.
 
         Allowed reads:
 
@@ -1423,6 +2020,7 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - `SPEC.md`
         - `HARDWARE.md`
         - `GOAL_STATUS.md`
+        - `goal_status.json`
         - `problem.json`
         - `problem_reference.py`
         - `{CANDIDATE_FILENAME}`
@@ -1467,7 +2065,7 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - do not use `python -c`, heredoc Python, or `git diff` as a substitute for reading files or testing ideas
         - do not read or import `kernel_bench_experiment_agents`, `kernelbench`, or other repository code to infer hidden evaluator details
         - do not inspect `bin/*.sh`; execute the local commands directly instead
-        - after `./bin/profile_ncu.sh`, read `profiles/latest.details.txt` and `profiles/latest.raw.csv`; do not inspect artifact-tree profiler outputs or binary report files
+        - after `./bin/profile_ncu.sh`, read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` or `profiles/latest.raw.csv` only if needed; do not inspect artifact-tree profiler outputs, binary report files, or parse profiler files with ad hoc shell/Python commands
         - do not ask the user what to do next during the run
         - do not stop, hand control back, or declare completion early
         - do not end the run with a plain assistant message; plain summaries are not terminal actions
@@ -1480,10 +2078,11 @@ def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
         - the harness enforces the corrected remaining budget; do not run past it
         - if remaining time is close to zero and the target is still unresolved, call `./bin/complete_problem.sh --decision budget_exhausted` before the harness stops the run
         - do not call the search stalled while substantial budget remains unless you have already profiled a strong candidate, consulted `HARDWARE.md` and NVIDIA documentation, and then tried a new branch informed by that evidence
-        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.details.txt`, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch
+        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch
         - treat shell networking as forbidden even if the launcher allows it for cluster compatibility
         - every measured attempt is mirrored into `samples/sample_<id>.py`; use those workspace-local copies instead of inspecting `runs/`
         - `{CANDIDATE_FILENAME}` must define `ModelNew` and raw custom CUDA/C++ extension code only
+        - internal mixed-precision math is allowed if the candidate still passes the harness `fp32` correctness checks
         - minimal extension glue is allowed, but ATen compute helpers and native ops are out of scope
         - do not redefine `Model`, `get_inputs`, or `get_init_inputs`
         - do not use `torch.compile`, Triton, environment-variable changes, torch backend flags, pure PyTorch matmul shortcuts, `register_buffer`, output-buffer reuse tricks, cuBLAS, cuBLASLt, CUTLASS, or ATen compute wrappers
@@ -1513,6 +2112,7 @@ def _generate_initial_prompt(args: argparse.Namespace) -> str:
         - `{CANDIDATE_FILENAME}`
 
         The experiment target is strict: raw custom CUDA code only, with minimal Python/C++ extension glue as needed, but no vendor-library wrappers such as cuBLAS, cuBLASLt, CUTLASS, Triton, or ATen compute helpers.
+        The harness evaluates correctness and runtime on the `fp32` path. Internal mixed-precision math is allowed if the final outputs still pass that `fp32` correctness check.
 
         Remaining budget is tracked in `GOAL_STATUS.md`; you are allowed to keep working autonomously for hours until the budget is genuinely exhausted. Prefer using the `runner` and `profiler` subagents to keep your own context clean during long searches.
         There is no human confirmation step during this run. Keep acting autonomously inside the budget, and keep re-reading `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` so the goal, hardware limits, and current status stay explicit.
@@ -1523,9 +2123,9 @@ def _generate_initial_prompt(args: argparse.Namespace) -> str:
 
         Large micro-searches are expected when needed. You are allowed to spend tens or hundreds of timing runs exploring tile sizes, stage counts, vector widths, warp layouts, or launch shapes, as long as every measured attempt goes through the local wrappers. Timing and profiling are normal tools, not expensive last resorts.
 
-        If you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.details.txt`, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch.
+        If you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch.
 
-        Only edit `{CANDIDATE_FILENAME}` for the solution, and only inside its marked editable blocks. Do not inspect harness internals. Do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas. Use the local `./bin/*.sh` commands exactly as provided, avoid shell-network commands entirely, do not run ad hoc GPU experiments outside the wrappers, do not use Python snippets or `git diff` for quick checks, do not run `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, inspect `/proc`, or inspect build directories to monitor wrapper progress, and do not finish without `./bin/complete_problem.sh`. After profiling, read only `profiles/latest.details.txt` and `profiles/latest.raw.csv`. Revisit prior measured attempts through `samples/sample_<id>.py` or `samples/best_sample.py`, never through `runs/`. Do not end with a plain assistant summary. Valid solver-written completion decisions are `beats_both_baselines`, `beats_eager_only`, `beats_compile_only`, `budget_exhausted`, `stalled`, and `harness_failure`.
+        Only edit `{CANDIDATE_FILENAME}` for the solution, and only inside its marked editable blocks. Do not inspect harness internals. Do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas. Use the local `./bin/*.sh` commands exactly as provided, avoid shell-network commands entirely, do not run ad hoc GPU experiments outside the wrappers, do not use Python snippets or `git diff` for quick checks, do not run `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, inspect `/proc`, inspect build directories, or use ad hoc shell parsing commands to monitor wrapper progress or mine profiler outputs, and do not finish without `./bin/complete_problem.sh`. After profiling, read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` or `profiles/latest.raw.csv` only if needed. Revisit prior measured attempts through `samples/sample_<id>.py` or `samples/best_sample.py`, never through `runs/`. Do not end with a plain assistant summary. Valid solver-written completion decisions are `beats_both_baselines`, `beats_eager_only`, `beats_compile_only`, `budget_exhausted`, `stalled`, and `harness_failure`.
         """
     ).strip() + "\n"
 
@@ -1631,7 +2231,7 @@ def _generate_profile_wrapper(
           --workspace "${{WORKSPACE}}" \\
 {kb_arg}          --num-gpu-slots {num_gpus} \\
           "$@"
-        echo ">>> Read profiles/latest.details.txt and profiles/latest.raw.csv, then re-read HARDWARE.md and GOAL_STATUS.md."
+        echo ">>> Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed. Re-read HARDWARE.md and GOAL_STATUS.md."
         echo ">>> Trust the wrapper result. Do not monitor progress with ps, pgrep, nvidia-smi, strace, /proc, or build-tree inspection."
         """
     )
@@ -1779,6 +2379,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         "run_name": args.run_name,
         "level": args.level,
         "problem_id": args.problem_id,
+        "tool": _normalize_tool_name(args.tool),
         "dataset_src": args.dataset_src,
         "problem_name": problem.name,
         "problem_path": problem.path,
@@ -1896,8 +2497,8 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
             "prompt": str(paths["workspace"] / "INITIAL_PROMPT.md"),
             "candidate": str(_workspace_candidate_path(paths["workspace"])),
             "goal_status": str(paths["workspace"] / "goal_status.json"),
-            "codex_artifact_dir": str(
-                artifact_codex_dir(args.run_name, args.level, args.problem_id)
+            "agent_artifact_dir": str(
+                artifact_agent_dir(args.run_name, args.level, args.problem_id)
             ),
             "status_snapshot": status_snapshot,
         }
@@ -2114,6 +2715,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     details_stderr_path = report_prefix.with_suffix(".details.stderr.txt")
     raw_csv_path = report_prefix.with_suffix(".raw.csv")
     raw_csv_stderr_path = report_prefix.with_suffix(".raw.stderr.txt")
+    summary_path = report_prefix.with_suffix(".summary.txt")
 
     with lease_gpu_slot(
         num_slots=args.num_gpu_slots,
@@ -2176,6 +2778,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     raw_csv_completed = _run_subprocess_capture(raw_csv_command)
     write_text(raw_csv_path, raw_csv_completed.stdout)
     write_text(raw_csv_stderr_path, raw_csv_completed.stderr)
+    summary_text = _summarize_ncu_raw_csv(raw_csv_completed.stdout)
+    write_text(summary_path, summary_text)
 
     payload = {
         "timestamp": now_iso(),
@@ -2189,6 +2793,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         "details_stderr_path": str(details_stderr_path),
         "raw_csv_path": str(raw_csv_path),
         "raw_csv_stderr_path": str(raw_csv_stderr_path),
+        "summary_path": str(summary_path),
         "stdout_path": str(stdout_path),
         "stderr_path": str(stderr_path),
         "returncode": completed.returncode,
@@ -2211,6 +2816,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "details_stderr_path": profile_base.with_suffix(".details.stderr.txt"),
             "raw_csv_path": profile_base.with_suffix(".raw.csv"),
             "raw_csv_stderr_path": profile_base.with_suffix(".raw.stderr.txt"),
+            "summary_path": profile_base.with_suffix(".summary.txt"),
             "stdout_path": profile_base.with_suffix(".stdout.txt"),
             "stderr_path": profile_base.with_suffix(".stderr.txt"),
             "json_path": profile_base.with_suffix(".json"),
@@ -2221,6 +2827,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         write_text(local_paths["details_stderr_path"], details_completed.stderr)
         write_text(local_paths["raw_csv_path"], raw_csv_completed.stdout)
         write_text(local_paths["raw_csv_stderr_path"], raw_csv_completed.stderr)
+        write_text(local_paths["summary_path"], summary_text)
         write_text(local_paths["stdout_path"], completed.stdout)
         write_text(local_paths["stderr_path"], completed.stderr)
         for key, latest_path in latest_paths.items():
@@ -2239,10 +2846,12 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "candidate_path": _workspace_relpath(candidate_path, workspace),
             "details_path": _workspace_relpath(latest_paths["details"], workspace),
             "raw_csv_path": _workspace_relpath(latest_paths["raw_csv"], workspace),
+            "summary_path": _workspace_relpath(latest_paths["summary"], workspace),
             "stdout_path": _workspace_relpath(latest_paths["stdout"], workspace),
             "stderr_path": _workspace_relpath(latest_paths["stderr"], workspace),
             "profile_details_path": _workspace_relpath(local_paths["details_path"], workspace),
             "profile_raw_csv_path": _workspace_relpath(local_paths["raw_csv_path"], workspace),
+            "profile_summary_path": _workspace_relpath(local_paths["summary_path"], workspace),
             "profile_stdout_path": _workspace_relpath(local_paths["stdout_path"], workspace),
             "profile_stderr_path": _workspace_relpath(local_paths["stderr_path"], workspace),
             "returncode": completed.returncode,
@@ -2305,8 +2914,10 @@ def command_goal_status(args: argparse.Namespace) -> None:
 
 def command_complete_problem(args: argparse.Namespace) -> None:
     workspace = _workspace_path(args.workspace)
-    codex_dir = artifact_codex_dir(args.run_name, args.level, args.problem_id)
-    completion_path = codex_dir / "completion.json"
+    metadata = _load_workspace_metadata(workspace)
+    tool = _normalize_tool_name(metadata.get("tool"))
+    agent_dir = artifact_agent_dir(args.run_name, args.level, args.problem_id)
+    completion_path = agent_dir / "completion.json"
     if completion_path.exists() and not args.allow_overwrite:
         raise SystemExit(
             f"Completion already exists at {completion_path}. Use --allow-overwrite to replace it."
@@ -2346,6 +2957,7 @@ def command_complete_problem(args: argparse.Namespace) -> None:
         "run_name": args.run_name,
         "level": args.level,
         "problem_id": args.problem_id,
+        "tool": tool,
         "decision": args.decision,
         "success": args.decision == "beats_both_baselines",
         "summary": args.summary,
@@ -2357,7 +2969,43 @@ def command_complete_problem(args: argparse.Namespace) -> None:
     _emit(payload)
 
 
-def command_materialize_codex_trace(args: argparse.Namespace) -> None:
+def _write_final_message(
+    *,
+    output_path: Path,
+    tool: str,
+    raw_events: list[dict[str, Any]],
+) -> None:
+    tool = _normalize_tool_name(tool)
+    final_text = None
+    if tool == "claude":
+        for payload in reversed(raw_events):
+            if payload.get("type") != "assistant":
+                continue
+            message = payload.get("message")
+            if not isinstance(message, dict):
+                continue
+            fragments = [
+                str(block.get("text")).strip()
+                for block in _claude_content_blocks(payload)
+                if block.get("type") == "text" and isinstance(block.get("text"), str)
+            ]
+            final_text = "\n\n".join(fragment for fragment in fragments if fragment)
+            if final_text:
+                break
+    else:
+        for payload in reversed(raw_events):
+            fragments: list[str] = []
+            _collect_text_fragments(payload, fragments)
+            final_text = "\n\n".join(fragment for fragment in fragments if fragment)
+            if final_text:
+                break
+
+    if final_text:
+        write_text(output_path, final_text.strip() + "\n")
+
+
+def command_materialize_agent_trace(args: argparse.Namespace) -> None:
+    tool = _normalize_tool_name(args.tool)
     events_path = Path(args.events_path).expanduser().resolve()
     output_path = Path(args.output_path).expanduser().resolve()
     events: list[dict[str, Any]] = []
@@ -2385,18 +3033,20 @@ def command_materialize_codex_trace(args: argparse.Namespace) -> None:
                     }
                 )
                 continue
-            events.append(_extract_trace_line(payload, line_count))
+            events.append(_extract_trace_line(payload, line_count, tool=tool))
 
-    token_usage = _trace_usage_summary(raw_events)
-    trace_counts = _trace_counts_from_entries(raw_event_entries)
-    web_searches = _web_searches_from_entries(raw_event_entries)
+    token_usage = _trace_usage_summary(raw_events, tool=tool)
+    trace_counts = _trace_counts_from_entries(raw_event_entries, tool=tool)
+    web_searches = _web_searches_from_entries(raw_event_entries, tool=tool)
     audit = None
     if args.workspace:
         audit = _audit_trace(
             raw_event_entries=raw_event_entries,
             workspace=Path(args.workspace).expanduser().resolve(),
+            tool=tool,
         )
     payload = {
+        "tool": tool,
         "source_events_path": str(events_path),
         "generated_at": now_iso(),
         "num_events": len(events),
@@ -2407,10 +3057,17 @@ def command_materialize_codex_trace(args: argparse.Namespace) -> None:
         "events": events,
     }
     write_json(output_path, payload)
+    if args.final_message_path:
+        _write_final_message(
+            output_path=Path(args.final_message_path).expanduser().resolve(),
+            tool=tool,
+            raw_events=raw_events,
+        )
     if args.completion_path:
         completion_path = Path(args.completion_path).expanduser().resolve()
         if completion_path.exists():
             completion_payload = _read_json(completion_path)
+            completion_payload["tool"] = tool
             completion_payload["token_usage"] = token_usage
             completion_payload["trace_counts"] = trace_counts
             completion_payload["web_searches"] = web_searches
@@ -2514,7 +3171,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                     samples.append(sample)
 
             completion_payload = None
-            completion_path = problem_dir / "codex" / "completion.json"
+            completion_path = problem_dir / "agent" / "completion.json"
             if completion_path.exists():
                 completion_payload = _read_json(completion_path)
 
@@ -2659,6 +3316,11 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                         if completion_payload is not None
                         else None
                     ),
+                    "tool": (
+                        completion_payload.get("tool")
+                        if completion_payload is not None
+                        else None
+                    ),
                     "audit_valid": audit_valid,
                     "audit": audit_payload,
                     "token_usage": row_token_usage,
@@ -2785,7 +3447,8 @@ def main() -> None:
         "best-result": command_best_result,
         "goal-status": command_goal_status,
         "complete-problem": command_complete_problem,
-        "materialize-codex-trace": command_materialize_codex_trace,
+        "materialize-agent-trace": command_materialize_agent_trace,
+        "materialize-codex-trace": command_materialize_agent_trace,
         "summarize-run": command_summarize_run,
     }
     handlers[args.command](args)

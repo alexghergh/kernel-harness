@@ -1,13 +1,13 @@
 # KernelBench Experiment Agents
 
-Codex-first scaffold for running autonomous KernelBench optimization experiments on a remote GPU node.
+Tool-aware scaffold for running autonomous KernelBench optimization experiments with Codex or Claude on a remote GPU node.
 
 This project does five things:
 
-- constrains Codex to one KernelBench problem at a time
-- gives Codex a small local tool surface for timing and profiling kernels
+- constrains one agent session to one KernelBench problem at a time
+- gives the agent a small local tool surface for timing and profiling kernels
 - preserves official KernelBench run naming so downstream analysis stays compatible
-- serializes GPU-consuming operations so parallel Codex sessions do not overcommit the available GPUs
+- serializes GPU-consuming operations so parallel agent sessions do not overcommit the available GPUs
 - generates a workspace-local `HARDWARE.md` from `GPU_NAME` so the solver has explicit architecture limits and official NVIDIA doc links
 
 Start here:
@@ -17,7 +17,13 @@ Start here:
 - `AGENTS.md` for the repo-local operating rules
 - `MEMORY.md` for the evolving project log
 
-The intended top-level entrypoint is a shell launcher under `scripts/` that prepares a single-problem workspace and then runs `codex exec` inside that workspace.
+The intended top-level entrypoint is a shell launcher under `scripts/` that prepares a single-problem workspace and then runs the selected agent CLI inside that workspace. The generic launch surface is:
+
+- `./scripts/run_agent_problem.sh`
+- `./scripts/run_agent_range.sh`
+- `./scripts/run_agent_problem.slurm.sh`
+
+Set `TOOL=codex` or `TOOL=claude` to pick the agent. Thin compatibility wrappers such as `run_codex_problem.sh` and `run_claude_problem.sh` still exist, but the generic `run_agent_*` scripts are the preferred interface.
 
 ## setup KernelBench first
 
@@ -29,7 +35,9 @@ What must be set up first is the official KernelBench checkout referenced by `KE
 
 Run the full setup on the target GPU node, not on a login node.
 
-1. install Codex CLI locally and put it on `PATH`
+1. install the agent CLI you want to use and put it on `PATH`
+
+Codex:
 
 ```bash
 npm install --prefix "$HOME/.local" @openai/codex
@@ -38,7 +46,18 @@ hash -r
 codex --version
 ```
 
-2. log Codex into the repo-local `CODEX_HOME` once
+Claude Code:
+
+```bash
+npm install --prefix "$HOME/.local" @anthropic-ai/claude-code
+export PATH="$HOME/.local/node_modules/.bin:$PATH"
+hash -r
+claude --version
+```
+
+2. configure authentication for the chosen agent
+
+Codex uses a repo-local saved login:
 
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
@@ -47,7 +66,15 @@ codex login --device-auth
 codex login status
 ```
 
-The launcher reuses that saved repo-local login for every problem. Each problem run then gets its own derived runtime `CODEX_HOME` under `.runtime/codex_home/...`, so parallel planners do not share mutable Codex state. No `OPENAI_API_KEY` export is needed once this login succeeds.
+The launcher reuses that saved repo-local login for every problem. Each Codex run then gets its own derived runtime `CODEX_HOME` under `.runtime/agent_home/...`, so parallel planners do not share mutable Codex state. No `OPENAI_API_KEY` export is needed once this login succeeds.
+
+Claude Code currently uses `ANTHROPIC_API_KEY` directly:
+
+```bash
+export ANTHROPIC_API_KEY=...
+```
+
+The launcher checks the relevant auth path depending on `TOOL`.
 
 3. create and activate a Python 3.10 environment
 
@@ -95,6 +122,13 @@ That produces:
 - `results/timing/<HARDWARE_NAME>/baseline_time_torch.json`
 - `results/timing/<HARDWARE_NAME>/baseline_time_torch_compile_inductor_default.json`
 
+Important precision note:
+
+- this harness evaluates candidate kernels on the `fp32` path by default
+- the current `KernelBench/scripts/generate_baseline_time.py` in this checkout hardcodes `bf16` when generating baseline JSONs
+- if you want apples-to-apples baseline comparison, either regenerate those baseline JSONs at `fp32` or point `EAGER_BASELINE_FILE` / `COMPILE_BASELINE_FILE` at an older `fp32` baseline checkpoint
+- the harness does not infer baseline precision from those JSONs; it simply reads them as external targets
+
 7. export the runtime paths for this harness
 
 ```bash
@@ -110,14 +144,31 @@ export GPU_NAME=H100
 
 8. run a smoke-test problem from this repository
 
+Generic launcher:
+
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
+TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v2 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5-codex \
 TIME_BUDGET_MINUTES=720 \
-./scripts/run_codex_problem.sh
+./scripts/run_agent_problem.sh
+```
+
+Claude example:
+
+```bash
+cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
+export ANTHROPIC_API_KEY=...
+TOOL=claude \
+RUN_NAME=kernelbench-claude-h100-v2 \
+LEVEL=1 \
+PROBLEM_ID=1 \
+MODEL=opus \
+TIME_BUDGET_MINUTES=720 \
+./scripts/run_agent_problem.sh
 ```
 
 KernelBench currently ships a `pyproject.toml` and supports an editable install path, but the official repo workflow is `uv`-based. The recommended path is:
@@ -151,19 +202,19 @@ KernelBench currently declares `requires-python = "==3.10.*"`, so use Python 3.1
 
 ## how to start a run
 
-The default entrypoint is [run_codex_problem.sh](/home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents/scripts/run_codex_problem.sh), which:
+The default entrypoint is `scripts/run_agent_problem.sh`, which:
 
 - prepares a single-problem workspace under `.runtime/workspaces/...` inside this repo by default
 - writes a workspace-local `SPEC.md`, `AGENTS.md`, `HARDWARE.md`, generated status files, a fixed-scaffold `candidate_model_new.py`, and local wrapper scripts into that workspace
-- checks login against the repo-local `.codex/`, then creates an isolated per-problem runtime `CODEX_HOME` under `.runtime/codex_home/...`
+- checks the selected agent CLI and auth path (`.codex/` login for Codex, `ANTHROPIC_API_KEY` for Claude)
+- creates isolated per-problem runtime state under `.runtime/agent_home/...` when the selected tool needs it
 - keeps the helper import path on the wrapper side instead of exposing the whole harness to the solver by default
 - enforces one active solver per `(run_name, level, problem_id)` with a per-problem session lock
-- enforces the corrected per-problem budget in the launcher and records `budget_exhausted` if Codex does not finish first
-- captures the raw `codex exec --json` event stream for the problem
-- launches `codex exec` on exactly that problem
-- grants Codex write access only to the runtime output directories it needs
+- enforces the corrected per-problem budget in the launcher and records `budget_exhausted` if the agent does not finish first
+- captures the raw agent event stream for the problem
+- launches exactly one agent session on exactly that problem
 
-The launcher reads its run settings from environment variables such as `RUN_NAME`, `LEVEL`, `PROBLEM_ID`, `MODEL`, `NUM_GPUS`, `GPU_NAME`, `WORKSPACE_ROOT`, `KERNELBENCH_PYTHON`, `EAGER_BASELINE_FILE`, and `COMPILE_BASELINE_FILE`.
+The launcher reads its run settings from environment variables such as `TOOL`, `RUN_NAME`, `LEVEL`, `PROBLEM_ID`, `MODEL`, `NUM_GPUS`, `GPU_NAME`, `WORKSPACE_ROOT`, `KERNELBENCH_PYTHON`, `EAGER_BASELINE_FILE`, and `COMPILE_BASELINE_FILE`.
 
 Example:
 
@@ -173,6 +224,7 @@ export KERNELBENCH_ROOT=/path/to/KernelBench
 export KERNELBENCH_PYTHON="${KERNELBENCH_ROOT}/.venv/bin/python"
 export EAGER_BASELINE_FILE="${KERNELBENCH_ROOT}/results/timing/H100_PCIe_LambdaLabs/baseline_time_torch.json"
 export COMPILE_BASELINE_FILE="${KERNELBENCH_ROOT}/results/timing/H100_PCIe_LambdaLabs/baseline_time_torch_compile_inductor_default.json"
+TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v2 \
 LEVEL=1 \
 PROBLEM_ID=23 \
@@ -180,11 +232,12 @@ MODEL=gpt-5-codex \
 NUM_GPUS=1 \
 GPU_NAME=H100 \
 TIME_BUDGET_MINUTES=720 \
-./scripts/run_codex_problem.sh
+./scripts/run_agent_problem.sh
 ```
 
 Default time budget is 12 hours per problem unless you override `TIME_BUDGET_MINUTES`.
 Recorded GPU lock wait is excluded from the remaining budget shown to the solver and from the launcher-side stop check.
+Candidate evaluation currently uses the `fp32` KernelBench path unless you explicitly override the precision in the helper CLI.
 
 Keep `EAGER_BASELINE_FILE` and `COMPILE_BASELINE_FILE` exported for later single-problem and range invocations.
 
@@ -195,24 +248,24 @@ Runs accumulate naturally as long as you reuse the same `RUN_NAME`.
 Single problems:
 
 ```bash
-RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 PROBLEM_ID=23 ./scripts/run_codex_problem.sh
-RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 PROBLEM_ID=24 ./scripts/run_codex_problem.sh
+TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 PROBLEM_ID=23 ./scripts/run_agent_problem.sh
+TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 PROBLEM_ID=24 ./scripts/run_agent_problem.sh
 ```
 
 Ranges:
 
 ```bash
-RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 START_PROBLEM_ID=0 END_PROBLEM_ID=20 ./scripts/run_codex_range.sh
-RUN_NAME=kernelbench-codex-h100-v2 LEVEL=2 START_PROBLEM_ID=50 END_PROBLEM_ID=100 ./scripts/run_codex_range.sh
+TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=1 START_PROBLEM_ID=0 END_PROBLEM_ID=20 ./scripts/run_agent_range.sh
+TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=2 START_PROBLEM_ID=50 END_PROBLEM_ID=100 ./scripts/run_agent_range.sh
 ```
 
 Explicit lists:
 
 ```bash
-RUN_NAME=kernelbench-codex-h100-v2 LEVEL=3 PROBLEM_IDS=1,7,9,42 ./scripts/run_codex_range.sh
+TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=3 PROBLEM_IDS=1,7,9,42 ./scripts/run_agent_range.sh
 ```
 
-`run_codex_range.sh` launches one Codex session per problem and supports limited planning parallelism via `MAX_PARALLEL_SOLVERS`. GPU work still respects the shared lease count controlled by `NUM_GPUS`. Launching the same `(run_name, level, problem_id)` twice is unsupported and now fails fast through the per-problem solver lock.
+`run_agent_range.sh` launches one agent session per problem and supports limited planning parallelism via `MAX_PARALLEL_SOLVERS`. GPU work still respects the shared lease count controlled by `NUM_GPUS`. Launching the same `(run_name, level, problem_id)` twice is unsupported and now fails fast through the per-problem solver lock.
 
 ## what the solver agent sees
 
@@ -238,6 +291,7 @@ Its intended working set is:
 - `./bin/complete_problem.sh`
 
 The maintainer docs in this repository, including `SPEC.md`, `ARCHITECTURE.md`, and `MEMORY.md`, are not part of the solver agent’s normal workflow.
+The evaluated path is currently `fp32`: KernelBench generates inputs, casts tensors to `fp32`, runs the reference `Model` and candidate `ModelNew`, and checks correctness there. Internal mixed-precision math is still allowed if the candidate passes that judged `fp32` path.
 
 `SPEC.md` is the fixed target for the solver:
 
@@ -411,9 +465,9 @@ The launcher treats missing completion as `failed_to_generate`. That decision va
 
 Canonical completion artifact:
 
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/completion.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/completion.json`
 
-If that file is missing when `codex exec` exits, the launcher synthesizes a `failed_to_generate` completion record and the run is counted as failed.
+If that file is missing when the agent CLI exits, the launcher synthesizes a `failed_to_generate` completion record and the run is counted as failed.
 
 ## manual verification of a saved kernel
 
@@ -506,20 +560,20 @@ For a faithful manual cross-check, the three numbers to compare are:
 
 If those align closely, the saved sample is behaving consistently outside the autonomous harness loop.
 
-## codex traces
+## agent traces
 
-Each problem now stores Codex trace artifacts under:
+Each problem now stores normalized trace artifacts under:
 
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/events.jsonl`
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/conversation.json`
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/final_message.txt`
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/completion.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/events.jsonl`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/conversation.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/final_message.txt`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/completion.json`
 
-`events.jsonl` is the raw `codex exec --json` stream for that problem.
+`events.jsonl` is the raw CLI event stream for that problem. The exact raw event shape depends on `TOOL` (`codex exec --json` for Codex, `claude --print --output-format stream-json` for Claude).
 
 `conversation.json` is a normalized, easier-to-read projection of that raw event stream. It is meant for inspection, not as the canonical source of truth.
 
-`conversation.json` also carries an `audit` section. The audit invalidates a run if Codex:
+`conversation.json` also carries an `audit` section. The audit invalidates a run if the agent:
 
 - manually changes directories or otherwise leaves the problem workspace contract for shell work
 - edits files outside `candidate_model_new.py`
@@ -568,27 +622,36 @@ To remove the local state for a run before rerunning it:
 
 ```bash
 cd /home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents
-RUN_NAME=kernelbench-codex-h100-v2 ./scripts/clear_run.sh
+RUN_NAME=kernelbench-claude-h100-v2 ./scripts/clear_run.sh
 ```
 
 Positional form:
 
 ```bash
-./scripts/clear_run.sh kernelbench-codex-h100-v2
+./scripts/clear_run.sh kernelbench-claude-h100-v2
 ```
+
+The top-level run directories have different roles:
+
+- `runs/` is durable and worth keeping. It holds the official saved kernel sources and prompts in a KernelBench-like naming scheme.
+- `artifacts/` is durable and worth keeping. It holds manifests, `history.jsonl`, completion state, normalized traces, profiler outputs, and goal-status snapshots.
+- `build/` is disposable scratch for compilation/build outputs.
+- `.runtime/` is disposable live runtime state: workspaces, per-problem agent homes, and lock files.
+
+If you only care about preserving final kernels and analysis/provenance, keep `runs/` and `artifacts/`. `build/` and `.runtime/` can be removed once no run is active.
 
 This removes:
 
 - `runs/<RUN_NAME>/`
 - `artifacts/<RUN_NAME>/`
 - `build/<RUN_NAME>/`
-- `.runtime/codex_home/<RUN_NAME>/`
+- `.runtime/agent_home/<RUN_NAME>/`
 - `.runtime/workspaces/<RUN_NAME>/`
 - stale run-scoped artifact and solver lock files
 
 ## GPU serialization and artifact locking
 
-Thinking can happen in parallel across multiple Codex sessions.
+Thinking can happen in parallel across multiple agent sessions.
 
 GPU work cannot.
 
@@ -600,16 +663,18 @@ The harness uses three separate lock classes:
 
 ## sandbox reality on the cluster
 
-Codex's `workspace-write` sandbox is the preferred mode, but on the current shared cluster it fails because the required Linux namespace setup is blocked. The checked-in [.codex/config.toml](/home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents/.codex/config.toml) still declares that preferred mode, while [run_codex_problem.sh](/home/alex/projects/uni-research/titech/hpc-agent/kernel_bench_experiment_agents/scripts/run_codex_problem.sh) overrides it to `danger-full-access` by default on the cluster.
+Codex's `workspace-write` sandbox is the preferred mode, but on the current shared cluster it fails because the required Linux namespace setup is blocked. The checked-in `.codex/config.toml` still declares that preferred mode, while the current launcher overrides Codex to `danger-full-access` by default on the cluster.
 
-That means the hard path boundary is not enforced by Codex itself today. The practical controls are:
+Claude uses its own permission model instead of the Codex sandbox. The current launcher defaults Claude to `bypassPermissions` on the cluster, so Claude also does not provide hard filesystem isolation there.
+
+That means the hard path boundary is not enforced by the agent CLI itself today. The practical controls are:
 
 - the generated workspace contract
 - candidate validation
 - post-run trace auditing that invalidates out-of-scope behavior
 - hosted web search restricted to `docs.nvidia.com` only
 
-If you need real path isolation, it has to come from the environment around Codex, not from prompt text alone.
+If you need real path isolation, it has to come from the environment around the agent, not from prompt text alone.
 
 Timing and profiling commands acquire a shared GPU lease from:
 
@@ -617,7 +682,7 @@ Timing and profiling commands acquire a shared GPU lease from:
 
 The number of simultaneous GPU consumers is controlled by `NUM_GPUS`. If `NUM_GPUS=1`, all timing and profiling commands serialize. If `NUM_GPUS=4`, at most four such commands may run at once across all sessions using this harness.
 
-This works across separate Codex processes because the lease uses kernel-managed advisory file locks (`flock`) on shared lock files. That is a valid cross-process serialization mechanism on the same machine as long as all GPU-consuming paths cooperate and use the wrappers.
+This works across separate agent processes because the lease uses kernel-managed advisory file locks (`flock`) on shared lock files. That is a valid cross-process serialization mechanism on the same machine as long as all GPU-consuming paths cooperate and use the wrappers.
 
 The GPU lock is not used for `sample_id` allocation. That is handled separately through the per-problem artifact lock so concurrent evaluations on the same problem cannot overwrite each other.
 
@@ -671,11 +736,22 @@ To summarize multiple disjoint batches accumulated under one run name, just reus
 
 If you want me to inspect one problem run or make prompt/harness changes, the most useful artifacts are:
 
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/conversation.json`
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/completion.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/events.jsonl`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/conversation.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/completion.json`
 - `artifacts/<run_name>/level_<level>/problem_<problem_id>/history.jsonl`
-- `artifacts/<run_name>/level_<level>/problem_<problem_id>/codex/goal_status.json`
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/agent/goal_status.json`
 - any relevant `ncu` outputs for the best candidate
+
+For a quick first-pass review, the minimum useful set is:
+
+- `agent/events.jsonl`
+- `agent/completion.json`
+- `history.jsonl`
+
+If the run did useful profiling, also send:
+
+- `artifacts/<run_name>/level_<level>/problem_<problem_id>/ncu/`
 
 ## official KernelBench timing scripts
 

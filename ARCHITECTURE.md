@@ -2,17 +2,17 @@
 
 ## design summary
 
-This project is Codex-first.
+This project is agent-first.
 
-Codex is the planner. Local scripts and Python helpers are the tools. The Python package does not orchestrate the agent loop.
+The selected agent CLI is the planner. Local scripts and Python helpers are the tools. The Python package does not orchestrate the agent loop.
 
 The flow is:
 
 1. a shell launcher prepares a problem-specific workspace
 2. the launcher writes a workspace-local `SPEC.md`, `AGENTS.md`, `HARDWARE.md`, generated status files, and local wrapper scripts into that workspace
-3. the launcher starts `codex exec` from that workspace
-4. Codex reads the local instruction chain, plans work, and uses local commands to iterate
-5. Codex optionally spawns narrow subagents for timing or profiling summaries
+3. the launcher starts the selected agent CLI from that workspace
+4. the agent reads the local instruction chain, plans work, and uses local commands to iterate
+5. the agent optionally spawns narrow subagents for timing or profiling summaries
 6. timing and profiling commands acquire shared GPU leases before touching the GPU
 7. evaluated kernels are copied into official KernelBench-style run paths
 8. per-problem artifact locks reserve `sample_id`s and serialize manifest commits
@@ -25,14 +25,16 @@ The experiment root contains:
 - docs: `README.md`, `SPEC.md`, `ARCHITECTURE.md`, `AGENTS.md`, `MEMORY.md`
 - Codex config: `.codex/config.toml`
 - custom Codex agents: `.codex/agents/*.toml`
+- Claude config: `.claude/settings.json`
+- custom Claude agents: `.claude/agents/*.md`
 - shell entrypoints: `scripts/*.sh`
 - helper package: `src/kernel_bench_experiment_agents/`
 
 Runtime-created directories will include:
 
 - `runs/<run_name>/...` for official-style evaluated kernel artifacts
-- `.runtime/codex_home/<run_name>/level_<level>/problem_<problem_id>/...` for isolated per-problem Codex runtime state
-- `.runtime/workspaces/<run_name>/level_<level>/problem_<problem_id>/...` by default for a single Codex session
+- `.runtime/agent_home/<run_name>/level_<level>/problem_<problem_id>/...` for isolated per-problem runtime state when the selected tool needs it
+- `.runtime/workspaces/<run_name>/level_<level>/problem_<problem_id>/...` by default for a single agent session
 - `artifacts/<run_name>/...` for manifests, summaries, and profiler outputs
 - `build/<run_name>/...` for compilation/build cache outputs
 - `.runtime/artifact_locks/` for per-problem sample allocation and manifest commits
@@ -45,7 +47,7 @@ Runs are append-only by `run_name`, so separate invocations on different problem
 
 Stable maintainer rules belong in the experiment root `AGENTS.md`.
 
-The solver agent should not rely on the repository-root docs. Instead, the launcher generates a workspace-local `SPEC.md`, `AGENTS.md`, and `HARDWARE.md` and launches Codex from that workspace. This keeps Codex tightly scoped to a single problem and prevents broad file exploration.
+The solver agent should not rely on the repository-root docs. Instead, the launcher generates a workspace-local `SPEC.md`, `AGENTS.md`, and `HARDWARE.md` and launches the selected agent from that workspace. This keeps the agent tightly scoped to a single problem and prevents broad file exploration.
 
 The initial prompt should contain only the run-specific assignment and budget details.
 
@@ -54,6 +56,8 @@ The generated workspace contract is intentionally solution-only and hardware-awa
 - `problem_reference.py` is read-only reference code
 - `candidate_model_new.py` is the only evaluated solution file
 - `candidate_model_new.py` uses a fixed scaffold; the solver may edit only its marked blocks
+- the judged KernelBench path currently uses `fp32` inputs and `fp32` correctness/runtime checks
+- internal mixed-precision math is allowed if the candidate still passes that judged `fp32` path
 - `HARDWARE.md` is generated from the configured `GPU_NAME` through a static alias catalog and is part of the required solver working set
 - `SPEC.md` is generated as a short imperative document with explicit target, stopping rules, and loop steps
 - `GOAL_STATUS.md` is generated as a directive-first status file that re-anchors the solver after each measurement
@@ -68,25 +72,28 @@ This workspace layout is also the harness's durable external memory. The intent 
 
 The root `MEMORY.md` is maintainer-only and is not part of the problem-agent write path.
 
-## codex configuration
+## agent configuration
 
-The project uses a local `.codex/config.toml` to define:
+The shared harness is tool-neutral, but the checked-in CLI configuration is tool-specific:
 
-- web search mode
-- NVIDIA-docs-only allowed web domains
-- subagent thread depth
-- preferred workspace-write sandbox defaults for compatible hosts
+- `.codex/config.toml` and `.codex/agents/*.toml` for Codex
+- `.claude/settings.json` and `.claude/agents/*.md` for Claude
 
-The launcher currently overrides the preferred `workspace-write` setting and defaults to `danger-full-access` on the shared cluster, because the restricted sandbox fails there.
+Both tool layers define:
 
-Custom agents live in `.codex/agents/`:
+- hosted web-search policy
+- subagent behavior
+- preferred sandbox or permission defaults where the CLI supports them
+
+The launcher currently overrides Codex's preferred `workspace-write` setting and defaults to `danger-full-access` on the shared cluster, because the restricted sandbox fails there. Claude uses its own permission mode and is currently launched with `bypassPermissions` on that cluster.
+
+The main session remains the planner. The helper agents are narrow and summary-oriented:
 
 - `runner`: executes timing commands and returns concise summaries
 - `profiler`: runs `ncu` and summarizes counters and bottlenecks
 
-The main session remains the planner. The helper agents are narrow and summary-oriented.
 The planner is expected to use the full per-problem budget when needed, and should lean on subagents during long searches to keep its own context compact. Critical solver guidance now lives directly in the generated workspace docs rather than in any optional discovery layer.
-The launcher now treats the repo-local `.codex/` as the canonical login/config source and derives a fresh runtime `CODEX_HOME` per problem, so parallel planners do not share mutable Codex state.
+For Codex, the launcher treats repo-local `.codex/` as the canonical login/config source and derives a fresh runtime `CODEX_HOME` per problem so parallel planners do not share mutable Codex state. For Claude, the launcher copies repo-local `.claude/` settings into the prepared workspace before launch.
 
 ## kernelbench integration boundary
 
@@ -118,7 +125,7 @@ The helper package exposes a small command set:
 - `goal-status`
 - `best-result`
 - `complete-problem`
-- `materialize-codex-trace`
+- `materialize-agent-trace`
 - `summarize-run`
 
 This keeps the tool surface narrow and auditable.
@@ -163,7 +170,7 @@ Long optimization runs should prefer subagents for wrapper execution and profile
 
 GPU access is one constrained resource, but it is not the only shared resource.
 
-Multiple Codex sessions may think in parallel, but timing and profiling must respect the configured GPU capacity.
+Multiple agent sessions may think in parallel, but timing and profiling must respect the configured GPU capacity.
 
 The helper commands therefore acquire a lease from `.runtime/gpu_locks/` before:
 
@@ -207,18 +214,18 @@ Project-local artifacts:
 - workspace-local `profiles/profile_<n>.*` mirrors for each profiler run plus `profiles/latest.*` convenience files
 - workspace-local `AGENTS.md`
 - `bin/` wrapper scripts for timing, profiling, and inspection
-- raw and normalized Codex trace artifacts under `artifacts/<run_name>/.../codex/`
+- raw and normalized trace artifacts under `artifacts/<run_name>/.../agent/`
 - `completion.json` as the required terminal state record for each problem run
 - profiler reports and related manifests under `artifacts/<run_name>/...`
 - profiler text exports under `artifacts/<run_name>/.../ncu/`, mirrored into the workspace as the solver-readable profiling surface
 
-`completion.json` also stores `token_usage` totals extracted from the Codex event stream, so run cost can be computed later without re-parsing raw traces.
+`completion.json` also stores `token_usage` totals extracted from the raw agent event stream, so run cost can be computed later without re-parsing raw traces.
 `completion.json` also stores `trace_counts` derived from the trace, including wrapper usage, profiler usage, subagent spawns, and hosted web-search calls.
 `completion.json` also stores `web_searches`, including recorded queries and any surfaced domains from the trace payload.
 `completion.json` also stores raw diagnostic outcome fields such as `raw_best_correct_runtime_ms`, `raw_beats_*`, and `outside_harness_success`. These are reference-only fields for later manual inspection; they do not override audit invalidation or harness success semantics.
 `conversation.json` stores a normalized aggregate trace plus an `audit` result. If the audit detects out-of-scope shell work, forbidden compiled-artifact inspection, or forbidden file changes, the run is invalidated and `completion.json` is rewritten to `decision = "harness_failure"`.
 The same completion-materialization path also enforces a simple stop-policy check: a solver-written `stalled` decision is invalidated if substantial budget remains and no profiler run was recorded.
-Separately, the launcher enforces the corrected budget directly: if remaining time reaches zero before Codex writes a completion artifact, the launcher terminates the Codex process and records `budget_exhausted`.
+Separately, the launcher enforces the corrected budget directly: if remaining time reaches zero before the agent writes a completion artifact, the launcher terminates the process and records `budget_exhausted`.
 
 The profiling wrapper now has a stricter contract than before: it must produce readable text exports from the Nsight Compute report, not just a binary report artifact. The solver is expected to read those text exports only.
 
@@ -263,6 +270,8 @@ Avoid for v2:
 
 Codex's preferred `workspace-write` sandbox can restrict writable roots, but only if the host allows the underlying Linux sandbox setup. On the current shared cluster, that sandbox fails, so the launcher falls back to `danger-full-access`.
 
+Claude does not use the same filesystem sandbox. On the current shared cluster it runs under its own permission mode, currently `bypassPermissions`.
+
 That means this project currently relies on:
 
 - a narrow generated workspace contract
@@ -270,4 +279,4 @@ That means this project currently relies on:
 - trace auditing after the run
 - hosted web search restricted to `docs.nvidia.com`
 
-for policy enforcement. If hard filesystem isolation is required, it must come from the surrounding cluster/container environment rather than from Codex configuration alone.
+for policy enforcement. If hard filesystem isolation is required, it must come from the surrounding cluster/container environment rather than from the agent CLI configuration alone.
