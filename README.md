@@ -25,6 +25,14 @@ The intended top-level entrypoint is a shell launcher under `scripts/` that prep
 
 Set `TOOL=codex` or `TOOL=claude` to pick the agent.
 
+The checked-in Slurm wrapper is just one convenient cluster profile, not the generic baseline. Its current file defaults are:
+
+- `TOOL=claude`
+- `MAX_PARALLEL_SOLVERS=10`
+- `TIME_BUDGET_MINUTES=180`
+
+Override those in the file or via `sbatch --export=...` when you want a different run profile.
+
 ## setup KernelBench first
 
 This repository itself does not need installation.
@@ -235,7 +243,8 @@ TIME_BUDGET_MINUTES=720 \
 ./scripts/run_agent_problem.sh
 ```
 
-Default time budget is 12 hours per problem unless you override `TIME_BUDGET_MINUTES`.
+Default time budget is 12 hours per problem for the generic `run_agent_problem.sh` / `run_agent_range.sh` launchers unless you override `TIME_BUDGET_MINUTES`.
+The checked-in Slurm wrapper currently overrides that with its own `TIME_BUDGET_MINUTES=180` default.
 Recorded GPU lock wait is excluded from the remaining budget shown to the solver and from the launcher-side stop check.
 Candidate evaluation currently uses the `fp32` KernelBench path unless you explicitly override the precision in the helper CLI.
 
@@ -269,7 +278,8 @@ TOOL=codex RUN_NAME=kernelbench-codex-h100-v2 LEVEL=3 PROBLEM_IDS=1,7,9,42 ./scr
 
 ## what the solver agent sees
 
-The solver agent is launched from a problem-specific workspace outside this repository.
+By default, the solver agent is launched from a problem-specific workspace inside this repository under `.runtime/workspaces/...`.
+You can still override `WORKSPACE_ROOT` if you want those workspaces elsewhere.
 
 Its intended working set is:
 

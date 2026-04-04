@@ -45,7 +45,7 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 - web access is allowed only for NVIDIA documentation
 - intended domains:
   - `docs.nvidia.com`
-- shell/network access should stay disabled unless explicitly needed later
+- hard shell/network isolation was the original goal, but on the shared cluster the current practical controls are the generated workspace contract plus post-run trace auditing
 
 ### baseline policy
 
@@ -112,7 +112,7 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 - created a KernelBench environment setup helper:
   - `scripts/setup_kernelbench_env.sh`
 - changed the intended solver launch model:
-  - workspaces live outside the repo by default
+  - workspaces now live under `.runtime/workspaces/...` inside this repo by default
   - solver agents get a workspace-local `AGENTS.md`
   - root contributor docs are not part of the solver’s normal context
 - added shared GPU leasing:
@@ -142,6 +142,9 @@ This file is not part of the per-problem optimizer workflow and should not be wr
   - repo-local `.codex/` remains the canonical login/config source for Codex
   - repo-local `.claude/` remains the canonical checked-in settings source for Claude
   - each problem launch now gets tool-specific isolated runtime state under `.runtime/agent_home/...` when needed
+- current cluster trust model:
+  - Codex and Claude do not get reliable hard sandbox isolation on the shared cluster path
+  - out-of-scope behavior is currently caught mainly by prompt constraints, wrapper restrictions, and post-run trace auditing
 - changed budget handling:
   - remaining budget now excludes recorded GPU lock wait time from timing and profiling
   - the launcher stops unresolved runs at the corrected budget limit and records `budget_exhausted`

@@ -106,7 +106,7 @@ Profiling:
 - support `codex exec` for Codex and `claude --print --output-format stream-json` for Claude through the same launcher surface
 - use project-local `.codex/config.toml` for Codex and project-local `.claude/settings.json` for Claude
 - allow live web search only for `docs.nvidia.com`
-- keep shell network access disabled unless a later experiment requires it
+- on the current shared cluster, hard shell/network isolation is not reliably enforceable through the agent CLIs, so path restrictions are currently enforced mainly through the generated workspace contract and post-run trace auditing
 - launch the selected agent from the problem workspace rather than from the repository root
 - generate a workspace-local `HARDWARE.md` from the configured `GPU_NAME` and fail fast on unknown GPU families
 
