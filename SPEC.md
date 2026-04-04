@@ -4,27 +4,26 @@
 
 Evaluate current frontier coding agents on the full KernelBench benchmark while keeping the harness simple, reproducible, and compatible with the official KernelBench artifact layout.
 
-The immediate target is a Codex-first harness.
+The immediate target is a tool-neutral harness that can launch either Codex or Claude through the same `run_agent_*` surface.
 
 ## scope
 
 In scope:
 
 - KernelBench levels 1, 2, and 3
-- one Codex session per problem
+- one agent session per problem
 - one active solver per `(run_name, level, problem_id)`
-- local timing and profiling tools callable by Codex
+- local timing and profiling tools callable by the selected agent
 - workspace-local `SPEC.md` files that pin each solver to one problem and two explicit runtime targets
 - workspace-local `HARDWARE.md` files derived from the configured `GPU_NAME`
-- optional Codex web search restricted to NVIDIA documentation domains
+- optional live web search restricted to NVIDIA documentation domains
 - official-style run artifacts for evaluated kernels
 - maintainer-level project memory for harness decisions only
 
 Out of scope for this first implementation:
 
 - LaTeX report generation
-- Anthropic-specific runtime integration
-- a Python-hosted agent loop that replaces Codex planning
+- a Python-hosted agent loop that replaces agent CLI planning
 - broad web access
 
 ## environment assumptions
@@ -92,7 +91,7 @@ Timing:
 - use KernelBench-compatible evaluation logic
 - serialize GPU-consuming operations through a shared lease count equal to the configured GPU capacity
 - store per-attempt runtime outputs in project-local manifests, including failed attempts
-- store per-problem Codex trace artifacts and an explicit terminal completion record
+- store per-problem agent trace artifacts and an explicit terminal completion record
 - compare against both eager and `torch.compile` baselines during summary/analysis using official baseline JSON inputs
 - allow the same named run to accumulate results over multiple disjoint problem subsets and multiple days
 
@@ -101,20 +100,21 @@ Profiling:
 - use `ncu` locally on the assigned GPU
 - store raw profiler output and related manifests under project-local artifacts
 
-## codex policy
+## agent CLI policy
 
 - use `codex exec` first for reproducible runs
-- use project-local `.codex/config.toml`
-- allow Codex web search only for `docs.nvidia.com`
+- support `codex exec` for Codex and `claude --print --output-format stream-json` for Claude through the same launcher surface
+- use project-local `.codex/config.toml` for Codex and project-local `.claude/settings.json` for Claude
+- allow live web search only for `docs.nvidia.com`
 - keep shell network access disabled unless a later experiment requires it
-- launch Codex from the problem workspace rather than from the repository root
+- launch the selected agent from the problem workspace rather than from the repository root
 - generate a workspace-local `HARDWARE.md` from the configured `GPU_NAME` and fail fast on unknown GPU families
 
 ## deliverables
 
 - repo-local docs and memory
-- Codex config and custom agents
+- tool-specific config and custom agents
 - generated workspace-local problem and hardware docs
 - a local helper package with local commands
-- shell launchers for single-problem and batched runs
+- generic shell launchers for single-problem and batched runs
 - run-summary commands for compile, correctness, pass@k, and baseline-comparison statistics

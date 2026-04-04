@@ -23,7 +23,7 @@ The intended top-level entrypoint is a shell launcher under `scripts/` that prep
 - `./scripts/run_agent_range.sh`
 - `./scripts/run_agent_problem.slurm.sh`
 
-Set `TOOL=codex` or `TOOL=claude` to pick the agent. Thin compatibility wrappers such as `run_codex_problem.sh` and `run_claude_problem.sh` still exist, but the generic `run_agent_*` scripts are the preferred interface.
+Set `TOOL=codex` or `TOOL=claude` to pick the agent.
 
 ## setup KernelBench first
 

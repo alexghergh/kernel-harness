@@ -2,7 +2,7 @@
 
 ## purpose
 
-This repository exists to run autonomous KernelBench optimization experiments with Codex on a remote GPU node.
+This repository exists to run autonomous KernelBench optimization experiments with Codex or Claude on a remote GPU node.
 
 ## always read first
 
@@ -11,7 +11,7 @@ Before making changes or launching work, read:
 - `SPEC.md`
 - `ARCHITECTURE.md`
 
-Problem-solving Codex sessions are expected to run from generated external workspaces with their own local `AGENTS.md`. This repository-root file is for maintainers of the harness.
+Problem-solving agent sessions are expected to run from generated external workspaces with their own local `AGENTS.md`. This repository-root file is for maintainers of the harness.
 
 ## core rules
 
@@ -51,7 +51,7 @@ Allowed live web domains:
 Do not browse arbitrary sites for kernel solutions.
 Do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels as solution hints.
 
-## codex behavior
+## agent behavior
 
 - the main agent should behave as a planner and optimizer
 - when timing or profiling output would pollute context, spawn the dedicated subagent and ask it to summarize

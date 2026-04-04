@@ -6,20 +6,31 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 
 ## 2026-03-22
 
+### current state
+
+- the harness is now tool-neutral at the launcher surface:
+  - `scripts/run_agent_problem.sh`
+  - `scripts/run_agent_range.sh`
+  - `scripts/run_agent_problem.slurm.sh`
+- `TOOL=codex` and `TOOL=claude` are both supported through that shared surface
+- raw trace artifacts are stored under `artifacts/<run_name>/.../agent/`
+- repo-local `.codex/` and `.claude/` are both part of the checked-in tool configuration
+- per-problem runtime state now lives under `.runtime/agent_home/...` when the selected tool needs isolated mutable state
+
 ### project direction
 
 - focus first on a KernelBench-only experiment
 - use current frontier coding agents and gauge results on the full KernelBench benchmark
 - preserve compatibility with the official KernelBench run layout and analysis scripts where possible
 
-### harness decision
+### initial harness decision
 
 - initial direction changed from a Python-hosted API planner to a Codex-first harness
 - Codex CLI can authenticate with an OpenAI API key, so OpenAI API credits are sufficient
 - use `codex exec` first for reproducible runs
 - do not build a Python replacement for Codex planning in v2
 
-### codex behavior
+### initial codex behavior
 
 - Codex is the planner and optimizer
 - Codex should stay scoped to one assigned problem at a time
@@ -73,6 +84,8 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 
 - use project-local Codex config in `.codex/config.toml`
 - use project-local custom agents under `.codex/agents/`
+- later add project-local Claude config in `.claude/settings.json`
+- later add project-local Claude agents under `.claude/agents/`
 
 ### implemented scaffold
 
@@ -95,8 +108,7 @@ This file is not part of the per-problem optimizer workflow and should not be wr
   - candidate evaluation
   - `ncu` profiling
   - best-result lookup
-- created a single-problem launcher:
-  - `scripts/run_codex_problem.sh`
+- created the initial single-problem launcher
 - created a KernelBench environment setup helper:
   - `scripts/setup_kernelbench_env.sh`
 - changed the intended solver launch model:
@@ -123,15 +135,20 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 - added explicit terminal completion handling:
   - solver runs must finish through `complete-problem`
   - missing completion is converted into `failed_to_generate`
-- added Codex trace capture:
-  - raw `codex exec --json` output is stored per problem
+- added raw agent trace capture:
+  - raw CLI output is stored per problem under `artifacts/<run_name>/.../agent/events.jsonl`
   - a normalized `conversation.json` is derived for easier inspection
-- changed Codex runtime isolation:
-  - repo-local `.codex/` remains the canonical login/config source
-  - each problem launch now gets its own derived runtime `CODEX_HOME` under `.runtime/codex_home/...`
+- changed runtime isolation:
+  - repo-local `.codex/` remains the canonical login/config source for Codex
+  - repo-local `.claude/` remains the canonical checked-in settings source for Claude
+  - each problem launch now gets tool-specific isolated runtime state under `.runtime/agent_home/...` when needed
 - changed budget handling:
   - remaining budget now excludes recorded GPU lock wait time from timing and profiling
   - the launcher stops unresolved runs at the corrected budget limit and records `budget_exhausted`
+- later refactored the launcher surface:
+  - `run_agent_problem.sh`, `run_agent_range.sh`, and `run_agent_problem.slurm.sh` became the canonical entrypoints
+  - thin per-tool wrapper scripts were later removed once the generic surface was stable
+  - the harness gained Claude support without changing the shared workspace/evaluation contract
 
 ### current limitations
 
@@ -144,7 +161,6 @@ This file is not part of the per-problem optimizer workflow and should not be wr
 
 - support LaTeX/report generation later
 - broader HPC migration benchmark remains separate from this first KernelBench experiment
-- Anthropic-specific integration is deferred; keep the core harness Codex-first and avoid optional skill layers
 
 ### useful official KernelBench reminders
 

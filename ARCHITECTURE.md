@@ -16,7 +16,7 @@ The flow is:
 6. timing and profiling commands acquire shared GPU leases before touching the GPU
 7. evaluated kernels are copied into official KernelBench-style run paths
 8. per-problem artifact locks reserve `sample_id`s and serialize manifest commits
-9. the launcher records the raw Codex event stream and requires an explicit completion artifact
+9. the launcher records the raw agent event stream and requires an explicit completion artifact
 
 ## directory layout
 
