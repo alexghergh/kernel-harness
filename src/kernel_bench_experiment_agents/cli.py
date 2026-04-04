@@ -1128,34 +1128,47 @@ def _trace_usage_summary(
         "turns_completed": 0,
         "input_tokens": 0,
         "cached_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
         "output_tokens": 0,
         "uncached_input_tokens": 0,
     }
 
     if tool == "claude":
-        result_usage = None
-        result_turns = 0
+        result_candidates: list[dict[str, int]] = []
         for payload in raw_events:
             if payload.get("type") != "result":
                 continue
             usage = payload.get("usage")
             if not isinstance(usage, dict):
                 continue
-            result_usage = usage
-            result_turns = max(result_turns, int(_as_float(payload.get("num_turns")) or 0))
+            result_candidates.append(
+                {
+                    "turns_completed": int(_as_float(payload.get("num_turns")) or 0),
+                    "input_tokens": int(_as_float(usage.get("input_tokens")) or 0),
+                    "cached_input_tokens": int(
+                        _as_float(usage.get("cache_read_input_tokens")) or 0
+                    ),
+                    "cache_creation_input_tokens": int(
+                        _as_float(usage.get("cache_creation_input_tokens")) or 0
+                    ),
+                    "output_tokens": int(_as_float(usage.get("output_tokens")) or 0),
+                }
+            )
 
-        if isinstance(result_usage, dict):
-            summary["turns_completed"] = result_turns or 1
-            summary["input_tokens"] = int(_as_float(result_usage.get("input_tokens")) or 0)
-            summary["cached_input_tokens"] = int(
-                _as_float(result_usage.get("cache_read_input_tokens")) or 0
+        if result_candidates:
+            summary = max(
+                result_candidates,
+                key=lambda candidate: (
+                    candidate["turns_completed"],
+                    candidate["input_tokens"]
+                    + candidate["cached_input_tokens"]
+                    + candidate["cache_creation_input_tokens"]
+                    + candidate["output_tokens"],
+                ),
             )
-            summary["output_tokens"] = int(
-                _as_float(result_usage.get("output_tokens")) or 0
-            )
-            summary["uncached_input_tokens"] = max(
-                summary["input_tokens"] - summary["cached_input_tokens"],
-                0,
+            summary["turns_completed"] = summary["turns_completed"] or 1
+            summary["uncached_input_tokens"] = (
+                summary["input_tokens"] + summary["cache_creation_input_tokens"]
             )
             return summary
 
@@ -1173,11 +1186,13 @@ def _trace_usage_summary(
             summary["cached_input_tokens"] += int(
                 _as_float(usage.get("cache_read_input_tokens")) or 0
             )
+            summary["cache_creation_input_tokens"] += int(
+                _as_float(usage.get("cache_creation_input_tokens")) or 0
+            )
             summary["output_tokens"] += int(_as_float(usage.get("output_tokens")) or 0)
 
-        summary["uncached_input_tokens"] = max(
-            summary["input_tokens"] - summary["cached_input_tokens"],
-            0,
+        summary["uncached_input_tokens"] = (
+            summary["input_tokens"] + summary["cache_creation_input_tokens"]
         )
         return summary
 
@@ -3114,6 +3129,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
         "turns_completed": 0,
         "input_tokens": 0,
         "cached_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
         "uncached_input_tokens": 0,
         "output_tokens": 0,
         "problems_with_usage": 0,
@@ -3239,6 +3255,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                     "turns_completed",
                     "input_tokens",
                     "cached_input_tokens",
+                    "cache_creation_input_tokens",
                     "uncached_input_tokens",
                     "output_tokens",
                 ):

@@ -594,9 +594,12 @@ Each problem now stores normalized trace artifacts under:
 
 - `token_usage.input_tokens`
 - `token_usage.cached_input_tokens`
+- `token_usage.cache_creation_input_tokens`
 - `token_usage.uncached_input_tokens`
 - `token_usage.output_tokens`
 - `token_usage.turns_completed`
+
+For Claude, `uncached_input_tokens` includes both direct input tokens and cache-creation input tokens.
 
 `completion.json` also carries `trace_counts`, including:
 
