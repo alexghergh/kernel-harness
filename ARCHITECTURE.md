@@ -221,6 +221,7 @@ Project-local artifacts:
 
 `completion.json` also stores `token_usage` totals extracted from the raw agent event stream, so run cost can be computed later without re-parsing raw traces.
 For Claude, this token payload is defined as whole-artifact billed usage: the harness prefers cumulative `result.modelUsage` when present, otherwise cumulative `result.usage`, and records the maximum cumulative row while keeping `turns_completed` as the highest observed `num_turns`.
+`completion.json` also stores `cost_usd` when the raw agent trace reports an explicit cumulative price. Today that means Claude: the harness prefers cumulative `result.total_cost_usd`, falls back to cumulative `result.modelUsage.*.costUSD`, and records the maximum cumulative row. Codex traces do not currently expose an equivalent explicit dollar-cost field.
 `completion.json` also stores `trace_counts` derived from the trace, including wrapper usage, profiler usage, subagent spawns, and hosted web-search calls.
 `completion.json` also stores `web_searches`, including recorded queries and any surfaced domains from the trace payload.
 `completion.json` also stores raw diagnostic outcome fields such as `raw_best_correct_runtime_ms`, `raw_beats_*`, and `outside_harness_success`. These are reference-only fields for later manual inspection; they do not override audit invalidation or harness success semantics.

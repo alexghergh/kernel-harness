@@ -608,6 +608,17 @@ For Claude, `completion.json.token_usage` now means whole-artifact billed usage,
 
 In observed Claude traces, this whole-artifact total appears to include `Task` subagent work when that work is reflected in cumulative `result.modelUsage`.
 
+`completion.json` also carries cost accounting:
+
+- `cost_usd`
+
+For Claude, `cost_usd` comes directly from Claude's reported cumulative trace cost:
+
+- the harness uses the maximum cumulative `result.total_cost_usd`
+- if that field is absent, it falls back to the maximum cumulative sum of `result.modelUsage.*.costUSD`
+
+Codex raw traces do not currently expose an equivalent explicit dollar-cost field, so Codex cost still has to be estimated separately from token counts.
+
 `completion.json` also carries `trace_counts`, including:
 
 - `run_candidate_calls`
@@ -632,7 +643,7 @@ In observed Claude traces, this whole-artifact total appears to include `Task` s
 
 These fields are advisory only. They do not override audit invalidation, and a run still counts as failed inside the harness when `decision = "harness_failure"` or `success = false`.
 
-That is the per-problem source for later API-cost calculations.
+For Claude, `completion.json.cost_usd` is the per-problem source for later API-cost calculations. For Codex, use token counts plus your external pricing table.
 
 If the trace audit fails, `completion.json` is rewritten to `decision = "harness_failure"` and `success = false`, even if the solver claimed it beat the baselines.
 

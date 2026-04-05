@@ -1269,6 +1269,45 @@ def _trace_usage_summary(
     return summary
 
 
+def _trace_cost_usd(
+    raw_events: list[dict[str, Any]],
+    *,
+    tool: str = "codex",
+) -> float | None:
+    tool = _normalize_tool_name(tool)
+    if tool != "claude":
+        return None
+
+    max_cost = None
+    for payload in raw_events:
+        if payload.get("type") != "result":
+            continue
+
+        explicit_cost = _as_float(payload.get("total_cost_usd"))
+
+        model_usage = payload.get("modelUsage")
+        model_usage_cost = None
+        if isinstance(model_usage, dict):
+            usage_blocks = [
+                value for value in model_usage.values() if isinstance(value, dict)
+            ]
+            if usage_blocks:
+                model_usage_cost = sum(
+                    float(_as_float(block.get("costUSD")) or 0.0)
+                    for block in usage_blocks
+                )
+
+        cost = explicit_cost
+        if cost is None and model_usage_cost is not None:
+            cost = model_usage_cost
+        if cost is None:
+            continue
+
+        max_cost = cost if max_cost is None else max(max_cost, cost)
+
+    return max_cost
+
+
 _ALLOWED_WORKSPACE_COMMAND_PREFIXES = (
     "./bin/problem_info.sh",
     "./bin/run_candidate.sh",
@@ -3104,6 +3143,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             events.append(_extract_trace_line(payload, line_count, tool=tool))
 
     token_usage = _trace_usage_summary(raw_events, tool=tool)
+    cost_usd = _trace_cost_usd(raw_events, tool=tool)
     trace_counts = _trace_counts_from_entries(raw_event_entries, tool=tool)
     web_searches = _web_searches_from_entries(raw_event_entries, tool=tool)
     audit = None
@@ -3119,6 +3159,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
         "generated_at": now_iso(),
         "num_events": len(events),
         "token_usage": token_usage,
+        "cost_usd": cost_usd,
         "trace_counts": trace_counts,
         "web_searches": web_searches,
         "audit": audit,
@@ -3137,6 +3178,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             completion_payload = _read_json(completion_path)
             completion_payload["tool"] = tool
             completion_payload["token_usage"] = token_usage
+            completion_payload["cost_usd"] = cost_usd
             completion_payload["trace_counts"] = trace_counts
             completion_payload["web_searches"] = web_searches
             if audit is not None:
@@ -3158,6 +3200,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             "num_events": len(events),
             "source_events_path": str(events_path),
             "token_usage": token_usage,
+            "cost_usd": cost_usd,
             "audit": audit,
         }
     )
@@ -3186,6 +3229,10 @@ def command_summarize_run(args: argparse.Namespace) -> None:
         "uncached_input_tokens": 0,
         "output_tokens": 0,
         "problems_with_usage": 0,
+    }
+    cost_usd_totals = {
+        "total_usd": 0.0,
+        "problems_with_cost": 0,
     }
     trace_count_totals = {
         "command_executions": 0,
@@ -3291,6 +3338,11 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                 if isinstance(completion_payload, dict)
                 else None
             )
+            row_cost_usd = (
+                _as_float(completion_payload.get("cost_usd"))
+                if isinstance(completion_payload, dict)
+                else None
+            )
             audit_valid = (
                 bool(audit_payload.get("valid"))
                 if isinstance(audit_payload, dict) and "valid" in audit_payload
@@ -3336,6 +3388,9 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                     trace_count_totals[key] += int(
                         _as_float(row_trace_counts.get(key)) or 0
                     )
+            if row_cost_usd is not None:
+                cost_usd_totals["problems_with_cost"] += 1
+                cost_usd_totals["total_usd"] += float(row_cost_usd)
             problem_rows.append(
                 {
                     "level": level,
@@ -3393,6 +3448,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                     ),
                     "audit_valid": audit_valid,
                     "audit": audit_payload,
+                    "cost_usd": row_cost_usd,
                     "token_usage": row_token_usage,
                     "trace_counts": row_trace_counts,
                     "samples": samples,
@@ -3472,6 +3528,15 @@ def command_summarize_run(args: argparse.Namespace) -> None:
             problems_with_correct / total_problems if total_problems else None
         ),
         "terminal_decisions": terminal_decisions,
+        "cost_usd": {
+            "total_usd": cost_usd_totals["total_usd"],
+            "problems_with_cost": cost_usd_totals["problems_with_cost"],
+            "average_per_problem_usd": (
+                cost_usd_totals["total_usd"] / cost_usd_totals["problems_with_cost"]
+                if cost_usd_totals["problems_with_cost"]
+                else None
+            ),
+        },
         "token_usage": token_usage_totals,
         "trace_counts": trace_count_totals,
         "beats_eager": {
