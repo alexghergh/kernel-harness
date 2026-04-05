@@ -599,7 +599,14 @@ Each problem now stores normalized trace artifacts under:
 - `token_usage.output_tokens`
 - `token_usage.turns_completed`
 
-For Claude, `uncached_input_tokens` includes both direct input tokens and cache-creation input tokens.
+For Claude, `completion.json.token_usage` now means whole-artifact billed usage, not just the main solve session:
+
+- when Claude emits cumulative `result.modelUsage`, the harness uses the maximum cumulative row
+- otherwise it falls back to the maximum cumulative `result.usage` row
+- `turns_completed` still records the highest observed `num_turns`, because later cumulative bookkeeping rows often reset to `1`
+- `uncached_input_tokens` includes both direct input tokens and cache-creation input tokens
+
+In observed Claude traces, this whole-artifact total appears to include `Task` subagent work when that work is reflected in cumulative `result.modelUsage`.
 
 `completion.json` also carries `trace_counts`, including:
 

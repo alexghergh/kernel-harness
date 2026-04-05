@@ -1134,65 +1134,118 @@ def _trace_usage_summary(
     }
 
     if tool == "claude":
+        def _claude_usage_summary_from_result(payload: dict[str, Any]) -> dict[str, int] | None:
+            turns_completed = int(_as_float(payload.get("num_turns")) or 0)
+
+            model_usage = payload.get("modelUsage")
+            if isinstance(model_usage, dict):
+                model_usage_blocks = [
+                    value for value in model_usage.values() if isinstance(value, dict)
+                ]
+                if model_usage_blocks:
+                    direct_input_tokens = 0
+                    cache_creation_input_tokens = 0
+                    cache_read_input_tokens = 0
+                    output_tokens = 0
+                    for block in model_usage_blocks:
+                        direct_input_tokens += int(_as_float(block.get("inputTokens")) or 0)
+                        cache_creation_input_tokens += int(
+                            _as_float(block.get("cacheCreationInputTokens")) or 0
+                        )
+                        cache_read_input_tokens += int(
+                            _as_float(block.get("cacheReadInputTokens")) or 0
+                        )
+                        output_tokens += int(_as_float(block.get("outputTokens")) or 0)
+
+                    uncached_input_tokens = (
+                        direct_input_tokens + cache_creation_input_tokens
+                    )
+                    return {
+                        "turns_completed": turns_completed,
+                        "input_tokens": cache_read_input_tokens + uncached_input_tokens,
+                        "cached_input_tokens": cache_read_input_tokens,
+                        "cache_creation_input_tokens": cache_creation_input_tokens,
+                        "output_tokens": output_tokens,
+                        "uncached_input_tokens": uncached_input_tokens,
+                    }
+
+            usage = payload.get("usage")
+            if not isinstance(usage, dict):
+                return None
+
+            direct_input_tokens = int(_as_float(usage.get("input_tokens")) or 0)
+            cache_creation_input_tokens = int(
+                _as_float(usage.get("cache_creation_input_tokens")) or 0
+            )
+            cache_read_input_tokens = int(
+                _as_float(usage.get("cache_read_input_tokens")) or 0
+            )
+            output_tokens = int(_as_float(usage.get("output_tokens")) or 0)
+            uncached_input_tokens = direct_input_tokens + cache_creation_input_tokens
+            return {
+                "turns_completed": turns_completed,
+                "input_tokens": cache_read_input_tokens + uncached_input_tokens,
+                "cached_input_tokens": cache_read_input_tokens,
+                "cache_creation_input_tokens": cache_creation_input_tokens,
+                "output_tokens": output_tokens,
+                "uncached_input_tokens": uncached_input_tokens,
+            }
+
         result_candidates: list[dict[str, int]] = []
         for payload in raw_events:
             if payload.get("type") != "result":
                 continue
-            usage = payload.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            result_candidates.append(
-                {
-                    "turns_completed": int(_as_float(payload.get("num_turns")) or 0),
-                    "input_tokens": int(_as_float(usage.get("input_tokens")) or 0),
-                    "cached_input_tokens": int(
-                        _as_float(usage.get("cache_read_input_tokens")) or 0
-                    ),
-                    "cache_creation_input_tokens": int(
-                        _as_float(usage.get("cache_creation_input_tokens")) or 0
-                    ),
-                    "output_tokens": int(_as_float(usage.get("output_tokens")) or 0),
-                }
-            )
+            usage_summary = _claude_usage_summary_from_result(payload)
+            if usage_summary is not None:
+                result_candidates.append(usage_summary)
 
         if result_candidates:
+            max_turns_completed = max(
+                candidate["turns_completed"] for candidate in result_candidates
+            )
             summary = max(
                 result_candidates,
                 key=lambda candidate: (
-                    candidate["turns_completed"],
                     candidate["input_tokens"]
-                    + candidate["cached_input_tokens"]
-                    + candidate["cache_creation_input_tokens"]
                     + candidate["output_tokens"],
+                    candidate["turns_completed"],
                 ),
             )
-            summary["turns_completed"] = summary["turns_completed"] or 1
-            summary["uncached_input_tokens"] = (
-                summary["input_tokens"] + summary["cache_creation_input_tokens"]
-            )
+            summary["turns_completed"] = max_turns_completed or summary["turns_completed"] or 1
             return summary
 
+        seen_assistant_message_ids: set[str] = set()
         for payload in raw_events:
             if payload.get("type") != "assistant":
                 continue
             message = payload.get("message")
             if not isinstance(message, dict):
                 continue
+            message_id = message.get("id")
+            if isinstance(message_id, str) and message_id:
+                if message_id in seen_assistant_message_ids:
+                    continue
+                seen_assistant_message_ids.add(message_id)
             usage = message.get("usage")
             if not isinstance(usage, dict):
                 continue
-            summary["turns_completed"] += 1
-            summary["input_tokens"] += int(_as_float(usage.get("input_tokens")) or 0)
-            summary["cached_input_tokens"] += int(
+            direct_input_tokens = int(_as_float(usage.get("input_tokens")) or 0)
+            cache_creation_input_tokens = int(
+                _as_float(usage.get("cache_creation_input_tokens")) or 0
+            )
+            cache_read_input_tokens = int(
                 _as_float(usage.get("cache_read_input_tokens")) or 0
             )
-            summary["cache_creation_input_tokens"] += int(
-                _as_float(usage.get("cache_creation_input_tokens")) or 0
+            summary["turns_completed"] += 1
+            summary["cached_input_tokens"] += cache_read_input_tokens
+            summary["cache_creation_input_tokens"] += cache_creation_input_tokens
+            summary["uncached_input_tokens"] += (
+                direct_input_tokens + cache_creation_input_tokens
             )
             summary["output_tokens"] += int(_as_float(usage.get("output_tokens")) or 0)
 
-        summary["uncached_input_tokens"] = (
-            summary["input_tokens"] + summary["cache_creation_input_tokens"]
+        summary["input_tokens"] = (
+            summary["cached_input_tokens"] + summary["uncached_input_tokens"]
         )
         return summary
 

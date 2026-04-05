@@ -220,6 +220,7 @@ Project-local artifacts:
 - profiler text exports under `artifacts/<run_name>/.../ncu/`, mirrored into the workspace as the solver-readable profiling surface
 
 `completion.json` also stores `token_usage` totals extracted from the raw agent event stream, so run cost can be computed later without re-parsing raw traces.
+For Claude, this token payload is defined as whole-artifact billed usage: the harness prefers cumulative `result.modelUsage` when present, otherwise cumulative `result.usage`, and records the maximum cumulative row while keeping `turns_completed` as the highest observed `num_turns`.
 `completion.json` also stores `trace_counts` derived from the trace, including wrapper usage, profiler usage, subagent spawns, and hosted web-search calls.
 `completion.json` also stores `web_searches`, including recorded queries and any surfaced domains from the trace payload.
 `completion.json` also stores raw diagnostic outcome fields such as `raw_best_correct_runtime_ms`, `raw_beats_*`, and `outside_harness_success`. These are reference-only fields for later manual inspection; they do not override audit invalidation or harness success semantics.
