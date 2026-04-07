@@ -1,6 +1,6 @@
 # KernelBench experiment harness
 
-This repository runs one autonomous solver agent at a time on one optimization problem, records the run, and keeps the durable record under `archive/`.
+This repository runs one autonomous solver agent at a time on one optimization problem.
 
 The harness owns measured outcomes. The solver works inside a fresh, self-contained workspace, uses only local wrapper commands, and terminates through one narrow completion wrapper.
 
@@ -277,12 +277,3 @@ Generated outputs live inside each prepared workspace and are also archived unde
 - GPU slot leases are logical harness slots backed by visible-device selectors
 - measured evaluation and Nsight Compute profiling run in isolated subprocesses with `CUDA_VISIBLE_DEVICES` bound to the leased selector
 - inside that isolated subprocess the runner always uses logical device `cuda:0`
-- if the cluster already restricts visibility through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible selector list
-
-## Current implementation notes
-
-- `cli.py` is now a thin parser/dispatcher; workspace generation, execution, status, trace, and summary logic live in dedicated modules under `src/kernel_bench_experiment_agents/`
-- workspace preparation is now split across dedicated wrapper-generation, contract-materialization, problem-materialization, and prepare-command modules instead of one string-heavy file
-- run summarization is now split into archive scanning, pass@k math, and report aggregation modules instead of one large command file
-- trace audit is currently a bring-up guard that validates wrapper usage and obvious boundary violations against the declared workspace contract; it is not a substitute for a real external sandbox
-- the next major cleanup target is continued runtime hardening around external sandbox enforcement and any remaining archive-surface polish

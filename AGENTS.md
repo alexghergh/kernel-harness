@@ -7,7 +7,7 @@ It is **not** the solver contract used inside per-problem workspaces. Those work
 
 1. Read this file.
 2. Read `MEMORY.md`.
-3. Read any relevant ADRs under `docs/adr/`.
+3. Read `ARCHITECTURE.md` and any relevant ADRs under `docs/adr/`.
 4. Read the code that implements the area you are changing.
 
 ## Memory policy
@@ -30,7 +30,6 @@ It is **not** the solver contract used inside per-problem workspaces. Those work
 - Do not hand-edit generated workspace helper-agent specs. Edit `src/kernel_bench_experiment_agents/agent_specs.py`; `prepare-problem-workspace` regenerates `.codex/agents/*` and `.claude/agents/*` inside each workspace.
 - Keep `archive/` as the single durable copy-out root.
 - Keep `state/` disposable.
-- Do not re-introduce root `SPEC.md`.
 
 ## Validation before finishing
 

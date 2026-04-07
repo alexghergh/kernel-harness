@@ -15,7 +15,7 @@ prepare_runtime_codex_home() {
   rm -rf "${runtime_home}"
   mkdir -p "${runtime_home}"
 
-  for entry in .personality_migration auth.json config.toml version.json yusa_auth.json; do
+  for entry in .personality_migration auth.json config.toml version.json; do
     if [[ -f "${base_home}/${entry}" ]]; then
       cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
     fi
@@ -89,7 +89,7 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v2"
+DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
 DEFAULT_MODEL="gpt-5-codex"
 if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="opus"

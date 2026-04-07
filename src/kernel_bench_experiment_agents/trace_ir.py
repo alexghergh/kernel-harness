@@ -357,6 +357,7 @@ def _claude_ir_events(
     ]
 
 
+# Codex helpers
 
 def _codex_ir_events(
     line_number: int,

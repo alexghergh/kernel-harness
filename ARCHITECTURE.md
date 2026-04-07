@@ -6,7 +6,7 @@ This file describes the current harness contract, not historical behavior.
 
 There are two distinct documentation surfaces:
 
-- root docs in this repository for maintainers and operators
+- root docs in this repository root for maintainers and operators
 - generated docs inside each solver workspace for the solver agent
 
 Root `AGENTS.md` is for maintainers. Workspace `AGENTS.md` is for the solver. The same filename does not imply the same audience.
@@ -23,7 +23,7 @@ For one such key, the harness performs this loop:
 
 1. prepare a fresh workspace
 2. render the solver contract into that workspace
-3. launch Codex or Claude inside that workspace
+3. launch the agent tool (Codex or Claude) inside that workspace
 4. let the solver iterate through wrapper commands only
 5. record attempts, traces, and optional profiler outputs
 6. archive the durable record under `archive/<run_name>/...`
