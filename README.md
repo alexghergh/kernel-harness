@@ -125,6 +125,8 @@ Measured candidate attempts:
 
 - `history.jsonl`
 - `sample_<id>.json`
+- `sample_<id>.stdout.txt`
+- `sample_<id>.stderr.txt`
 - `kernels/level_<level>_problem_<problem_id>_sample_<id>_kernel.py`
 - `prompts/...` when a prompt snapshot is provided
 
@@ -159,7 +161,7 @@ Each solver workspace contains a small, explicit surface:
 - `profiles/`
 - `bin/*.sh`
 
-The solver is expected to stay inside that workspace and use only the local wrapper scripts.
+The solver is expected to stay inside that workspace and use only the local wrapper scripts. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
 
 ## Canonical JSON vs rendered Markdown
 
@@ -190,6 +192,7 @@ The generated workspace exposes these commands:
 
 `run_candidate.sh` is the only supported path for measured evaluation.
 `profile_ncu.sh` is the only supported path for profiling.
+`complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--state` plus `--summary`.
 
 ## Completion model
 
@@ -233,7 +236,15 @@ Generated outputs live inside each prepared workspace and are also archived unde
 - `archive/.../contract/helper_agents/codex/*.toml`
 - `archive/.../contract/helper_agents/claude/*.md`
 
+## GPU/runtime isolation notes
+
+- GPU slot leases are logical harness slots, not guaranteed physical device ids
+- measured evaluation and Nsight Compute profiling now run in isolated subprocesses with `CUDA_VISIBLE_DEVICES` bound to the leased slot's selector
+- inside that isolated subprocess the runner always uses logical device `cuda:0`
+- if the cluster already restricts visibility through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible selector list
+
 ## Current implementation notes
 
-- workspace generation, completion handling, trace materialization, and summarization currently still live partly in `cli.py`; that file is being split further
-- the runtime layout and completion ownership are already aligned with the current architecture documents
+- `cli.py` is now a thin parser/dispatcher; workspace generation, execution, status, trace, and summary logic live in dedicated modules under `src/kernel_bench_experiment_agents/`
+- the runtime layout, completion ownership, helper-agent generation, and GPU isolation model are aligned with the current architecture documents
+- the next major cleanup target is continued decomposition of the larger state/execution modules and more runtime hardening around external sandbox enforcement

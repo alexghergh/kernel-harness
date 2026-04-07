@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Tighten the harness so the runtime contract, archive layout, and solver-visible surface are explicit and stable while the internals keep moving out of `cli.py`.
+Tighten the runtime boundary so the solver-visible workspace, archive layout, and measured execution path are explicit and stable, with GPU-bound subprocess execution instead of loose in-process device access.
 
 ## Locked decisions
 
@@ -16,6 +16,8 @@ Tighten the harness so the runtime contract, archive layout, and solver-visible 
 - helper-agent specs are generated per workspace from `src/kernel_bench_experiment_agents/agent_specs.py` and archived under `contract/helper_agents/`.
 - structured JSON is the canonical machine-readable state; rendered Markdown is the solver-facing view.
 - launcher and workspace wrappers should rely on the installed `kbe` entrypoint, not on repo-root `PYTHONPATH` injection.
+- every wrapper except `./bin/complete_problem.sh` should behave as a fixed command with no solver-supplied control flags.
+- hardware facts should come from frozen workspace files (`HARDWARE.md`, `hardware.json`, `./bin/hardware_info.sh`), not ad hoc host probing.
 
 ## Recently completed
 
@@ -34,15 +36,20 @@ Tighten the harness so the runtime contract, archive layout, and solver-visible 
   - `completion_policy.py`
 - switched `scripts/run_agent_problem.sh` from `python -m kernel_bench_experiment_agents.cli` plus `PYTHONPATH` to the installed `kbe` CLI
 - updated `scripts/setup_kernelbench_env.sh` to install this harness into the same KernelBench environment
+- moved measured evaluation onto `evaluation_runner.py`, an isolated subprocess bound to one leased GPU slot through `CUDA_VISIBLE_DEVICES`
+- tightened GPU slot resolution so the harness can lease against either the inherited visible GPU list or `KBE_VISIBLE_GPU_DEVICES`
+- moved Nsight Compute execution onto the same isolated GPU-binding model and made profile metadata/workspace mirrors refresh under the per-problem state lock
+- archived per-sample evaluation stdout/stderr alongside the sample manifest
+- removed solver pass-through flags from every wrapper except `./bin/complete_problem.sh`
 
 ## In progress
 
-- keep the new modules aligned while smoke-testing the refactor
-- improve runtime hardening later, especially GPU/device isolation and profiling execution details
-- continue tightening documentation where the installed-CLI flow or archive contract changed
+- keep the new execution/runtime behavior aligned with the docs and archive contract
+- continue smoke-testing the isolated GPU-binding path and profile metadata flow
+- keep trimming remaining catch-all modules (`workspace_state.py`, `execution_commands.py`) once the behavior settles
 
 ## Next steps
 
-- harden GPU execution isolation and profiling flow in a later pass
-- consider whether `workspace_state.py` should be split further once the runtime behavior settles
-- keep workspace contract, trace materialization, and summarization aligned as the code is split further
+- continue decomposing the larger state/execution modules once the runtime path feels stable
+- consider whether more archive metadata should move from Markdown renders into structured JSON without adding redundant drift
+- later, tighten any remaining boundary assumptions that still depend on the external sandbox rather than the harness itself

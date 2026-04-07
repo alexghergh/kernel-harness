@@ -17,6 +17,10 @@ class GPULease:
     slot_id: int
     lock_path: str
     wait_seconds: float
+    device_selector: str
+    isolated_visible_devices: str
+    logical_gpu_id: int
+    selector_source: str
 
 
 @dataclass
@@ -37,18 +41,20 @@ def lease_gpu_slot(
     if num_slots <= 0:
         raise RuntimeError("num_slots must be >= 1")
 
-    if requested_slot is not None and requested_slot >= num_slots:
+    selectors, selector_source = resolve_gpu_device_selectors(num_slots=num_slots)
+    if requested_slot is not None and (requested_slot < 0 or requested_slot >= len(selectors)):
         raise RuntimeError(
-            f"requested GPU slot {requested_slot} is outside the configured range 0..{num_slots - 1}"
+            f"requested GPU slot {requested_slot} is outside the configured range 0..{len(selectors) - 1}"
         )
 
     lock_root = gpu_lock_dir()
-    slot_ids = [requested_slot] if requested_slot is not None else list(range(num_slots))
+    slot_ids = [requested_slot] if requested_slot is not None else list(range(len(selectors)))
     started = time.monotonic()
     effective_max_wait_seconds = _gpu_lease_timeout_seconds(max_wait_seconds)
 
     while True:
         for slot_id in slot_ids:
+            device_selector = selectors[slot_id]
             lock_path = lock_root / f"gpu_{slot_id}.lock"
             handle = _try_lock(
                 lock_path,
@@ -56,6 +62,8 @@ def lease_gpu_slot(
                     "pid": os.getpid(),
                     "slot_id": slot_id,
                     "lease_name": lease_name,
+                    "device_selector": device_selector,
+                    "selector_source": selector_source,
                     "acquired_at": now_iso(),
                 },
             )
@@ -67,7 +75,11 @@ def lease_gpu_slot(
                 slot_id=slot_id,
                 lock_path=str(lock_path),
                 wait_seconds=wait_seconds,
-                )
+                device_selector=device_selector,
+                isolated_visible_devices=device_selector,
+                logical_gpu_id=0,
+                selector_source=selector_source,
+            )
             try:
                 yield lease
             finally:
@@ -136,6 +148,44 @@ def lease_problem_artifacts(
             )
 
         time.sleep(poll_interval_seconds)
+
+
+def resolve_gpu_device_selectors(*, num_slots: int) -> tuple[list[str], str]:
+    explicit = os.environ.get("KBE_VISIBLE_GPU_DEVICES", "").strip()
+    inherited = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+
+    if explicit:
+        selectors = _parse_gpu_selector_list(explicit, env_name="KBE_VISIBLE_GPU_DEVICES")
+        source = "KBE_VISIBLE_GPU_DEVICES"
+    elif inherited:
+        selectors = _parse_gpu_selector_list(inherited, env_name="CUDA_VISIBLE_DEVICES")
+        source = "CUDA_VISIBLE_DEVICES"
+    else:
+        selectors = [str(slot_id) for slot_id in range(num_slots)]
+        source = "default_range"
+
+    if len(selectors) < num_slots:
+        raise RuntimeError(
+            f"Configured num_slots={num_slots}, but {source} exposes only {len(selectors)} visible GPU selector(s): {selectors}"
+        )
+    return selectors[:num_slots], source
+
+
+def isolated_gpu_environment(*, device_selector: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = device_selector
+    env["KBE_VISIBLE_GPU_DEVICES"] = device_selector
+    env["KBE_LEASED_GPU_SELECTOR"] = device_selector
+    return env
+
+
+def _parse_gpu_selector_list(raw_value: str, *, env_name: str) -> list[str]:
+    if raw_value == "-1":
+        raise RuntimeError(f"{env_name} disables CUDA visibility (-1); no GPU slots are available.")
+    selectors = [token.strip() for token in raw_value.split(",") if token.strip()]
+    if not selectors:
+        raise RuntimeError(f"{env_name} did not contain any usable GPU selectors: {raw_value!r}")
+    return selectors
 
 
 def _try_lock(lock_path: Path, *, payload: dict[str, object]):

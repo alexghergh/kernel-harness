@@ -117,7 +117,7 @@ The workspace contract currently exposes exactly these wrapper commands:
 - `./bin/best_result.sh`
 - `./bin/complete_problem.sh`
 
-The solver should not use ad hoc shell commands to benchmark, profile, inspect hardware, or terminate the run.
+The solver should not use ad hoc shell commands to benchmark, profile, inspect hardware, or terminate the run. Every wrapper other than `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
 
 ## Hardware surface
 
@@ -127,7 +127,7 @@ Hardware facts are frozen into:
 - `hardware.json`
 - `./bin/hardware_info.sh`
 
-The intended model is that the solver reads these files rather than probing the machine through `nvidia-smi`, `/proc`, `/etc`, or one-off scripts.
+The intended model is that the solver reads these files rather than probing the machine through `nvidia-smi`, `/proc`, `/etc`, or one-off scripts. The harness now treats this as an explicit contract: hardware access should flow through frozen workspace facts, not ambient host inspection.
 
 ## Completion ownership
 
@@ -177,7 +177,8 @@ That command:
 - validates the candidate source
 - reserves a per-problem sample id
 - snapshots the candidate into `archive/.../attempts/kernels/`
-- evaluates correctness and runtime
+- evaluates correctness and runtime in an isolated subprocess bound to one leased GPU slot
+- archives the evaluation subprocess stdout/stderr for that sample
 - appends to `attempts/history.jsonl`
 - refreshes goal status
 
@@ -188,13 +189,14 @@ That command:
 The profiler flow:
 
 - reserves a per-problem profile id
+- leases one GPU slot and binds profiling to that isolated visible device set
 - runs Nsight Compute under the harness
 - exports summary/details/raw CSV text outputs
 - writes archive metadata under `profiles/`
-- mirrors the latest text outputs into the live workspace
+- mirrors the latest text outputs into the live workspace under the per-problem state lock
 - refreshes goal status afterward
 
-The text and CSV exports are the first-class solver-facing profiling surface.
+The text and CSV exports are the first-class solver-facing profiling surface. The raw `.ncu-rep` file is optional debug retention only.
 
 ## Trace handling and audit
 
@@ -220,11 +222,14 @@ The harness uses three lock classes:
 - `state/locks/problem_state/` — serialized mutation of per-problem durable state
 - `state/locks/gpu/` — shared GPU slot leasing across problems
 
+GPU slots are lease indices, not necessarily physical device ids. At execution time the harness binds the selected slot into an isolated `CUDA_VISIBLE_DEVICES` view, and the evaluation/profile subprocess uses logical device `cuda:0` inside that isolated view. If the cluster already provides a restricted GPU list through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible list instead of probing the host globally.
+
 ## Current refactor status
 
 The current direction is:
 
 - keep archive and workspace contracts stable
-- move generic logic out of `cli.py`
+- keep `cli.py` thin and continue decomposing larger runtime/state modules
 - keep Codex/Claude-specific parsing and runtime setup in thin adapters
 - keep one canonical source for duplicated helper-agent specifications
+- keep measured execution and profiling bound to leased GPU slots through isolated subprocesses

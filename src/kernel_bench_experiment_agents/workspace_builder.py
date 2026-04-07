@@ -109,10 +109,7 @@ def generate_run_wrapper(
     ]
     if kernelbench_root_path:
         command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
-    command_lines.extend([
-        f'  --num-gpu-slots {num_gpus}',
-        '  "$@"',
-    ])
+    command_lines.append(f'  --num-gpu-slots {num_gpus}')
     return common + shell_multiline_command(command_lines) + (
         'echo ">>> Re-read GOAL_STATUS.md and SPEC.md before your next decision."\n'
     )
@@ -143,10 +140,7 @@ def generate_profile_wrapper(
     ]
     if kernelbench_root_path:
         command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
-    command_lines.extend([
-        f'  --num-gpu-slots {num_gpus}',
-        '  "$@"',
-    ])
+    command_lines.append(f'  --num-gpu-slots {num_gpus}')
     return common + shell_multiline_command(command_lines) + (
         'echo ">>> Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed."\n'
     )
@@ -172,7 +166,6 @@ def generate_info_wrapper(
     ]
     if kernelbench_root_path:
         command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
-    command_lines.append('  "$@"')
     return common + shell_multiline_command(command_lines)
 
 
@@ -195,7 +188,6 @@ def generate_goal_status_wrapper(*, kernelbench_python: str, run_name: str, leve
         f'  --level {level}',
         f'  --problem-id {problem_id}',
         '  --workspace "${WORKSPACE}"',
-        '  "$@"',
     ]
     return common + shell_multiline_command(command_lines)
 
@@ -210,7 +202,6 @@ def generate_best_wrapper(*, kernelbench_python: str, run_name: str, level: int,
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
-        '  "$@"',
     ]
     return common + shell_multiline_command(command_lines)
 
@@ -222,11 +213,11 @@ def generate_complete_wrapper(*, kernelbench_python: str, run_name: str, level: 
     )
     command_lines = [
         '"${KBE_CLI}" complete-problem',
+        '  "$@"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
         '  --workspace "${WORKSPACE}"',
-        '  "$@"',
     ]
     return common + shell_multiline_command(command_lines)
 

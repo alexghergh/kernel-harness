@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import json
 import os
 import subprocess
 import sys
@@ -11,11 +12,15 @@ from typing import Any
 
 from .candidate_contract import CANDIDATE_FILENAME
 from .candidate_validation import CandidateValidationError, validate_candidate_source
-from .common import emit_json
-from .gpu_pool import lease_gpu_slot, lease_problem_artifacts
-from .kernelbench import evaluate_candidate
+from .common import as_float, emit_json
+from .gpu_pool import (
+    isolated_gpu_environment,
+    lease_gpu_slot,
+    lease_problem_artifacts,
+)
 from .project import (
     append_jsonl,
+    build_problem_dir,
     next_sample_id,
     now_iso,
     official_kernel_path,
@@ -38,7 +43,6 @@ from .workspace_state import (
     write_goal_status_files,
     write_workspace_sample_copy,
 )
-from .common import as_float
 
 
 def summarize_ncu_raw_csv(raw_csv_text: str) -> str:
@@ -147,13 +151,34 @@ def summarize_ncu_raw_csv(raw_csv_text: str) -> str:
     return "\n".join(lines)
 
 
-def run_subprocess_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
+def run_subprocess_capture(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
+        cwd=cwd,
     )
+
+
+def _excerpt(text: str, *, limit: int = 4000) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n...[truncated]"
+
+
+def _load_json_file(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Expected a JSON object at {path}, got {type(payload).__name__}.")
+    return payload
+
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
@@ -167,7 +192,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     history_path_value = history_path(args.run_name, args.level, args.problem_id)
     failure: Exception | None = None
     persist_failure: Exception | None = None
-    status_refresh_failure: Exception | None = None
 
     try:
         with lease_problem_artifacts(
@@ -183,7 +207,14 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 args.problem_id,
                 sample_id,
             )
-            sample_json_path = sample_manifest_path(args.run_name, args.level, args.problem_id, sample_id)
+            sample_json_path = sample_manifest_path(
+                args.run_name,
+                args.level,
+                args.problem_id,
+                sample_id,
+            )
+            stdout_path = sample_json_path.with_suffix(".stdout.txt")
+            stderr_path = sample_json_path.with_suffix(".stderr.txt")
             if args.prompt_path:
                 prompt_path = official_prompt_path(
                     args.run_name,
@@ -203,11 +234,17 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "candidate_path": str(candidate_path),
                 "official_kernel_path": str(kernel_path),
                 "official_prompt_path": str(prompt_path) if prompt_path else None,
+                "stdout_path": str(stdout_path),
+                "stderr_path": str(stderr_path),
                 "backend": args.backend,
                 "precision": args.precision,
                 "artifact_reservation_wait_seconds": artifact_lease.wait_seconds,
                 "artifact_commit_wait_seconds": None,
                 "gpu_id": None,
+                "gpu_device_selector": None,
+                "gpu_visible_devices": None,
+                "gpu_logical_id": None,
+                "gpu_selector_source": None,
                 "gpu_wait_seconds": None,
                 "result": {},
                 "error": None,
@@ -234,24 +271,70 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             requested_slot=args.gpu_id,
             lease_name=f"run:{args.run_name}:level_{args.level}:problem_{args.problem_id}",
         ) as lease:
-            payload["gpu_id"] = lease.slot_id
-            payload["gpu_wait_seconds"] = lease.wait_seconds
-            result = evaluate_candidate(
-                candidate_src=candidate_src,
-                level=args.level,
-                problem_id=args.problem_id,
-                dataset_src=args.dataset_src,
-                run_name=args.run_name,
-                sample_id=sample_id,
-                gpu_id=lease.slot_id,
-                timing_method=args.timing_method,
-                backend=args.backend,
-                precision=args.precision,
-                num_correct_trials=args.num_correct_trials,
-                num_perf_trials=args.num_perf_trials,
-                explicit_kernelbench_root=args.kernelbench_root,
-            )
+            runner_output_path = build_problem_dir(
+                args.run_name,
+                args.level,
+                args.problem_id,
+                f"sample_{sample_id}",
+            ) / "evaluation_result.json"
+            command = [
+                sys.executable,
+                "-m",
+                "kernel_bench_experiment_agents.evaluation_runner",
+                "--candidate",
+                str(candidate_path),
+                "--output-path",
+                str(runner_output_path),
+                "--level",
+                str(args.level),
+                "--problem-id",
+                str(args.problem_id),
+                "--dataset-src",
+                args.dataset_src,
+                "--gpu-id",
+                str(lease.logical_gpu_id),
+                "--run-name",
+                args.run_name,
+                "--sample-id",
+                str(sample_id),
+                "--backend",
+                args.backend,
+                "--precision",
+                args.precision,
+                "--num-correct-trials",
+                str(args.num_correct_trials),
+                "--num-perf-trials",
+                str(args.num_perf_trials),
+            ]
+            if args.kernelbench_root:
+                command.extend(["--kernelbench-root", args.kernelbench_root])
+            if args.timing_method is not None:
+                command.extend(["--timing-method", args.timing_method])
 
+            completed = run_subprocess_capture(
+                command,
+                env=isolated_gpu_environment(device_selector=lease.device_selector),
+            )
+            write_text(stdout_path, completed.stdout)
+            write_text(stderr_path, completed.stderr)
+            payload["gpu_id"] = lease.slot_id
+            payload["gpu_device_selector"] = lease.device_selector
+            payload["gpu_visible_devices"] = lease.isolated_visible_devices
+            payload["gpu_logical_id"] = lease.logical_gpu_id
+            payload["gpu_selector_source"] = lease.selector_source
+            payload["gpu_wait_seconds"] = lease.wait_seconds
+
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "Candidate evaluation subprocess failed "
+                f"(return code {completed.returncode}); see {stderr_path}.\n"
+                f"stderr excerpt:\n{_excerpt(completed.stderr or completed.stdout)}"
+            )
+        if not runner_output_path.exists():
+            raise RuntimeError(
+                f"Candidate evaluation subprocess produced no result payload at {runner_output_path}."
+            )
+        result = _load_json_file(runner_output_path)
         payload["status"] = "succeeded"
         payload["updated_at"] = now_iso()
         payload["result"] = result
@@ -275,29 +358,21 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     payload["updated_at"] = now_iso()
                     write_json(sample_json_path, payload)
                     append_jsonl(history_path_value, payload)
+                    if workspace is not None:
+                        write_goal_status_files(
+                            run_name=args.run_name,
+                            level=args.level,
+                            problem_id=args.problem_id,
+                            workspace=workspace,
+                        )
             except Exception as exc:
                 persist_failure = exc
-        if workspace is not None:
-            try:
-                write_goal_status_files(
-                    run_name=args.run_name,
-                    level=args.level,
-                    problem_id=args.problem_id,
-                    workspace=workspace,
-                )
-            except Exception as exc:
-                status_refresh_failure = exc
 
     emit_json(payload)
     if failure is not None:
         if persist_failure is not None:
             print(
                 f"warning: artifact persistence also failed for sample {sample_id}: {persist_failure}",
-                file=sys.stderr,
-            )
-        if status_refresh_failure is not None:
-            print(
-                f"warning: goal-status refresh also failed for sample {sample_id}: {status_refresh_failure}",
                 file=sys.stderr,
             )
         raise SystemExit(
@@ -307,11 +382,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"Artifact persistence failed for sample {sample_id}: {persist_failure}"
         ) from persist_failure
-    if status_refresh_failure is not None:
-        print(
-            f"warning: failed to refresh goal status after sample {sample_id}: {status_refresh_failure}",
-            file=sys.stderr,
-        )
+
 
 
 def command_profile_ncu(args: argparse.Namespace) -> None:
@@ -329,8 +400,6 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
 
     lease_name = f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     profiles_dir = archive_problem_profiles_dir(args.run_name, args.level, args.problem_id)
-    reservation_wait_seconds = 0.0
-    status_refresh_failure: Exception | None = None
 
     with lease_problem_artifacts(
         run_name=args.run_name,
@@ -342,7 +411,9 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         if args.sample_id is not None:
             sample_label = f"sample_{args.sample_id}"
         else:
-            sample_label = f"profile_{next_archive_profile_index(args.run_name, args.level, args.problem_id)}"
+            sample_label = (
+                f"profile_{next_archive_profile_index(args.run_name, args.level, args.problem_id)}"
+            )
         report_prefix = profiles_dir / sample_label
         report_path = Path(str(report_prefix) + ".ncu-rep")
         stdout_path = report_prefix.with_suffix(".stdout.txt")
@@ -372,6 +443,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         requested_slot=args.gpu_id,
         lease_name=lease_name,
     ) as lease:
+        isolated_env = isolated_gpu_environment(device_selector=lease.device_selector)
         command = [
             "ncu",
             "--set",
@@ -393,7 +465,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "--dataset-src",
             args.dataset_src,
             "--gpu-id",
-            str(lease.slot_id),
+            str(lease.logical_gpu_id),
             "--run-name",
             args.run_name,
             "--sample-label",
@@ -401,8 +473,12 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         ]
         if args.kernelbench_root:
             command.extend(["--kernelbench-root", args.kernelbench_root])
-        completed = run_subprocess_capture(command)
+        completed = run_subprocess_capture(command, env=isolated_env)
         gpu_id = lease.slot_id
+        gpu_device_selector = lease.device_selector
+        gpu_visible_devices = lease.isolated_visible_devices
+        gpu_logical_id = lease.logical_gpu_id
+        gpu_selector_source = lease.selector_source
         gpu_wait_seconds = lease.wait_seconds
 
     write_text(stdout_path, completed.stdout)
@@ -467,67 +543,16 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         "raw_csv_command": raw_csv_command,
         "raw_csv_returncode": raw_csv_completed.returncode,
         "gpu_id": gpu_id,
+        "gpu_device_selector": gpu_device_selector,
+        "gpu_visible_devices": gpu_visible_devices,
+        "gpu_logical_id": gpu_logical_id,
+        "gpu_selector_source": gpu_selector_source,
         "gpu_wait_seconds": gpu_wait_seconds,
         "artifact_reservation_wait_seconds": reservation_wait_seconds,
         "artifact_commit_wait_seconds": None,
     }
 
     emit_payload = dict(payload)
-    if workspace is not None:
-        profiles_workspace_dir = workspace_profiles_dir(workspace)
-        profile_base = profiles_workspace_dir / sample_label
-        local_paths = {
-            "details_path": profile_base.with_suffix(".details.txt"),
-            "details_stderr_path": profile_base.with_suffix(".details.stderr.txt"),
-            "raw_csv_path": profile_base.with_suffix(".raw.csv"),
-            "raw_csv_stderr_path": profile_base.with_suffix(".raw.stderr.txt"),
-            "summary_path": profile_base.with_suffix(".summary.txt"),
-            "stdout_path": profile_base.with_suffix(".stdout.txt"),
-            "stderr_path": profile_base.with_suffix(".stderr.txt"),
-            "json_path": profile_base.with_suffix(".json"),
-        }
-        latest_paths = latest_workspace_profile_paths(workspace)
-
-        write_text(local_paths["details_path"], details_completed.stdout)
-        write_text(local_paths["details_stderr_path"], details_completed.stderr)
-        write_text(local_paths["raw_csv_path"], raw_csv_completed.stdout)
-        write_text(local_paths["raw_csv_stderr_path"], raw_csv_completed.stderr)
-        write_text(local_paths["summary_path"], summary_text)
-        write_text(local_paths["stdout_path"], completed.stdout)
-        write_text(local_paths["stderr_path"], completed.stderr)
-        write_json(local_paths["json_path"], payload)
-        write_text(latest_paths["details"], details_completed.stdout)
-        write_text(latest_paths["details_stderr"], details_completed.stderr)
-        write_text(latest_paths["raw_csv"], raw_csv_completed.stdout)
-        write_text(latest_paths["raw_csv_stderr"], raw_csv_completed.stderr)
-        write_text(latest_paths["summary"], summary_text)
-        write_text(latest_paths["stdout"], completed.stdout)
-        write_text(latest_paths["stderr"], completed.stderr)
-        write_json(latest_paths["json"], payload)
-        emit_payload = {
-            "timestamp": payload["timestamp"],
-            "run_name": args.run_name,
-            "level": args.level,
-            "problem_id": args.problem_id,
-            "sample_label": sample_label,
-            "candidate_path": workspace_relpath(candidate_path, workspace),
-            "details_path": workspace_relpath(latest_paths["details"], workspace),
-            "raw_csv_path": workspace_relpath(latest_paths["raw_csv"], workspace),
-            "summary_path": workspace_relpath(latest_paths["summary"], workspace),
-            "stdout_path": workspace_relpath(latest_paths["stdout"], workspace),
-            "stderr_path": workspace_relpath(latest_paths["stderr"], workspace),
-            "profile_details_path": workspace_relpath(local_paths["details_path"], workspace),
-            "profile_raw_csv_path": workspace_relpath(local_paths["raw_csv_path"], workspace),
-            "profile_summary_path": workspace_relpath(local_paths["summary_path"], workspace),
-            "profile_stdout_path": workspace_relpath(local_paths["stdout_path"], workspace),
-            "profile_stderr_path": workspace_relpath(local_paths["stderr_path"], workspace),
-            "returncode": completed.returncode,
-            "details_returncode": details_completed.returncode,
-            "raw_csv_returncode": raw_csv_completed.returncode,
-            "gpu_id": gpu_id,
-            "gpu_wait_seconds": gpu_wait_seconds,
-        }
-
     try:
         with lease_problem_artifacts(
             run_name=args.run_name,
@@ -538,19 +563,69 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             payload["artifact_commit_wait_seconds"] = artifact_lease.wait_seconds
             write_json(profile_json_path, payload)
             append_jsonl(profile_index_path(args.run_name, args.level, args.problem_id), payload)
+
+            if workspace is not None:
+                profiles_workspace_dir = workspace_profiles_dir(workspace)
+                profile_base = profiles_workspace_dir / sample_label
+                local_paths = {
+                    "details_path": profile_base.with_suffix(".details.txt"),
+                    "details_stderr_path": profile_base.with_suffix(".details.stderr.txt"),
+                    "raw_csv_path": profile_base.with_suffix(".raw.csv"),
+                    "raw_csv_stderr_path": profile_base.with_suffix(".raw.stderr.txt"),
+                    "summary_path": profile_base.with_suffix(".summary.txt"),
+                    "stdout_path": profile_base.with_suffix(".stdout.txt"),
+                    "stderr_path": profile_base.with_suffix(".stderr.txt"),
+                    "json_path": profile_base.with_suffix(".json"),
+                }
+                latest_paths = latest_workspace_profile_paths(workspace)
+
+                write_text(local_paths["details_path"], details_completed.stdout)
+                write_text(local_paths["details_stderr_path"], details_completed.stderr)
+                write_text(local_paths["raw_csv_path"], raw_csv_completed.stdout)
+                write_text(local_paths["raw_csv_stderr_path"], raw_csv_completed.stderr)
+                write_text(local_paths["summary_path"], summary_text)
+                write_text(local_paths["stdout_path"], completed.stdout)
+                write_text(local_paths["stderr_path"], completed.stderr)
+                write_json(local_paths["json_path"], payload)
+                write_text(latest_paths["details"], details_completed.stdout)
+                write_text(latest_paths["details_stderr"], details_completed.stderr)
+                write_text(latest_paths["raw_csv"], raw_csv_completed.stdout)
+                write_text(latest_paths["raw_csv_stderr"], raw_csv_completed.stderr)
+                write_text(latest_paths["summary"], summary_text)
+                write_text(latest_paths["stdout"], completed.stdout)
+                write_text(latest_paths["stderr"], completed.stderr)
+                write_json(latest_paths["json"], payload)
+                write_goal_status_files(
+                    run_name=args.run_name,
+                    level=args.level,
+                    problem_id=args.problem_id,
+                    workspace=workspace,
+                )
+                emit_payload = {
+                    "timestamp": payload["timestamp"],
+                    "run_name": args.run_name,
+                    "level": args.level,
+                    "problem_id": args.problem_id,
+                    "sample_label": sample_label,
+                    "candidate_path": workspace_relpath(candidate_path, workspace),
+                    "details_path": workspace_relpath(latest_paths["details"], workspace),
+                    "raw_csv_path": workspace_relpath(latest_paths["raw_csv"], workspace),
+                    "summary_path": workspace_relpath(latest_paths["summary"], workspace),
+                    "stdout_path": workspace_relpath(latest_paths["stdout"], workspace),
+                    "stderr_path": workspace_relpath(latest_paths["stderr"], workspace),
+                    "profile_details_path": workspace_relpath(local_paths["details_path"], workspace),
+                    "profile_raw_csv_path": workspace_relpath(local_paths["raw_csv_path"], workspace),
+                    "profile_summary_path": workspace_relpath(local_paths["summary_path"], workspace),
+                    "profile_stdout_path": workspace_relpath(local_paths["stdout_path"], workspace),
+                    "profile_stderr_path": workspace_relpath(local_paths["stderr_path"], workspace),
+                    "returncode": completed.returncode,
+                    "details_returncode": details_completed.returncode,
+                    "raw_csv_returncode": raw_csv_completed.returncode,
+                    "gpu_id": gpu_id,
+                    "gpu_wait_seconds": gpu_wait_seconds,
+                }
     except Exception as exc:
         raise SystemExit(f"Failed to persist profiling metadata for {sample_label}: {exc}") from exc
-
-    if workspace is not None:
-        try:
-            write_goal_status_files(
-                run_name=args.run_name,
-                level=args.level,
-                problem_id=args.problem_id,
-                workspace=workspace,
-            )
-        except Exception as exc:
-            status_refresh_failure = exc
 
     if completed.returncode != 0:
         raise SystemExit(
@@ -574,10 +649,5 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     if not raw_csv_completed.stdout.strip():
         raise SystemExit(
             f"ncu raw csv export produced no readable output; see {raw_csv_path}"
-        )
-    if status_refresh_failure is not None:
-        print(
-            f"warning: failed to refresh goal status after profiling {sample_label}: {status_refresh_failure}",
-            file=sys.stderr,
         )
     emit_json(emit_payload)

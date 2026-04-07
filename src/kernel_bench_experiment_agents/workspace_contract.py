@@ -107,6 +107,11 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
 
         {command_lines}
 
+        Wrapper argument policy:
+
+        - treat `./bin/problem_info.sh`, `./bin/hardware_info.sh`, `./bin/run_candidate.sh`, `./bin/profile_ncu.sh`, `./bin/goal_status.sh`, and `./bin/best_result.sh` as fixed commands with no solver-supplied flags
+        - `./bin/complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--state` plus `--summary`
+
         Allowed reads:
 
         {read_lines}
@@ -136,6 +141,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         - every measured attempt must go through `./bin/run_candidate.sh`
         - profiling is a normal tool, not a last resort
         - trust wrapper output; do not monitor wrapper progress with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection
+        - `HARDWARE.md` and `hardware.json` are the only supported hardware surface; do not probe the machine yourself
         - do not use ad hoc shell, Python, or benchmarking commands outside the local wrappers
         - re-read `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` before any major strategy change and before any termination decision
         - keep working until both baselines are beaten or a truthful terminal state is reached
@@ -189,6 +195,8 @@ def render_workspace_spec_md(
         4. If needed, run `./bin/profile_ncu.sh` and read `profiles/latest.summary.txt` first.
         5. Repeat until `./bin/complete_problem.sh` is justified.
 
+        All wrappers other than `./bin/complete_problem.sh` are fixed commands. Do not pass alternate paths, run ids, or extra control flags to them.
+
         ## Budget and status
 
         - total budget: `{metadata['time_budget_minutes']}` minutes
@@ -224,7 +232,7 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
         - total solver budget: {assignment.get('time_budget_minutes')} minutes
 
         Start by reading `AGENTS.md`, then `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md`.
-        Stay inside this workspace. Only edit `{CANDIDATE_FILENAME}`. Use only the local `./bin/*.sh` wrapper commands.
+        Stay inside this workspace. Only edit `{CANDIDATE_FILENAME}`. Use only the local `./bin/*.sh` wrapper commands. Treat every wrapper except `./bin/complete_problem.sh` as a fixed command with no extra flags.
         Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --state done --summary "..."` or another truthful terminal state.
         The harness will infer the measured outcome from the recorded runs.
         """
