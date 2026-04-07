@@ -17,6 +17,7 @@ from .project import append_jsonl, now_iso, write_json, write_text
 from .subprocess_tools import run_subprocess_capture
 from .workspace_paths import (
     latest_workspace_profile_paths,
+    validate_workspace_assignment,
     workspace_candidate_path,
     workspace_path,
     workspace_profiles_dir,
@@ -80,6 +81,12 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     workspace: Path | None = None
     if args.workspace:
         workspace = workspace_path(args.workspace)
+        validate_workspace_assignment(
+            workspace,
+            run_name=args.run_name,
+            level=args.level,
+            problem_id=args.problem_id,
+        )
         expected_candidate_path = workspace_candidate_path(workspace)
         if candidate_path != expected_candidate_path:
             raise SystemExit(

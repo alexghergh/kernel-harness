@@ -238,6 +238,7 @@ if [[ "${TOOL}" == "codex" ]]; then
   echo "Launching Codex in ${WORKSPACE} with isolated CODEX_HOME=${CODEX_HOME}" >&2
 else
   prepare_runtime_claude_project_config "${CLAUDE_PROJECT_DIR}" "${WORKSPACE}"
+  rm -rf "${AGENT_RUNTIME_HOME}"
   export CLAUDE_CONFIG_DIR="${AGENT_RUNTIME_HOME}/claude_home"
   mkdir -p "${CLAUDE_CONFIG_DIR}"
   echo "Launching Claude Code in ${WORKSPACE} with isolated CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" >&2

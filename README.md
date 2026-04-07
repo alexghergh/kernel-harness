@@ -112,6 +112,7 @@ The exact solver-facing contract for that workspace:
 - `hardware.json`
 - `workspace_contract.json`
 - `problem_reference.py`
+- `candidate_model_new.py` — initial candidate scaffold shown to the solver
 - `candidate_final.py` once completion is written
 
 ### `agent/`

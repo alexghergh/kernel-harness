@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .candidate_contract import candidate_template
+from .candidate_contract import CANDIDATE_FILENAME, candidate_template
 from .hardware_catalog import render_hardware_markdown
 from .project import now_iso, write_json, write_text
 from .workspace_contract import (
@@ -96,7 +96,6 @@ def write_contract_bundle(
     baseline: dict[str, Any],
     hardware_payload: dict[str, Any],
     problem_code: str,
-    include_candidate: bool,
 ) -> dict[str, Any]:
     contract = build_workspace_contract(metadata=metadata)
     write_json(target_dir / "problem.json", metadata)
@@ -104,8 +103,7 @@ def write_contract_bundle(
     write_json(target_dir / "hardware.json", hardware_payload)
     write_json(target_dir / "workspace_contract.json", contract)
     write_text(target_dir / "problem_reference.py", problem_code)
-    if include_candidate:
-        write_text(workspace_candidate_path(target_dir), candidate_template())
+    write_text(target_dir / CANDIDATE_FILENAME, candidate_template())
     write_text(
         target_dir / "HARDWARE.md",
         render_hardware_markdown(HardwarePayloadView(hardware_payload)),

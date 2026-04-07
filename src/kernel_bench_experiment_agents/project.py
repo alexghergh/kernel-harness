@@ -170,17 +170,19 @@ def archive_profiles_dir(run_name: str, level: int, problem_id: int) -> Path:
     return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "profiles")
 
 
+def build_problem_root(run_name: str, level: int, problem_id: int) -> Path:
+    run_name = validate_run_name(run_name)
+    return ensure_dir(build_dir() / run_name / f"level_{level}" / f"problem_{problem_id}")
+
+
 def build_problem_dir(
     run_name: str,
     level: int,
     problem_id: int,
     sample_key: str,
 ) -> Path:
-    run_name = validate_run_name(run_name)
     sample_key = validate_sample_key(sample_key)
-    return ensure_dir(
-        build_dir() / run_name / f"level_{level}" / f"problem_{problem_id}" / sample_key
-    )
+    return ensure_dir(build_problem_root(run_name, level, problem_id) / sample_key)
 
 
 def kernelbench_root(explicit: str | None = None) -> Path:

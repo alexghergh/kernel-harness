@@ -24,6 +24,32 @@ def load_workspace_baseline(workspace: Path) -> dict[str, Any]:
     return read_json_file(workspace / "baseline.json")
 
 
+def validate_workspace_assignment(
+    workspace: Path,
+    *,
+    run_name: str,
+    level: int,
+    problem_id: int,
+) -> dict[str, Any]:
+    metadata = load_workspace_metadata(workspace)
+    expected = {
+        "run_name": run_name,
+        "level": level,
+        "problem_id": problem_id,
+    }
+    actual = {
+        "run_name": metadata.get("run_name"),
+        "level": metadata.get("level"),
+        "problem_id": metadata.get("problem_id"),
+    }
+    if actual != expected:
+        raise RuntimeError(
+            "Workspace assignment does not match the requested run/problem: "
+            f"expected {expected}, got {actual}."
+        )
+    return metadata
+
+
 def problem_workspace_paths(
     run_name: str,
     level: int,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -55,7 +56,7 @@ def lease_gpu_slot(
     while True:
         for slot_id in slot_ids:
             device_selector = selectors[slot_id]
-            lock_path = lock_root / f"gpu_{slot_id}.lock"
+            lock_path = _gpu_lock_path(lock_root, device_selector)
             handle = _try_lock(
                 lock_path,
                 payload={
@@ -93,7 +94,7 @@ def lease_gpu_slot(
             raise RuntimeError(
                 "Timed out waiting for a GPU slot lease after "
                 f"{effective_max_wait_seconds:.1f} seconds. "
-                f"Current lock holders: {_gpu_lock_snapshot(slot_ids)}"
+                f"Current lock holders: {_gpu_lock_snapshot(selectors, slot_ids)}"
             )
 
         time.sleep(poll_interval_seconds)
@@ -260,16 +261,31 @@ def _read_lock_payload(lock_path: Path) -> dict[str, object] | None:
     return {"raw": raw}
 
 
-def _gpu_lock_snapshot(slot_ids: list[int]) -> list[dict[str, object]]:
+def _gpu_lock_path(lock_root: Path, device_selector: str) -> Path:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", device_selector)
+    if not slug:
+        raise RuntimeError(f"GPU device selector {device_selector!r} is not usable as a lock key")
+    return lock_root / f"gpu_selector_{slug}.lock"
+
+
+def _gpu_lock_snapshot(selectors: list[str], slot_ids: list[int]) -> list[dict[str, object]]:
     lock_root = gpu_lock_dir()
     snapshot: list[dict[str, object]] = []
     for slot_id in slot_ids:
-        payload = _read_lock_payload(lock_root / f"gpu_{slot_id}.lock")
+        device_selector = selectors[slot_id]
+        payload = _read_lock_payload(_gpu_lock_path(lock_root, device_selector))
         if payload is None:
-            snapshot.append({"slot_id": slot_id, "status": "unlocked"})
+            snapshot.append(
+                {
+                    "slot_id": slot_id,
+                    "device_selector": device_selector,
+                    "status": "unlocked",
+                }
+            )
             continue
         payload = dict(payload)
         payload.setdefault("slot_id", slot_id)
+        payload.setdefault("device_selector", device_selector)
         snapshot.append(payload)
     return snapshot
 

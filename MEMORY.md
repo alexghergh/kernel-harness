@@ -15,6 +15,7 @@ Keep tightening the harness contract so the solver-facing workspace is explicit,
 - measured baseline outcomes are inferred by the harness, not declared by the solver.
 - helper-agent specs are generated per workspace from `src/kernel_bench_experiment_agents/agent_specs.py` and archived under `contract/helper_agents/`.
 - structured JSON is the canonical machine-readable state; rendered Markdown is the solver-facing view.
+- the archived contract should preserve both the initial candidate scaffold and the final captured candidate when completion is written.
 - launcher and workspace wrappers should rely on the installed `kbe` entrypoint, not on repo-root `PYTHONPATH` injection.
 - every wrapper except `./bin/complete_problem.sh` should behave as a fixed command with no solver-supplied control flags.
 - hardware facts should come from frozen workspace files (`HARDWARE.md`, `hardware.json`, `./bin/hardware_info.sh`), not ad hoc host probing.

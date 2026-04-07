@@ -23,6 +23,7 @@ from .project import (
 )
 from .subprocess_tools import excerpt, load_json_object, run_subprocess_capture, serialize_exception
 from .workspace_paths import (
+    validate_workspace_assignment,
     workspace_candidate_path,
     workspace_path,
     write_workspace_sample_copy,
@@ -99,6 +100,12 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             }
 
             if workspace is not None:
+                validate_workspace_assignment(
+                    workspace,
+                    run_name=args.run_name,
+                    level=args.level,
+                    problem_id=args.problem_id,
+                )
                 expected_candidate_path = workspace_candidate_path(workspace)
                 if candidate_path != expected_candidate_path:
                     raise CandidateValidationError(

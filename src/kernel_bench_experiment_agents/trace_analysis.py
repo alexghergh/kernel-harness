@@ -31,6 +31,14 @@ _FORBIDDEN_INSPECTION_MARKERS = (
     "triton",
     "inductor",
 )
+_FORBIDDEN_DISCUSSION_MARKERS = (
+    ".ptx",
+    ".cubin",
+    "cuobjdump",
+    "nvdisasm",
+    "torchinductor",
+    "torch_compile_debug",
+)
 _FORBIDDEN_MONITORING_PREFIXES = (
     "ps",
     "pgrep",
@@ -542,7 +550,7 @@ def audit_trace(
                 )
                 continue
             effective = (snippet or "").strip()
-            if tool_name == "bash" and not any(
+            if not any(
                 effective.startswith(prefix) for prefix in _ALLOWED_CLAUDE_BASH_PREFIXES
             ):
                 violations.append(
@@ -578,7 +586,7 @@ def audit_trace(
 
         if kind in {"assistant_text", "raw_event", "assistant_block", "tool_use", "subagent_spawn", "wait"}:
             lowered_text = text.lower()
-            if any(marker in lowered_text for marker in _FORBIDDEN_INSPECTION_MARKERS):
+            if any(marker in lowered_text for marker in _FORBIDDEN_DISCUSSION_MARKERS):
                 violations.append(
                     {
                         "line": line_number,

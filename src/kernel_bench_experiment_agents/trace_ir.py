@@ -420,6 +420,15 @@ def _codex_ir_events(
                     kind = "wait"
                 elif lowered == "web_search":
                     kind = "web_search"
+                    query = _find_first_value(item, {"query"})
+                    raw_queries = _find_first_value(item, {"queries"})
+                    metadata["query"] = str(query) if query else None
+                    metadata["queries"] = (
+                        [str(value) for value in raw_queries if value]
+                        if isinstance(raw_queries, list)
+                        else ([str(query)] if query else [])
+                    )
+                    metadata["domains"] = _claude_domains(item)
                 else:
                     kind = "tool_call"
             else:

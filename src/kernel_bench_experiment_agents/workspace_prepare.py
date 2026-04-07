@@ -9,7 +9,7 @@ from .common import emit_json, normalize_tool_name
 from .goal_status import write_goal_status_files
 from .hardware_catalog import resolve_hardware_spec
 from .kernelbench import load_problem
-from .project import artifact_problem_dir, kernelbench_root
+from .project import artifact_problem_dir, build_problem_root, kernelbench_root
 from .run_metrics import baseline_payload_for_problem
 from .workspace_materialization import (
     build_hardware_payload,
@@ -42,6 +42,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     archive_problem_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     shutil.rmtree(paths["workspace"], ignore_errors=True)
     shutil.rmtree(archive_problem_dir, ignore_errors=True)
+    shutil.rmtree(build_problem_root(args.run_name, args.level, args.problem_id), ignore_errors=True)
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +77,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         baseline=baseline,
         hardware_payload=hardware_payload,
         problem_code=problem.code,
-        include_candidate=True,
     )
 
     contract_dir = archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
@@ -91,7 +91,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         baseline=baseline,
         hardware_payload=hardware_payload,
         problem_code=problem.code,
-        include_candidate=False,
     )
 
     write_default_workspace_wrappers(

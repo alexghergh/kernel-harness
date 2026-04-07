@@ -41,7 +41,7 @@ Everything worth copying out after a run lives there.
 Per problem, the archive is split into:
 
 - `archive_manifest.json` — machine-readable map of the canonical archive contents
-- `contract/` — what the solver saw
+- `contract/` — what the solver saw, including the initial candidate scaffold and any captured final candidate
 - `agent/` — raw and normalized agent outputs
 - `attempts/` — measured candidate attempts
 - `profiles/` — profiler outputs

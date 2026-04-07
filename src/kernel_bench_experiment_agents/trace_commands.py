@@ -39,6 +39,12 @@ def write_final_message(
     tool: str,
     raw_events: list[dict],
 ) -> None:
+    if (
+        normalize_tool_name(tool) == "codex"
+        and output_path.exists()
+        and output_path.read_text(encoding="utf-8").strip()
+    ):
+        return
     final_text = final_message_from_raw_events(raw_events, tool=tool)
     if final_text:
         write_text(output_path, final_text)
