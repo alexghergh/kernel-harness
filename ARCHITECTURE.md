@@ -169,7 +169,7 @@ They are derived from:
 - solver trace counts
 - wall time since workspace creation minus recorded GPU-wait time
 
-The solver should re-read goal status after evaluation, after profiling, and before terminating.
+The solver should re-read goal status after evaluation, after profiling, and before terminating. The rendered status text also reinforces the autonomy contract: keep working, do not ask for confirmation, and make the next plan yourself when unresolved.
 
 ## Attempts and measured evaluation
 
@@ -232,7 +232,7 @@ GPU slots are lease indices, not necessarily physical device ids. At execution t
 The current direction is:
 
 - keep archive and workspace contracts stable
-- keep `cli.py` thin and decompose larger runtime/state modules into focused archive, workspace-path, metric, goal-status, candidate-execution, and profiling modules
+- keep `cli.py` thin and decompose larger runtime/state modules into focused archive, workspace-path, metric, goal-status, candidate-execution, profiling, workspace-materialization, wrapper-generation, and summary modules
 - keep Codex/Claude-specific parsing and runtime setup in thin adapters
 - keep one canonical source for duplicated helper-agent specifications
 - keep measured execution and profiling bound to leased GPU slots through isolated subprocesses

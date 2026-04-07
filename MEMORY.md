@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Tighten the runtime boundary so the solver-visible workspace, archive layout, status surface, and measured execution path are explicit and stable, with GPU-bound subprocess execution and a corrected wall-clock budget view.
+Keep tightening the harness contract so the solver-facing workspace is explicit, autonomous, and self-contained, while the codebase keeps moving away from large catch-all modules.
 
 ## Locked decisions
 
@@ -18,6 +18,7 @@ Tighten the runtime boundary so the solver-visible workspace, archive layout, st
 - launcher and workspace wrappers should rely on the installed `kbe` entrypoint, not on repo-root `PYTHONPATH` injection.
 - every wrapper except `./bin/complete_problem.sh` should behave as a fixed command with no solver-supplied control flags.
 - hardware facts should come from frozen workspace files (`HARDWARE.md`, `hardware.json`, `./bin/hardware_info.sh`), not ad hoc host probing.
+- solver docs should explicitly push independent execution: no approval-seeking, no plan-and-wait handoff, keep iterating from measured evidence.
 
 ## Recently completed
 
@@ -27,7 +28,7 @@ Tighten the runtime boundary so the solver-visible workspace, archive layout, st
 - removed repo-root generated `.codex/agents/*` and `.claude/agents/*`
 - added shared trace modules (`trace_ir.py`, `trace_analysis.py`) and switched trace materialization to a mostly-lossless IR written to `trace_ir.json`
 - split `cli.py` into a thin parser/dispatcher plus dedicated modules
-- split the remaining catch-all runtime/state code further into:
+- split the runtime/state code into:
   - `archive_layout.py`
   - `workspace_paths.py`
   - `run_metrics.py`
@@ -36,23 +37,29 @@ Tighten the runtime boundary so the solver-visible workspace, archive layout, st
   - `profile_commands.py`
   - `subprocess_tools.py`
   - `ncu_summary.py`
-- turned `workspace_state.py` and `execution_commands.py` into compatibility facades instead of owning the real logic
-- switched `scripts/run_agent_problem.sh` from `python -m kernel_bench_experiment_agents.cli` plus `PYTHONPATH` to the installed `kbe` CLI
-- updated `scripts/setup_kernelbench_env.sh` to install this harness into the same KernelBench environment
 - moved measured evaluation onto `evaluation_runner.py`, an isolated subprocess bound to one leased GPU slot through `CUDA_VISIBLE_DEVICES`
 - tightened GPU slot resolution so the harness can lease against either the inherited visible GPU list or `KBE_VISIBLE_GPU_DEVICES`
 - moved Nsight Compute execution onto the same isolated GPU-binding model and made profile metadata/workspace mirrors refresh under the per-problem state lock
 - archived per-sample evaluation stdout/stderr alongside the sample manifest
 - removed solver pass-through flags from every wrapper except `./bin/complete_problem.sh`
+- split workspace preparation again into dedicated modules:
+  - `workspace_wrappers.py`
+  - `workspace_materialization.py`
+  - `workspace_prepare.py`
+  - `workspace_info.py`
+- split run summarization again into dedicated modules:
+  - `summary_math.py`
+  - `summary_scan.py`
+  - `summary_report.py`
+- tightened the generated solver contract, goal-status text, wrapper reminders, and helper-agent specs so the model is explicitly told to work independently, keep iterating, and not ask for approval
 
 ## In progress
 
-- keep the new execution/runtime behavior aligned with the docs and archive contract
-- smoke-test the corrected goal-status budget clock (wall time minus recorded GPU wait)
-- verify that `archive_manifest.json` is enough to explain what a user should copy out versus ignore as workspace mirrors
+- keep the new solver-autonomy wording aligned across `workspace_contract.json`, rendered workspace docs, goal-status text, and helper-agent specs
+- verify that the remaining docs describe the current code layout instead of earlier pre-split versions
 
 ## Next steps
 
-- consider whether more archive metadata should move from Markdown renders into structured JSON without adding redundant drift
 - later, tighten any remaining boundary assumptions that still depend on the external sandbox rather than the harness itself
+- consider whether more generated solver text should be driven by even more structured contract fields without overcomplicating the contract JSON
 - decide whether any further run-level archive manifest is needed beyond per-problem `archive_manifest.json`

@@ -201,10 +201,11 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         heading = "# Goal Status: UNRESOLVED — keep working"
         standing_orders = [
             "- You MUST NOT stop, summarize, or hand back control. Keep working.",
+            "- Do NOT ask the user for confirmation, approval, or whether to continue. Choose the next action yourself.",
             "- Re-read `SPEC.md` and `HARDWARE.md` before every major strategy change.",
             "- Timing and profiling are normal tools, not expensive last resorts. Use them even for small constant or layout changes.",
             "- Wrapper commands are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
-            "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, and try a new branch.",
+            "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
             "- The budget clock is wall time since workspace creation minus recorded GPU wait time. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
             "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh`.",
         ]

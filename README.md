@@ -166,7 +166,7 @@ Each solver workspace contains a small, explicit surface:
 - `profiles/`
 - `bin/*.sh`
 
-The solver is expected to stay inside that workspace and use only the local wrapper scripts. `samples/` and `profiles/` inside the workspace are convenience mirrors of the durable archive, not a second source of truth. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
+The solver is expected to stay inside that workspace and use only the local wrapper scripts. `samples/` and `profiles/` inside the workspace are convenience mirrors of the durable archive, not a second source of truth. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags. The workspace docs explicitly instruct the solver to work independently, avoid approval-seeking or plan-only handoffs, and continue iterating from measured evidence until a truthful terminal state is reached.
 
 ## Canonical JSON vs rendered Markdown
 
@@ -253,6 +253,7 @@ Generated outputs live inside each prepared workspace and are also archived unde
 ## Current implementation notes
 
 - `cli.py` is now a thin parser/dispatcher; workspace generation, execution, status, trace, and summary logic live in dedicated modules under `src/kernel_bench_experiment_agents/`
-- the runtime layout, completion ownership, helper-agent generation, and GPU isolation model are aligned with the current architecture documents
-- the larger state/execution catch-all modules have now been split further into archive, workspace-path, run-metric, goal-status, candidate-execution, and profiling modules
+- workspace preparation is now split across dedicated wrapper-generation, contract-materialization, problem-info, and prepare-command modules instead of one string-heavy file
+- run summarization is now split into archive scanning, pass@k math, and report aggregation modules instead of one large command file
+- the runtime layout, completion ownership, helper-agent generation, GPU isolation model, and solver-autonomy wording are aligned with the current architecture documents
 - the next major cleanup target is continued runtime hardening around external sandbox enforcement and any remaining archive-surface polish

@@ -77,6 +77,8 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         Do not inspect unrelated files or wander outside the current workspace.
         Do not use ad hoc shell commands to inspect directories or parse files.
         Do not edit any files.
+        Work independently: do not ask the user or the main agent for permission to proceed once assigned.
+        When finished, return only a concise actionable summary; do not ask follow-up questions.
         {spec.summary_focus}
         """
         '''
@@ -105,6 +107,8 @@ def _claude_agent_md(spec: HelperAgentSpec) -> str:
         Do not inspect unrelated files or wander outside the current workspace.
         Do not use shell commands or Python snippets to inspect profiler outputs or parse files.
         Do not edit any files.
+        Work independently: do not ask the user or the main agent for permission to proceed once assigned.
+        When finished, return only a concise actionable summary; do not ask follow-up questions.
         {spec.summary_focus}
         """
     ).strip() + "\n"
