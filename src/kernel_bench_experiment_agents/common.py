@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 TOOL_CHOICES = ("codex", "claude")
@@ -23,3 +24,7 @@ def normalize_tool_name(raw: Any) -> str:
             f"Unsupported tool {tool!r}. Expected one of: {', '.join(TOOL_CHOICES)}."
         )
     return tool
+
+
+def emit_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, indent=2, sort_keys=True))

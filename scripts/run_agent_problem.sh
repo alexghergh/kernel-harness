@@ -134,11 +134,16 @@ if [[ -z "${COMPILE_BASELINE_FILE}" || ! -f "${COMPILE_BASELINE_FILE}" ]]; then
 fi
 
 export PATH="$(dirname "${KERNELBENCH_PYTHON}"):${PATH}"
+KBE_CLI="${KBE_CLI:-kbe}"
+
+if ! command -v "${KBE_CLI}" >/dev/null 2>&1; then
+  echo "kbe CLI is not on PATH. Install this repo into the KernelBench environment first (pip install -e .)." >&2
+  exit 1
+fi
 
 CODEX_BASE_HOME="${PROJECT_ROOT}/.codex"
 CLAUDE_PROJECT_DIR="${PROJECT_ROOT}/.claude"
 AGENT_RUNTIME_ROOT="${STATE_ROOT}/agent_home"
-PROJECT_PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
@@ -193,7 +198,7 @@ else
 fi
 
 PREP_OUTPUT="$({
-  PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli prepare-problem-workspace \
+  "${KBE_CLI}" prepare-problem-workspace \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
@@ -241,7 +246,7 @@ fi
 rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
-  PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli goal-status \
+  "${KBE_CLI}" goal-status \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
@@ -348,7 +353,7 @@ set -e
 if [[ ! -f "${COMPLETION_PATH}" ]]; then
   mark_budget_exhausted_if_needed >/dev/null 2>&1 || true
   if [[ -f "${BUDGET_EXHAUSTED_MARKER_PATH}" ]]; then
-    PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli complete-problem \
+    "${KBE_CLI}" complete-problem \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -357,7 +362,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
       --summary "launcher stopped ${TOOL} after the corrected remaining budget reached zero without a solver-written completion" \
       --allow-overwrite >/dev/null
   else
-    PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli complete-problem \
+    "${KBE_CLI}" complete-problem \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -368,7 +373,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
   fi
 fi
 
-if ! PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli materialize-agent-trace \
+if ! "${KBE_CLI}" materialize-agent-trace \
   --tool "${TOOL}" \
   --events-path "${EVENTS_PATH}" \
   --completion-path "${COMPLETION_PATH}" \

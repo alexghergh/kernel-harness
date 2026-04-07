@@ -42,13 +42,13 @@ scripts/clear_run.sh <run_name>
 Summarize one archived run:
 
 ```bash
-PYTHONPATH=src python -m kernel_bench_experiment_agents.cli summarize-run --run-name <run_name>
+kbe summarize-run --run-name <run_name>
 ```
 
 Helper-agent specs are generated automatically during `prepare-problem-workspace`. To regenerate them for one existing workspace explicitly:
 
 ```bash
-PYTHONPATH=src python -m kernel_bench_experiment_agents.cli sync-helper-agent-specs \
+kbe sync-helper-agent-specs \
   --workspace /path/to/workspace \
   --archive-contract-dir /path/to/archive/<run>/level_<level>/problem_<problem_id>/contract
 ```
