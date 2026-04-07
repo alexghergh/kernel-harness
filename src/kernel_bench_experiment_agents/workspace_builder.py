@@ -12,6 +12,7 @@ from .candidate_contract import CANDIDATE_FILENAME, candidate_template
 from .common import emit_json, normalize_tool_name
 from .hardware_catalog import render_hardware_markdown, resolve_hardware_spec
 from .kernelbench import load_problem
+from .archive_layout import archive_problem_contract_dir, write_archive_problem_manifest
 from .project import (
     artifact_problem_dir,
     kernelbench_root,
@@ -26,13 +27,9 @@ from .workspace_contract import (
     render_workspace_agents_md,
     render_workspace_spec_md,
 )
-from .workspace_state import (
-    archive_problem_contract_dir,
-    baseline_payload_for_problem,
-    problem_workspace_paths,
-    workspace_candidate_path,
-    write_goal_status_files,
-)
+from .goal_status import write_goal_status_files
+from .run_metrics import baseline_payload_for_problem
+from .workspace_paths import problem_workspace_paths, workspace_candidate_path
 
 
 def write_workspace_script(path: Path, content: str) -> None:
@@ -312,6 +309,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     write_text(paths["workspace"] / "INITIAL_PROMPT.md", render_initial_prompt(contract=contract, baseline=baseline))
 
     contract_dir = archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
+    archive_manifest_path = write_archive_problem_manifest(args.run_name, args.level, args.problem_id)
     helper_agent_paths = write_workspace_helper_agent_specs(
         workspace=paths["workspace"],
         archive_contract_dir=contract_dir,
@@ -416,6 +414,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
             "goal_status": str(paths["workspace"] / "goal_status.json"),
             "status_snapshot": status_snapshot,
             "helper_agent_specs": [str(path) for path in helper_agent_paths],
+            "archive_manifest": str(archive_manifest_path),
         }
     )
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 
 from .common import TOOL_CHOICES
-from .execution_commands import command_profile_ncu, command_run_candidate
+from .candidate_commands import command_run_candidate
+from .profile_commands import command_profile_ncu
 from .status_commands import (
     command_best_result,
     command_complete_problem,

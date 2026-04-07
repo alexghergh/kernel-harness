@@ -63,7 +63,7 @@ If you want the full durable record for a run, copy:
 archive/<run_name>/
 ```
 
-That directory is the canonical archive. It contains everything worth keeping for later analysis.
+That directory is the canonical archive. It contains everything worth keeping for later analysis. Each problem archive now also includes `archive_manifest.json`, which spells out which subdirectories and file patterns are canonical versus merely workspace mirrors.
 
 ### Safe to discard
 
@@ -88,11 +88,16 @@ Per problem, the durable record is:
 
 ```text
 archive/<run_name>/level_<level>/problem_<problem_id>/
+  archive_manifest.json
   contract/
   agent/
   attempts/
   profiles/
 ```
+
+### `archive_manifest.json`
+
+A machine-readable map of the canonical archive contents for that problem, including what should be copied out and which workspace files are only mirrors.
 
 ### `contract/`
 
@@ -161,7 +166,7 @@ Each solver workspace contains a small, explicit surface:
 - `profiles/`
 - `bin/*.sh`
 
-The solver is expected to stay inside that workspace and use only the local wrapper scripts. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
+The solver is expected to stay inside that workspace and use only the local wrapper scripts. `samples/` and `profiles/` inside the workspace are convenience mirrors of the durable archive, not a second source of truth. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
 
 ## Canonical JSON vs rendered Markdown
 
@@ -217,6 +222,8 @@ Measured outcomes are computed by the harness from recorded attempts:
 - `beats_none`
 - `no_correct_candidate`
 
+The live budget clock shown in `GOAL_STATUS.md` and `goal_status.json` is wall time since workspace creation minus recorded GPU wait time.
+
 A successful run means the measured outcome is `beats_both`.
 
 ## Codex and Claude support
@@ -247,4 +254,5 @@ Generated outputs live inside each prepared workspace and are also archived unde
 
 - `cli.py` is now a thin parser/dispatcher; workspace generation, execution, status, trace, and summary logic live in dedicated modules under `src/kernel_bench_experiment_agents/`
 - the runtime layout, completion ownership, helper-agent generation, and GPU isolation model are aligned with the current architecture documents
-- the next major cleanup target is continued decomposition of the larger state/execution modules and more runtime hardening around external sandbox enforcement
+- the larger state/execution catch-all modules have now been split further into archive, workspace-path, run-metric, goal-status, candidate-execution, and profiling modules
+- the next major cleanup target is continued runtime hardening around external sandbox enforcement and any remaining archive-surface polish

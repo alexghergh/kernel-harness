@@ -40,6 +40,7 @@ Everything worth copying out after a run lives there.
 
 Per problem, the archive is split into:
 
+- `archive_manifest.json` — machine-readable map of the canonical archive contents
 - `contract/` — what the solver saw
 - `agent/` — raw and normalized agent outputs
 - `attempts/` — measured candidate attempts
@@ -76,6 +77,8 @@ The solver-visible surface is:
 - `samples/`
 - `profiles/`
 - `bin/*.sh`
+
+The `samples/` and `profiles/` directories inside the workspace are local mirrors for the solver. The durable source of truth remains the corresponding paths under `archive/`.
 
 The solver contract explicitly forbids reading or editing outside that workspace.
 
@@ -164,7 +167,7 @@ They are derived from:
 - baseline files
 - profiler activity
 - solver trace counts
-- wall-clock budget minus recorded GPU-wait time
+- wall time since workspace creation minus recorded GPU-wait time
 
 The solver should re-read goal status after evaluation, after profiling, and before terminating.
 
@@ -180,7 +183,7 @@ That command:
 - evaluates correctness and runtime in an isolated subprocess bound to one leased GPU slot
 - archives the evaluation subprocess stdout/stderr for that sample
 - appends to `attempts/history.jsonl`
-- refreshes goal status
+- refreshes goal status using the corrected wall-clock budget view
 
 ## Profiling
 
@@ -229,7 +232,7 @@ GPU slots are lease indices, not necessarily physical device ids. At execution t
 The current direction is:
 
 - keep archive and workspace contracts stable
-- keep `cli.py` thin and continue decomposing larger runtime/state modules
+- keep `cli.py` thin and decompose larger runtime/state modules into focused archive, workspace-path, metric, goal-status, candidate-execution, and profiling modules
 - keep Codex/Claude-specific parsing and runtime setup in thin adapters
 - keep one canonical source for duplicated helper-agent specifications
 - keep measured execution and profiling bound to leased GPU slots through isolated subprocesses

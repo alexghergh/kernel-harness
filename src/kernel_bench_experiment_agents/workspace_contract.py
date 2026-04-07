@@ -98,6 +98,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         - stay inside this workspace
         - do not read, edit, or execute anything outside this workspace
         - do not inspect repository-maintainer docs or harness internals
+        - treat `samples/` and `profiles/` as local mirrors of archived outputs, not as separate sources of truth
         - do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas
         - use `problem_reference.py` only as the problem reference
         - edit only `{CANDIDATE_FILENAME}` for the candidate solution, and only inside its marked editable blocks
@@ -201,6 +202,7 @@ def render_workspace_spec_md(
 
         - total budget: `{metadata['time_budget_minutes']}` minutes
         - remaining budget: read `GOAL_STATUS.md` or `goal_status.json`
+        - the budget clock is wall time since workspace creation minus recorded GPU wait time
         - recorded GPU lock wait time is excluded from the budget
         - failed attempts are normal; they are not a stop signal
         - there is no human confirmation step during the run
@@ -211,6 +213,7 @@ def render_workspace_spec_md(
         - solution file: `{CANDIDATE_FILENAME}`
         - hardware facts: `{hardware_markdown_name}` and `hardware.json`
         - live status: `GOAL_STATUS.md` and `goal_status.json`
+        - local mirrors of measured attempts/profiles: `samples/` and `profiles/`
         - exact workspace contract: `workspace_contract.json`
         """
     ).strip() + "\n"

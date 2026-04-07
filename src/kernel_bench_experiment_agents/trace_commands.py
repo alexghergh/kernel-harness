@@ -13,7 +13,7 @@ from .completion_policy import (
 from .project import now_iso, write_json, write_text
 from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
-from .workspace_state import read_json_file
+from .workspace_paths import read_json_file
 
 
 def command_sync_helper_agent_specs(args: argparse.Namespace) -> None:
