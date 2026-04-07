@@ -26,7 +26,7 @@ It is **not** the solver contract used inside per-problem workspaces. Those work
 - Keep the solver contract explicit and narrow.
 - Keep generic harness logic separate from tool-specific adapters.
 - Prefer one canonical source over duplicated vendor-specific files.
-- Do not edit `.codex/agents/*` or `.claude/agents/*` by hand. Edit `src/kernel_bench_experiment_agents/agent_specs.py`, then sync them.
+- Do not hand-edit generated workspace helper-agent specs. Edit `src/kernel_bench_experiment_agents/agent_specs.py`; `prepare-problem-workspace` regenerates `.codex/agents/*` and `.claude/agents/*` inside each workspace.
 - Keep `archive/` as the single durable copy-out root.
 - Keep `state/` disposable.
 - Do not re-introduce root `SPEC.md`.
@@ -41,11 +41,7 @@ bash -n scripts/run_agent_problem.sh
 bash -n scripts/clear_run.sh
 ```
 
-If you change helper-agent specs, also run:
-
-```bash
-PYTHONPATH=src python -m kernel_bench_experiment_agents.cli sync-helper-agent-specs
-```
+If you change helper-agent specs, regenerate a workspace and inspect the generated `.codex/agents/*` and `.claude/agents/*` inside that workspace.
 
 ## Current architecture direction
 

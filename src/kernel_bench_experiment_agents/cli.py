@@ -17,8 +17,9 @@ from textwrap import dedent
 from typing import Any
 from urllib.parse import urlparse
 
-from .agent_specs import sync_helper_agent_specs
+from .agent_specs import write_workspace_helper_agent_specs
 from .candidate_contract import CANDIDATE_FILENAME, candidate_template
+from .common import TOOL_CHOICES, as_float, normalize_tool_name
 from .candidate_validation import CandidateValidationError, validate_candidate_source
 from .gpu_pool import lease_gpu_slot, lease_problem_artifacts
 from .hardware_catalog import render_hardware_markdown, resolve_hardware_spec
@@ -42,6 +43,8 @@ from .project import (
     write_json,
     write_text,
 )
+from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
+from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
 from .workspace_contract import (
     LAUNCHER_TERMINAL_STATES,
     SOLVER_TERMINAL_STATES,
@@ -51,7 +54,6 @@ from .workspace_contract import (
     render_workspace_spec_md,
 )
 
-TOOL_CHOICES = ("codex", "claude")
 _ALLOWED_WEB_SEARCH_HOSTS = ("docs.nvidia.com",)
 _TERMINAL_STATE_CHOICES = tuple(SOLVER_TERMINAL_STATES + LAUNCHER_TERMINAL_STATES)
 
@@ -132,7 +134,9 @@ def _default_parser() -> argparse.ArgumentParser:
     complete.add_argument("--summary", default="")
     complete.add_argument("--allow-overwrite", action="store_true")
 
-    subparsers.add_parser("sync-helper-agent-specs")
+    sync = subparsers.add_parser("sync-helper-agent-specs")
+    sync.add_argument("--workspace", required=True)
+    sync.add_argument("--archive-contract-dir", default=None)
 
     trace = subparsers.add_parser("materialize-agent-trace")
     trace.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
@@ -2348,6 +2352,10 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     write_text(paths["workspace"] / "INITIAL_PROMPT.md", _generate_initial_prompt(contract, baseline))
 
     contract_dir = _archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
+    helper_agent_paths = write_workspace_helper_agent_specs(
+        workspace=paths["workspace"],
+        archive_contract_dir=contract_dir,
+    )
     write_json(contract_dir / "problem.json", metadata)
     write_json(contract_dir / "baseline.json", baseline)
     write_json(contract_dir / "hardware.json", hardware_payload)
@@ -2439,6 +2447,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
             "candidate": str(_workspace_candidate_path(paths["workspace"])),
             "goal_status": str(paths["workspace"] / "goal_status.json"),
             "status_snapshot": status_snapshot,
+            "helper_agent_specs": [str(path) for path in helper_agent_paths],
         }
     )
 
@@ -3503,6 +3512,204 @@ def command_summarize_run(args: argparse.Namespace) -> None:
     }
     write_json(run_root / "run_summary.json", payload)
     _emit(payload)
+
+
+# Current trace implementation delegates to dedicated modules. The legacy helpers
+# above are kept only until the remaining CLI commands are split into modules.
+def _as_float(value: Any) -> float | None:
+    return as_float(value)
+
+
+def _normalize_tool_name(raw: Any) -> str:
+    try:
+        return normalize_tool_name(raw)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_trace_event_entries(
+    events_path: Path,
+) -> tuple[list[dict[str, Any]], list[tuple[int, dict[str, Any]]]]:
+    return load_trace_event_entries(events_path)
+
+
+
+def _web_searches_from_entries(
+    raw_event_entries: list[tuple[int, dict[str, Any]]],
+    *,
+    tool: str = "codex",
+) -> list[dict[str, Any]]:
+    return web_searches_from_ir(materialize_trace_ir(raw_event_entries, tool=tool))
+
+
+
+def _live_trace_counts_for_problem(
+    run_name: str,
+    level: int,
+    problem_id: int,
+    *,
+    tool: str = "codex",
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    raw_events, raw_event_entries = load_trace_event_entries(
+        _trace_events_path(run_name, level, problem_id)
+    )
+    ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+    return trace_counts(ir_events, raw_events=raw_events, tool=tool), web_searches_from_ir(ir_events)
+
+
+
+def _trace_usage_summary(
+    raw_events: list[dict[str, Any]],
+    *,
+    tool: str = "codex",
+) -> dict[str, Any]:
+    return trace_usage_summary(raw_events, tool=tool)
+
+
+
+def _trace_cost_usd(
+    raw_events: list[dict[str, Any]],
+    *,
+    tool: str = "codex",
+) -> float | None:
+    return trace_cost_usd(raw_events, tool=tool)
+
+
+
+def _trace_counts_from_entries(
+    raw_event_entries: list[tuple[int, dict[str, Any]]],
+    *,
+    tool: str = "codex",
+) -> dict[str, Any]:
+    raw_events = [payload for _, payload in raw_event_entries]
+    return trace_counts(
+        materialize_trace_ir(raw_event_entries, tool=tool),
+        raw_events=raw_events,
+        tool=tool,
+    )
+
+
+
+def _audit_trace(
+    *,
+    raw_event_entries: list[tuple[int, dict[str, Any]]],
+    workspace: Path,
+    tool: str = "codex",
+) -> dict[str, Any]:
+    raw_events = [payload for _, payload in raw_event_entries]
+    ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+    return audit_trace(
+        ir_events=ir_events,
+        workspace=workspace,
+        raw_events=raw_events,
+        tool=tool,
+    )
+
+
+
+def _write_final_message(
+    *,
+    output_path: Path,
+    tool: str,
+    raw_events: list[dict[str, Any]],
+) -> None:
+    final_text = final_message_from_raw_events(raw_events, tool=tool)
+    if final_text:
+        write_text(output_path, final_text)
+
+
+
+def command_sync_helper_agent_specs(args: argparse.Namespace) -> None:
+    workspace = Path(args.workspace).expanduser().resolve()
+    archive_contract_dir = (
+        Path(args.archive_contract_dir).expanduser().resolve()
+        if args.archive_contract_dir
+        else None
+    )
+    written = [
+        str(path)
+        for path in write_workspace_helper_agent_specs(
+            workspace=workspace,
+            archive_contract_dir=archive_contract_dir,
+        )
+    ]
+    _emit({"written": written, "workspace": str(workspace)})
+
+
+
+def command_materialize_agent_trace(args: argparse.Namespace) -> None:
+    tool = _normalize_tool_name(args.tool)
+    events_path = Path(args.events_path).expanduser().resolve()
+    output_path = Path(args.output_path).expanduser().resolve()
+    raw_events, raw_event_entries = load_trace_event_entries(events_path)
+    ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+
+    token_usage = trace_usage_summary(raw_events, tool=tool)
+    cost_usd = trace_cost_usd(raw_events, tool=tool)
+    trace_counts_payload = trace_counts(ir_events, raw_events=raw_events, tool=tool)
+    web_searches = web_searches_from_ir(ir_events)
+    audit = None
+    if args.workspace:
+        audit = audit_trace(
+            ir_events=ir_events,
+            workspace=Path(args.workspace).expanduser().resolve(),
+            raw_events=raw_events,
+            tool=tool,
+        )
+    payload = {
+        "tool": tool,
+        "source_events_path": str(events_path),
+        "generated_at": now_iso(),
+        "trace_ir_version": 1,
+        "num_raw_events": len(raw_events),
+        "num_ir_events": len(ir_events),
+        "token_usage": token_usage,
+        "cost_usd": cost_usd,
+        "trace_counts": trace_counts_payload,
+        "web_searches": web_searches,
+        "audit": audit,
+        "ir_events": ir_events,
+    }
+    write_json(output_path, payload)
+    if args.final_message_path:
+        _write_final_message(
+            output_path=Path(args.final_message_path).expanduser().resolve(),
+            tool=tool,
+            raw_events=raw_events,
+        )
+    if args.completion_path:
+        completion_path = Path(args.completion_path).expanduser().resolve()
+        if completion_path.exists():
+            completion_payload = _read_json(completion_path)
+            completion_payload["tool"] = tool
+            completion_payload["token_usage"] = token_usage
+            completion_payload["cost_usd"] = cost_usd
+            completion_payload["trace_counts"] = trace_counts_payload
+            completion_payload["web_searches"] = web_searches
+            if audit is not None:
+                completion_payload = _apply_trace_audit_to_completion(
+                    completion_payload,
+                    audit,
+                )
+            completion_payload = _apply_completion_policy(completion_payload)
+            completion_payload = _annotate_completion_outcomes(completion_payload)
+            write_json(completion_path, completion_payload)
+            if args.workspace:
+                write_json(
+                    Path(args.workspace).expanduser().resolve() / "completion.json",
+                    completion_payload,
+                )
+    _emit(
+        {
+            "output_path": str(output_path),
+            "num_raw_events": len(raw_events),
+            "num_ir_events": len(ir_events),
+            "source_events_path": str(events_path),
+            "token_usage": token_usage,
+            "cost_usd": cost_usd,
+            "audit": audit,
+        }
+    )
 
 
 def main() -> None:

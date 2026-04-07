@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Tighten the harness contract so docs, launcher behavior, archive layout, and completion semantics all describe the same system.
+Tighten the harness so the runtime contract, archive layout, and solver-visible surface are explicit and stable while the internals are split out of `cli.py`.
 
 ## Locked decisions
 
@@ -13,26 +13,26 @@ Tighten the harness contract so docs, launcher behavior, archive layout, and com
 - solver terminal states are `done`, `stalled`, and `harness_failure`.
 - launcher-only terminal states are `budget_exhausted` and `failed_to_generate`.
 - measured baseline outcomes are inferred by the harness, not declared by the solver.
-- Codex and Claude helper-agent specs are generated from `src/kernel_bench_experiment_agents/agent_specs.py`.
+- helper-agent specs are generated per workspace from `src/kernel_bench_experiment_agents/agent_specs.py` and archived under `contract/helper_agents/`.
 - structured JSON is the canonical machine-readable state; rendered Markdown is the solver-facing view.
 
 ## Recently completed
 
-- moved durable-vs-temp repo docs to `archive/` vs `state/`
-- updated launcher scripts to use the new layout
-- narrowed completion handling to solver state plus harness-inferred measured outcome
-- refreshed root docs and added ADRs
-- added canonical helper-agent spec generation
-- added a generated workspace contract module
+- rewrote the root docs around explicit audiences and the `archive/` vs `state/` split
+- narrowed completion handling to solver intent plus harness-inferred measured outcome
+- moved helper-agent spec generation into per-problem workspaces and archived rendered copies with the run contract
+- removed repo-root generated `.codex/agents/*` and `.claude/agents/*`
+- added shared trace modules (`trace_ir.py`, `trace_analysis.py`) and switched trace materialization to a mostly-lossless IR written to `trace_ir.json`
+- updated the launcher so Claude workspace settings no longer wipe workspace-generated helper agents
 
 ## In progress
 
-- continue splitting `cli.py` into smaller modules
+- continue splitting `cli.py`; trace handling now delegates to dedicated modules but more command logic still lives there
 - tighten profiling and evaluation execution paths further where needed
-- keep archive layout stable while refactoring internals
+- keep archive outputs stable while refactoring internals
 
 ## Next steps
 
-- move more command logic out of `cli.py`
-- preserve archive compatibility for runs created after this refactor
+- move more command/workspace logic out of `cli.py`
+- harden GPU execution isolation and profiling flow in a later pass
 - keep workspace contract, trace materialization, and summarization aligned as the code is split further

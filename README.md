@@ -45,10 +45,12 @@ Summarize one archived run:
 PYTHONPATH=src python -m kernel_bench_experiment_agents.cli summarize-run --run-name <run_name>
 ```
 
-Regenerate helper-agent specs for Codex and Claude:
+Helper-agent specs are generated automatically during `prepare-problem-workspace`. To regenerate them for one existing workspace explicitly:
 
 ```bash
-PYTHONPATH=src python -m kernel_bench_experiment_agents.cli sync-helper-agent-specs
+PYTHONPATH=src python -m kernel_bench_experiment_agents.cli sync-helper-agent-specs \
+  --workspace /path/to/workspace \
+  --archive-contract-dir /path/to/archive/<run>/level_<level>/problem_<problem_id>/contract
 ```
 
 ## Durable vs temporary state
@@ -112,7 +114,7 @@ The exact solver-facing contract for that workspace:
 Agent-side run record:
 
 - `events.jsonl` — raw CLI event stream
-- `trace.json` — normalized trace materialization
+- `trace_ir.json` — normalized mostly-lossless trace IR materialization
 - `final_message.txt`
 - `completion.json`
 - `goal_status.json`
@@ -224,10 +226,12 @@ Helper-agent specs are generated from the canonical definitions in:
 src/kernel_bench_experiment_agents/agent_specs.py
 ```
 
-Generated outputs:
+Generated outputs live inside each prepared workspace and are also archived under `contract/helper_agents/` for the exact rendered run contract:
 
-- `.codex/agents/*.toml`
-- `.claude/agents/*.md`
+- `state/workspaces/.../.codex/agents/*.toml`
+- `state/workspaces/.../.claude/agents/*.md`
+- `archive/.../contract/helper_agents/codex/*.toml`
+- `archive/.../contract/helper_agents/claude/*.md`
 
 ## Current implementation notes
 

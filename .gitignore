@@ -1,6 +1,8 @@
+state/
+archive/
+build/
 .runtime/
 artifacts/
-build/
 runs/
 
 __pycache__/

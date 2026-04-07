@@ -21,7 +21,7 @@ prepare_runtime_codex_home() {
     fi
   done
 
-  for entry in agents rules; do
+  for entry in rules; do
     if [[ -d "${base_home}/${entry}" ]]; then
       cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
     fi
@@ -53,8 +53,8 @@ prepare_runtime_claude_project_config() {
   local target_dir="${workspace}/.claude"
   local entry
 
-  rm -rf "${target_dir}"
   mkdir -p "${target_dir}"
+  rm -f "${target_dir}/settings.json" "${target_dir}/settings.local.json"
 
   for entry in settings.json settings.local.json; do
     if [[ -f "${base_dir}/${entry}" ]]; then
@@ -62,9 +62,6 @@ prepare_runtime_claude_project_config() {
     fi
   done
 
-  if [[ -d "${base_dir}/agents" ]]; then
-    cp -a "${base_dir}/agents" "${target_dir}/agents"
-  fi
 }
 
 terminate_agent_pipeline() {
@@ -225,7 +222,7 @@ PY
 INITIAL_PROMPT_PATH="${WORKSPACE}/INITIAL_PROMPT.md"
 EVENTS_PATH="${AGENT_ARTIFACT_DIR}/events.jsonl"
 FINAL_MESSAGE_PATH="${AGENT_ARTIFACT_DIR}/final_message.txt"
-TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace.json"
+TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"

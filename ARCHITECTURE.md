@@ -79,6 +79,8 @@ The solver-visible surface is:
 
 The solver contract explicitly forbids reading or editing outside that workspace.
 
+Prepared workspaces also contain generated helper-agent definitions under `.codex/agents/` and `.claude/agents/`. Those files are runtime assets for Codex/Claude subagent routing; they are rendered from one canonical source and archived under `contract/helper_agents/` with the problem contract.
+
 ## Canonical structured state
 
 Where the same information appears in JSON and Markdown, the JSON form is the structured source of truth and the Markdown form is a rendered solver-facing view.
@@ -198,7 +200,7 @@ The text and CSV exports are the first-class solver-facing profiling surface.
 
 The launcher records raw CLI output to `agent/events.jsonl`.
 
-A later materialization step produces `agent/trace.json` and updates `completion.json` with:
+A later materialization step produces `agent/trace_ir.json` and updates `completion.json` with:
 
 - token usage totals when available
 - cost totals when available
