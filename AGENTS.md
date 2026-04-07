@@ -1,73 +1,56 @@
-# KernelBench Experiment Agents
+# Maintainer Instructions
 
-## purpose
+This `AGENTS.md` is for people and coding agents working **on this repository**.
+It is **not** the solver contract used inside per-problem workspaces. Those workspaces render their own `AGENTS.md` and `SPEC.md` for the solver agent.
 
-This repository exists to run autonomous KernelBench optimization experiments with Codex or Claude on a remote GPU node.
+## Read order
 
-## always read first
+1. Read this file.
+2. Read `MEMORY.md`.
+3. Read any relevant ADRs under `docs/adr/`.
+4. Read the code that implements the area you are changing.
 
-Before making changes or launching work, read:
+## Memory policy
 
-- `SPEC.md`
-- `ARCHITECTURE.md`
+`MEMORY.md` is the short rolling handoff for the next maintainer or agent session.
 
-Problem-solving agent sessions are expected to run from generated external workspaces with their own local `AGENTS.md`. This repository-root file is for maintainers of the harness.
+- Update `MEMORY.md` every turn.
+- Keep it short.
+- Preserve only current direction, locked decisions, open questions, and next steps.
+- Compress older detail instead of letting it grow indefinitely.
+- Do not turn it into a changelog.
 
-## core rules
+## Repo rules
 
-- stay scoped to exactly one assigned KernelBench problem
-- allow at most one active solver per `(run_name, level, problem_id)`
-- do not inspect unrelated problems unless explicitly asked
-- do not explore unrelated repositories or random files
-- preserve official KernelBench run naming for evaluated candidates
-- treat eager PyTorch and `torch.compile` as separate baselines
-- prefer local tool commands over ad hoc shell logic when both exist
-- do not write to the root `MEMORY.md`; that file is for maintainers of the harness
-- keep the solver contract solution-only: `problem_reference.py` is read-only, `candidate_model_new.py` is the evaluated file
-- keep the candidate scaffold fixed and allow edits only inside its marked editable blocks
-- treat vendor-library wrappers and ATen compute helpers as forbidden for this experiment: no cuBLAS, cuBLASLt, CUTLASS, or ATen native/BLAS helper shortcuts
+- Treat root docs and workspace docs as different audiences, even when filenames match.
+- Keep the solver contract explicit and narrow.
+- Keep generic harness logic separate from tool-specific adapters.
+- Prefer one canonical source over duplicated vendor-specific files.
+- Do not edit `.codex/agents/*` or `.claude/agents/*` by hand. Edit `src/kernel_bench_experiment_agents/agent_specs.py`, then sync them.
+- Keep `archive/` as the single durable copy-out root.
+- Keep `state/` disposable.
+- Do not re-introduce root `SPEC.md`.
 
-## tool policy
+## Validation before finishing
 
-Use local commands for:
+At minimum, run:
 
-- timing and correctness evaluation
-- `ncu` profiling
-- workspace preparation
+```bash
+python -m py_compile src/kernel_bench_experiment_agents/*.py
+bash -n scripts/run_agent_problem.sh
+bash -n scripts/clear_run.sh
+```
 
-Do not invent alternate benchmarking flows when the local tool already covers the need.
-Do not bypass the workspace-local wrappers for solver runs.
-Do not relax candidate validation to admit pure-PyTorch shortcuts; the target is custom CUDA/C++ kernels.
-Do not relax trace auditing to allow shell work outside the problem workspace.
+If you change helper-agent specs, also run:
 
-## web policy
+```bash
+PYTHONPATH=src python -m kernel_bench_experiment_agents.cli sync-helper-agent-specs
+```
 
-Web access is documentation-only.
+## Current architecture direction
 
-Allowed live web domains:
-
-- `docs.nvidia.com`
-
-Do not browse arbitrary sites for kernel solutions.
-Do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels as solution hints.
-
-## agent behavior
-
-- the main agent should behave as a planner and optimizer
-- when timing or profiling output would pollute context, spawn the dedicated subagent and ask it to summarize
-- keep summaries concise and actionable
-- do not let subagents expand the task scope
-
-## file discipline
-
-- write scratch work inside the assigned problem workspace
-- only evaluated kernels consume an official `sample_id`
-- per-problem artifact locks serialize `sample_id` allocation and manifest commits
-- keep project-local manifests under this repository, not inside KernelBench internals
-
-## implementation guidance
-
-- prefer the smallest correct change that advances the experiment
-- avoid heavy frameworks
-- keep helper commands explicit and composable
-- when the official KernelBench interface is unclear, prefer a thin wrapper and document the assumption
+- solver-facing workspaces are self-contained under `state/workspaces/...`
+- durable run outputs live under `archive/<run_name>/...`
+- launcher and harness own measured outcomes
+- solver terminal states are narrow: `done`, `stalled`, `harness_failure`
+- Codex and Claude remain equal first-class adapters

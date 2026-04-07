@@ -18,28 +18,48 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
-def runs_dir() -> Path:
-    return ensure_dir(experiment_root() / "runs")
+def archive_dir() -> Path:
+    return ensure_dir(experiment_root() / "archive")
 
 
-def artifacts_dir() -> Path:
-    return ensure_dir(experiment_root() / "artifacts")
-
-
-def build_dir() -> Path:
-    return ensure_dir(experiment_root() / "build")
+def state_dir() -> Path:
+    return ensure_dir(experiment_root() / "state")
 
 
 def runtime_dir() -> Path:
-    return ensure_dir(experiment_root() / ".runtime")
+    return state_dir()
+
+
+def artifacts_dir() -> Path:
+    return archive_dir()
+
+
+def runs_dir() -> Path:
+    return archive_dir()
+
+
+def build_dir() -> Path:
+    return ensure_dir(state_dir() / "build")
+
+
+def locks_dir() -> Path:
+    return ensure_dir(state_dir() / "locks")
 
 
 def gpu_lock_dir() -> Path:
-    return ensure_dir(runtime_dir() / "gpu_locks")
+    return ensure_dir(locks_dir() / "gpu")
 
 
 def artifact_lock_dir() -> Path:
-    return ensure_dir(runtime_dir() / "artifact_locks")
+    return ensure_dir(locks_dir() / "problem_state")
+
+
+def solver_lock_dir() -> Path:
+    return ensure_dir(locks_dir() / "solver")
+
+
+def agent_home_root() -> Path:
+    return ensure_dir(state_dir() / "agent_home")
 
 
 def _lock_slug(value: str) -> str:
@@ -77,11 +97,18 @@ def artifact_lock_path(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
+def solver_lock_path(run_name: str, level: int, problem_id: int) -> Path:
+    run_name = validate_run_name(run_name)
+    return solver_lock_dir() / (
+        f"{_lock_slug(run_name)}_level_{level}_problem_{problem_id}.lock"
+    )
+
+
 def workspace_root(explicit: str | None = None) -> Path:
     candidate = explicit or os.environ.get("KBE_WORKSPACE_ROOT")
     if candidate:
         return ensure_dir(Path(candidate).expanduser().resolve())
-    return ensure_dir(runtime_dir() / "workspaces")
+    return ensure_dir(state_dir() / "workspaces")
 
 
 def workspace_dir(
@@ -101,18 +128,46 @@ def workspace_dir(
 
 def run_dir(run_name: str) -> Path:
     run_name = validate_run_name(run_name)
-    return ensure_dir(runs_dir() / run_name)
+    return ensure_dir(archive_dir() / run_name)
 
 
-def artifact_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
+def archive_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
     run_name = validate_run_name(run_name)
     return ensure_dir(
-        artifacts_dir() / run_name / f"level_{level}" / f"problem_{problem_id}"
+        archive_dir() / run_name / f"level_{level}" / f"problem_{problem_id}"
     )
 
 
+def artifact_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return archive_problem_dir(run_name, level, problem_id)
+
+
+def archive_contract_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "contract")
+
+
+def archive_agent_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "agent")
+
+
 def artifact_agent_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return ensure_dir(artifact_problem_dir(run_name, level, problem_id) / "agent")
+    return archive_agent_dir(run_name, level, problem_id)
+
+
+def archive_attempts_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "attempts")
+
+
+def archive_attempt_kernel_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_attempts_dir(run_name, level, problem_id) / "kernels")
+
+
+def archive_attempt_prompt_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_attempts_dir(run_name, level, problem_id) / "prompts")
+
+
+def archive_profiles_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "profiles")
 
 
 def build_problem_dir(
@@ -147,11 +202,11 @@ def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
     )
     artifact_pattern = re.compile(r"^sample_(\d+)\.json$")
     max_sample = -1
-    for child in run_dir(run_name).iterdir():
+    for child in archive_attempt_kernel_dir(run_name, level, problem_id).iterdir():
         match = kernel_pattern.match(child.name)
         if match:
             max_sample = max(max_sample, int(match.group(1)))
-    for child in artifact_problem_dir(run_name, level, problem_id).iterdir():
+    for child in archive_attempts_dir(run_name, level, problem_id).iterdir():
         match = artifact_pattern.match(child.name)
         if match:
             max_sample = max(max_sample, int(match.group(1)))
@@ -159,13 +214,13 @@ def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
 
 
 def official_kernel_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
-    return run_dir(run_name) / (
+    return archive_attempt_kernel_dir(run_name, level, problem_id) / (
         f"level_{level}_problem_{problem_id}_sample_{sample_id}_kernel.py"
     )
 
 
 def official_prompt_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
-    return run_dir(run_name) / (
+    return archive_attempt_prompt_dir(run_name, level, problem_id) / (
         f"level_{level}_problem_{problem_id}_sample_{sample_id}_prompt.txt"
     )
 
@@ -180,7 +235,7 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def append_jsonl(path: Path, payload: Any) -> None:
-    # callers must hold the per-problem artifact lease before appending here
+    # callers must hold the per-problem state lease before appending here
     ensure_dir(path.parent)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")

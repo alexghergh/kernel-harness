@@ -1,6 +1,6 @@
 personality = "pragmatic"
-# preferred mode for compatible hosts; the launcher currently overrides this to
-# danger-full-access by default on the shared cluster because workspace-write fails there
+# default maintainer setting; solver sessions get their own runtime copy and the launcher
+# keeps workspace-write as the default sandbox mode unless overridden explicitly
 sandbox_mode = "workspace-write"
 web_search = "live"
 project_doc_max_bytes = 65536

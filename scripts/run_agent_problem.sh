@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# example single-problem launcher
-# edit the variables below for your environment
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STATE_ROOT="${PROJECT_ROOT}/state"
+ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
 
 prepare_runtime_codex_home() {
   local base_home="$1"
   local runtime_home="$2"
   local entry
+  local config_path
 
   rm -rf "${runtime_home}"
   mkdir -p "${runtime_home}"
@@ -26,9 +26,28 @@ prepare_runtime_codex_home() {
       cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
     fi
   done
+
+  config_path="${runtime_home}/config.toml"
+  if [[ -f "${config_path}" ]]; then
+    python - "${config_path}" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+if re.search(r"(?m)^project_root_markers\s*=", text):
+    text = re.sub(r"(?m)^project_root_markers\s*=.*$", "project_root_markers = []", text)
+else:
+    if not text.endswith("\n"):
+        text += "\n"
+    text += "project_root_markers = []\n"
+path.write_text(text, encoding="utf-8")
+PY
+  fi
 }
 
-prepare_runtime_claude_config() {
+prepare_runtime_claude_project_config() {
   local base_dir="$1"
   local workspace="$2"
   local target_dir="${workspace}/.claude"
@@ -87,10 +106,10 @@ MODEL="${MODEL:-${DEFAULT_MODEL}}"
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-720}"
 NUM_GPUS="${NUM_GPUS:-1}"
 GPU_NAME="${GPU_NAME:-}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-${PROJECT_ROOT}/.runtime/workspaces}"
-CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-danger-full-access}"
-CODEX_SANDBOX_NETWORK_ACCESS="${CODEX_SANDBOX_NETWORK_ACCESS:-true}"
-CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-bypassPermissions}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${STATE_ROOT}/workspaces}"
+CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-workspace-write}"
+CODEX_SANDBOX_NETWORK_ACCESS="${CODEX_SANDBOX_NETWORK_ACCESS:-false}"
+CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-}"
 KERNELBENCH_PYTHON="${KERNELBENCH_PYTHON:-${KERNELBENCH_ROOT:-}/.venv/bin/python}"
 EAGER_BASELINE_FILE="${EAGER_BASELINE_FILE:-}"
 COMPILE_BASELINE_FILE="${COMPILE_BASELINE_FILE:-}"
@@ -117,35 +136,37 @@ if [[ -z "${COMPILE_BASELINE_FILE}" || ! -f "${COMPILE_BASELINE_FILE}" ]]; then
   exit 1
 fi
 
+export PATH="$(dirname "${KERNELBENCH_PYTHON}"):${PATH}"
+
 CODEX_BASE_HOME="${PROJECT_ROOT}/.codex"
 CLAUDE_PROJECT_DIR="${PROJECT_ROOT}/.claude"
-AGENT_RUNTIME_ROOT="${PROJECT_ROOT}/.runtime/agent_home"
+AGENT_RUNTIME_ROOT="${STATE_ROOT}/agent_home"
 PROJECT_PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-RUN_OUTPUT_DIR="${PROJECT_ROOT}/runs/${RUN_NAME}"
-ARTIFACT_PROBLEM_DIR="${PROJECT_ROOT}/artifacts/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
-AGENT_ARTIFACT_DIR="${ARTIFACT_PROBLEM_DIR}/agent"
-BUILD_PROBLEM_DIR="${PROJECT_ROOT}/build/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
+BUILD_PROBLEM_DIR="${STATE_ROOT}/build/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+SOLVER_LOCK_DIR="${STATE_ROOT}/locks/solver"
+PROBLEM_STATE_LOCK_DIR="${STATE_ROOT}/locks/problem_state"
+GPU_LOCK_DIR="${STATE_ROOT}/locks/gpu"
 
 mkdir -p \
-  "${RUN_OUTPUT_DIR}" \
-  "${ARTIFACT_PROBLEM_DIR}" \
+  "${ARCHIVE_PROBLEM_DIR}" \
   "${AGENT_ARTIFACT_DIR}" \
   "${BUILD_PROBLEM_DIR}" \
-  "${PROJECT_ROOT}/.runtime" \
+  "${STATE_ROOT}" \
   "${AGENT_RUNTIME_ROOT}" \
-  "${PROJECT_ROOT}/.runtime/gpu_locks" \
-  "${PROJECT_ROOT}/.runtime/artifact_locks" \
-  "${PROJECT_ROOT}/.runtime/solver_locks"
+  "${SOLVER_LOCK_DIR}" \
+  "${PROBLEM_STATE_LOCK_DIR}" \
+  "${GPU_LOCK_DIR}"
 
 if ! command -v flock >/dev/null 2>&1; then
   echo "flock is required to enforce one active solver per problem." >&2
   exit 1
 fi
 
-mkdir -p "${PROJECT_ROOT}/.runtime/solver_locks"
 SAFE_RUN_NAME="$(printf '%s' "${RUN_NAME}" | tr -c 'A-Za-z0-9._-' '_')"
-SOLVER_LOCK_PATH="${PROJECT_ROOT}/.runtime/solver_locks/${SAFE_RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
+SOLVER_LOCK_PATH="${SOLVER_LOCK_DIR}/${SAFE_RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
 AGENT_RUNTIME_HOME="${AGENT_RUNTIME_ROOT}/${SAFE_RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 exec 9>"${SOLVER_LOCK_PATH}"
 if ! flock -n 9; then
@@ -174,7 +195,7 @@ else
   fi
 fi
 
-PREP_OUTPUT="$(
+PREP_OUTPUT="$({
   PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli prepare-problem-workspace \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
@@ -190,21 +211,21 @@ PREP_OUTPUT="$(
     --time-budget-minutes "${TIME_BUDGET_MINUTES}" \
     --eager-baseline-file "${EAGER_BASELINE_FILE}" \
     --compile-baseline-file "${COMPILE_BASELINE_FILE}"
-)"
+})"
 
-WORKSPACE="$(
+WORKSPACE="$({
   PREP_OUTPUT="${PREP_OUTPUT}" "${KERNELBENCH_PYTHON}" - <<'PY'
 import json
 import os
 payload = json.loads(os.environ["PREP_OUTPUT"])
 print(payload["workspace"])
 PY
-)"
+})"
 
 INITIAL_PROMPT_PATH="${WORKSPACE}/INITIAL_PROMPT.md"
 EVENTS_PATH="${AGENT_ARTIFACT_DIR}/events.jsonl"
 FINAL_MESSAGE_PATH="${AGENT_ARTIFACT_DIR}/final_message.txt"
-CONVERSATION_PATH="${AGENT_ARTIFACT_DIR}/conversation.json"
+TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
@@ -212,13 +233,15 @@ BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status
 if [[ "${TOOL}" == "codex" ]]; then
   prepare_runtime_codex_home "${CODEX_BASE_HOME}" "${AGENT_RUNTIME_HOME}"
   export CODEX_HOME="${AGENT_RUNTIME_HOME}"
-  echo "Launching Codex in ${WORKSPACE} with runtime CODEX_HOME=${CODEX_HOME}" >&2
+  echo "Launching Codex in ${WORKSPACE} with isolated CODEX_HOME=${CODEX_HOME}" >&2
 else
-  prepare_runtime_claude_config "${CLAUDE_PROJECT_DIR}" "${WORKSPACE}"
-  echo "Launching Claude Code in ${WORKSPACE}" >&2
+  prepare_runtime_claude_project_config "${CLAUDE_PROJECT_DIR}" "${WORKSPACE}"
+  export CLAUDE_CONFIG_DIR="${AGENT_RUNTIME_HOME}/claude_home"
+  mkdir -p "${CLAUDE_CONFIG_DIR}"
+  echo "Launching Claude Code in ${WORKSPACE} with isolated CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" >&2
 fi
 
-rm -f "${FINAL_MESSAGE_PATH}" "${CONVERSATION_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
+rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
   PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_experiment_agents.cli goal-status \
@@ -233,7 +256,7 @@ mark_budget_exhausted_if_needed() {
   local exhausted=""
 
   refresh_goal_status || return 1
-  exhausted="$(
+  exhausted="$({
     STATUS_PATH="${status_path}" "${KERNELBENCH_PYTHON}" -c '
 import json
 import os
@@ -243,7 +266,7 @@ payload = json.loads(open(path, "r", encoding="utf-8").read())
 remaining = payload.get("remaining_minutes")
 print("false" if remaining is None else ("true" if float(remaining) <= 0 else "false"))
 '
-  )"
+  })"
   if [[ "${exhausted}" == "true" ]]; then
     cp -f "${status_path}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
     return 0
@@ -258,7 +281,7 @@ watch_budget_limit() {
       return 0
     fi
     if mark_budget_exhausted_if_needed; then
-      remaining="$(
+      remaining="$({
         STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" "${KERNELBENCH_PYTHON}" -c '
 import json
 import os
@@ -268,7 +291,7 @@ payload = json.loads(open(path, "r", encoding="utf-8").read())
 remaining = payload.get("remaining_minutes")
 print("" if remaining is None else remaining)
 '
-      )"
+      })"
       echo "Budget exhausted for run=${RUN_NAME} level=${LEVEL} problem=${PROBLEM_ID} (remaining=${remaining}); stopping ${TOOL}." >&2
       terminate_agent_pipeline "${AGENT_PIPE_PID}"
       return 0
@@ -285,18 +308,12 @@ if [[ "${TOOL}" == "codex" ]]; then
     --sandbox "${CODEX_SANDBOX_MODE}"
     --cd "${WORKSPACE}"
     --skip-git-repo-check
-    --add-dir "${RUN_OUTPUT_DIR}"
-    --add-dir "${ARTIFACT_PROBLEM_DIR}"
-    --add-dir "${BUILD_PROBLEM_DIR}"
-    --add-dir "${PROJECT_ROOT}/.runtime/gpu_locks"
-    --add-dir "${PROJECT_ROOT}/.runtime/artifact_locks"
-    --add-dir "${PROJECT_ROOT}/.runtime/solver_locks"
     --model "${MODEL}"
     --json
   )
 
   if [[ "${CODEX_SANDBOX_MODE}" == "workspace-write" ]]; then
-    CODEX_ARGS+=(-c "sandbox_workspace_write.network_access=${CODEX_SANDBOX_NETWORK_ACCESS}")
+    CODEX_ARGS+=( -c "sandbox_workspace_write.network_access=${CODEX_SANDBOX_NETWORK_ACCESS}" )
   fi
 
   (
@@ -310,11 +327,12 @@ else
     --verbose
     --output-format stream-json
     --no-session-persistence
-    --permission-mode "${CLAUDE_PERMISSION_MODE}"
     --setting-sources project,local
-    --add-dir "${RUN_OUTPUT_DIR}" "${ARTIFACT_PROBLEM_DIR}" "${BUILD_PROBLEM_DIR}" "${PROJECT_ROOT}/.runtime/gpu_locks" "${PROJECT_ROOT}/.runtime/artifact_locks" "${PROJECT_ROOT}/.runtime/solver_locks"
     --model "${MODEL}"
   )
+  if [[ -n "${CLAUDE_PERMISSION_MODE}" ]]; then
+    CLAUDE_ARGS+=( --permission-mode "${CLAUDE_PERMISSION_MODE}" )
+  fi
 
   (
     cd "${WORKSPACE}" && claude "${CLAUDE_ARGS[@]}" \
@@ -338,7 +356,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
       --workspace "${WORKSPACE}" \
-      --decision budget_exhausted \
+      --state budget_exhausted \
       --summary "launcher stopped ${TOOL} after the corrected remaining budget reached zero without a solver-written completion" \
       --allow-overwrite >/dev/null
   else
@@ -347,7 +365,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
       --workspace "${WORKSPACE}" \
-      --decision failed_to_generate \
+      --state failed_to_generate \
       --summary "${TOOL} exited with code ${AGENT_EXIT} without writing completion.json" \
       --allow-overwrite >/dev/null
   fi
@@ -358,9 +376,9 @@ if ! PYTHONPATH="${PROJECT_PYTHONPATH}" "${KERNELBENCH_PYTHON}" -m kernel_bench_
   --events-path "${EVENTS_PATH}" \
   --completion-path "${COMPLETION_PATH}" \
   --final-message-path "${FINAL_MESSAGE_PATH}" \
-  --output-path "${CONVERSATION_PATH}" \
+  --output-path "${TRACE_PATH}" \
   --workspace "${WORKSPACE}" >/dev/null; then
-  echo "warning: failed to materialize normalized ${TOOL} trace at ${CONVERSATION_PATH}" >&2
+  echo "warning: failed to materialize normalized ${TOOL} trace at ${TRACE_PATH}" >&2
 fi
 
 readarray -t COMPLETION_STATE < <(
@@ -369,14 +387,14 @@ import json
 import os
 path = os.environ["COMPLETION_PATH"]
 payload = json.loads(open(path, "r", encoding="utf-8").read())
-print(payload.get("decision", ""))
+print(payload.get("terminal_state", ""))
 print("true" if payload.get("success") else "false")
 PY
 )
-DECISION="${COMPLETION_STATE[0]:-}"
+TERMINAL_STATE="${COMPLETION_STATE[0]:-}"
 SUCCESS="${COMPLETION_STATE[1]:-false}"
 
-echo "Completion decision: ${DECISION}" >&2
+echo "Completion state: ${TERMINAL_STATE}" >&2
 if [[ "${SUCCESS}" != "true" || "${AGENT_EXIT}" -ne 0 ]]; then
   exit 1
 fi

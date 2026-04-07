@@ -4,6 +4,7 @@ import argparse
 import csv
 import io
 import math
+import os
 import json
 import re
 import shlex
@@ -16,6 +17,7 @@ from textwrap import dedent
 from typing import Any
 from urllib.parse import urlparse
 
+from .agent_specs import sync_helper_agent_specs
 from .candidate_contract import CANDIDATE_FILENAME, candidate_template
 from .candidate_validation import CandidateValidationError, validate_candidate_source
 from .gpu_pool import lease_gpu_slot, lease_problem_artifacts
@@ -23,8 +25,12 @@ from .hardware_catalog import render_hardware_markdown, resolve_hardware_spec
 from .kernelbench import evaluate_candidate, load_problem
 from .project import (
     append_jsonl,
+    archive_attempts_dir,
+    archive_contract_dir,
+    archive_profiles_dir,
     artifact_agent_dir,
     artifact_problem_dir,
+    artifacts_dir,
     experiment_root,
     kernelbench_root,
     make_executable,
@@ -36,9 +42,18 @@ from .project import (
     write_json,
     write_text,
 )
+from .workspace_contract import (
+    LAUNCHER_TERMINAL_STATES,
+    SOLVER_TERMINAL_STATES,
+    build_workspace_contract,
+    render_initial_prompt,
+    render_workspace_agents_md,
+    render_workspace_spec_md,
+)
 
 TOOL_CHOICES = ("codex", "claude")
 _ALLOWED_WEB_SEARCH_HOSTS = ("docs.nvidia.com",)
+_TERMINAL_STATE_CHOICES = tuple(SOLVER_TERMINAL_STATES + LAUNCHER_TERMINAL_STATES)
 
 
 def _default_parser() -> argparse.ArgumentParser:
@@ -113,21 +128,11 @@ def _default_parser() -> argparse.ArgumentParser:
     complete.add_argument("--level", type=int, required=True)
     complete.add_argument("--problem-id", type=int, required=True)
     complete.add_argument("--workspace", required=True)
-    complete.add_argument(
-        "--decision",
-        required=True,
-        choices=[
-            "beats_both_baselines",
-            "beats_eager_only",
-            "beats_compile_only",
-            "budget_exhausted",
-            "stalled",
-            "harness_failure",
-            "failed_to_generate",
-        ],
-    )
+    complete.add_argument("--state", required=True, choices=_TERMINAL_STATE_CHOICES)
     complete.add_argument("--summary", default="")
     complete.add_argument("--allow-overwrite", action="store_true")
+
+    subparsers.add_parser("sync-helper-agent-specs")
 
     trace = subparsers.add_parser("materialize-agent-trace")
     trace.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
@@ -251,6 +256,34 @@ def _load_workspace_metadata(workspace: Path) -> dict[str, Any]:
 
 def _load_workspace_baseline(workspace: Path) -> dict[str, Any]:
     return _read_json(workspace / "baseline.json")
+
+
+def _archive_problem_contract_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return archive_contract_dir(run_name, level, problem_id)
+
+
+def _archive_problem_attempts_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return archive_attempts_dir(run_name, level, problem_id)
+
+
+def _archive_problem_profiles_dir(run_name: str, level: int, problem_id: int) -> Path:
+    return archive_profiles_dir(run_name, level, problem_id)
+
+
+def _history_path(run_name: str, level: int, problem_id: int) -> Path:
+    return _archive_problem_attempts_dir(run_name, level, problem_id) / "history.jsonl"
+
+
+def _sample_manifest_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
+    return _archive_problem_attempts_dir(run_name, level, problem_id) / f"sample_{sample_id}.json"
+
+
+def _goal_status_archive_path(run_name: str, level: int, problem_id: int) -> Path:
+    return artifact_agent_dir(run_name, level, problem_id) / "goal_status.json"
+
+
+def _profile_index_path(run_name: str, level: int, problem_id: int) -> Path:
+    return _archive_problem_profiles_dir(run_name, level, problem_id) / "index.jsonl"
 
 
 def _history_entries(path: Path) -> list[dict[str, Any]]:
@@ -509,6 +542,8 @@ def _allowed_workspace_read_paths(workspace: Path) -> set[Path]:
         (workspace / "HARDWARE.md").resolve(),
         (workspace / "GOAL_STATUS.md").resolve(),
         (workspace / "goal_status.json").resolve(),
+        (workspace / "hardware.json").resolve(),
+        (workspace / "workspace_contract.json").resolve(),
         (workspace / "problem.json").resolve(),
         (workspace / "problem_reference.py").resolve(),
         (workspace / "baseline.json").resolve(),
@@ -743,7 +778,7 @@ def _goal_status_snapshot(
     metadata = _load_workspace_metadata(workspace)
     tool = _normalize_tool_name(metadata.get("tool"))
     baseline = _load_workspace_baseline(workspace)
-    history_path = artifact_problem_dir(run_name, level, problem_id) / "history.jsonl"
+    history_path = _history_path(run_name, level, problem_id)
     entries = _history_entries(history_path)
     best_payload = _best_correct_payload(history_path)
     live_trace_counts, live_web_searches = _live_trace_counts_for_problem(
@@ -773,7 +808,7 @@ def _goal_status_snapshot(
     )
     elapsed_minutes_wall_clock = _elapsed_minutes(metadata.get("created_at"))
     time_budget_minutes = _as_float(metadata.get("time_budget_minutes"))
-    ncu_dir = artifact_problem_dir(run_name, level, problem_id) / "ncu"
+    ncu_dir = _archive_problem_profiles_dir(run_name, level, problem_id)
     profile_payloads = _profile_entries(ncu_dir)
     gpu_wait_minutes_total = (
         _sum_numeric_field(entries, "gpu_wait_seconds")
@@ -863,7 +898,7 @@ def _goal_status_markdown(snapshot: dict[str, Any]) -> str:
     else:
         heading = "# Goal Status: RESOLVED — both baselines beaten; complete with success"
         standing_orders = [
-            "- Re-check `SPEC.md` once, then end through `./bin/complete_problem.sh --decision beats_both_baselines`.",
+            "- Re-check `SPEC.md` once, then end through `./bin/complete_problem.sh --state done --summary 'both baselines beaten'`.",
         ]
 
     if remaining_minutes is None:
@@ -930,16 +965,11 @@ def _write_goal_status_files(
     )
     _write_workspace_best_sample(
         workspace,
-        _best_correct_payload(
-            artifact_problem_dir(run_name, level, problem_id) / "history.jsonl"
-        ),
+        _best_correct_payload(_history_path(run_name, level, problem_id)),
     )
     write_json(workspace / "goal_status.json", snapshot)
     write_text(workspace / "GOAL_STATUS.md", _goal_status_markdown(snapshot))
-    write_json(
-        artifact_agent_dir(run_name, level, problem_id) / "goal_status.json",
-        snapshot,
-    )
+    write_json(_goal_status_archive_path(run_name, level, problem_id), snapshot)
     return snapshot
 
 
@@ -950,69 +980,12 @@ def _workspace_spec_markdown(
     baseline: dict[str, Any],
     hardware_markdown_name: str,
 ) -> str:
-    return dedent(
-        f"""
-        # Orders
-
-        You MUST beat both baselines or exhaust the full budget trying. There is no middle ground.
-        NEVER STOP EARLY. DO NOT pause to ask whether you should continue. Continue working until a stopping rule truthfully fires.
-
-        ## Target
-
-        - problem: `{metadata.get("problem_name") or "unknown"}` (level `{metadata["level"]}`, problem `{metadata["problem_id"]}`)
-        - eager PyTorch baseline: `{baseline["eager"]["runtime_ms"]}` ms
-        - `torch.compile` baseline: `{baseline["compile"]["runtime_ms"]}` ms
-        - you succeed only when your best correct runtime is below BOTH numbers
-        - optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}`
-        - the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; vendor-library wrappers, Triton, and ATen compute helpers are forbidden
-        - correctness and runtime are evaluated on the harness `fp32` path
-        - internal mixed-precision math is allowed if the final outputs still pass that `fp32` correctness check
-
-        ## Stopping Rules
-
-        You are forbidden from stopping unless one of these is true:
-
-        1. You beat both baselines -> `./bin/complete_problem.sh --decision beats_both_baselines`.
-        2. Budget is nearly exhausted, you profiled at least once, and you tried a new branch informed by that evidence -> `budget_exhausted`.
-        3. You profiled, consulted `HARDWARE.md` plus NVIDIA docs, tried a new informed branch, and progress is genuinely stalled -> `stalled`.
-        4. The harness or environment is genuinely broken in a way that prevents truthful progress -> `harness_failure`.
-
-        A plain assistant message is NEVER a valid exit. The ONLY exit is `./bin/complete_problem.sh`.
-        The harness enforces the budget. You must end cleanly through `./bin/complete_problem.sh --decision budget_exhausted` before remaining time reaches zero.
-
-        ## Loop
-
-        LOOP UNTIL DONE:
-
-        1. Edit `{CANDIDATE_FILENAME}`.
-        2. Run `./bin/run_candidate.sh`.
-        3. Read `GOAL_STATUS.md`. If both baselines are beaten, stop with success.
-        4. For small constant or layout changes, just edit and run again. Timing and profiling are normal and cheap.
-        5. Trust the wrappers. If a timing or profiling call is slow, wait for it; do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.
-        6. If stuck or uncertain, run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, and try a new branch.
-        7. Repeat until a stopping rule fires.
-
-        Re-read this file and `GOAL_STATUS.md` before every major decision.
-
-        ## Budget
-
-        - total budget: `{metadata["time_budget_minutes"]}` minutes
-        - remaining budget: see `GOAL_STATUS.md`
-        - recorded GPU lock wait time is excluded from the remaining budget
-        - tens or hundreds of attempts are normal
-        - a failed attempt is not a reason to stop
-        - a series of failed attempts is not a reason to stop
-        - there is no human confirmation step during this run
-        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read `samples/`, revisit NVIDIA docs, combine near-misses, or try a more radical branch
-
-        ## Reference
-
-        - problem code: `problem_reference.py`
-        - solution file: `{CANDIDATE_FILENAME}` (only file you edit for evaluation)
-        - hardware limits and docs: `{hardware_markdown_name}`
-        - constraints and forbidden shortcuts: `AGENTS.md`
-        """
-    ).strip() + "\n"
+    return render_workspace_spec_md(
+        problem_name=getattr(problem, "name", None),
+        metadata=metadata,
+        baseline=baseline,
+        hardware_markdown_name=hardware_markdown_name,
+    )
 
 
 def _find_first_value(payload: Any, keys: set[str]) -> Any:
@@ -1362,6 +1335,7 @@ _FORBIDDEN_MONITORING_MARKERS = (
 
 _WORKSPACE_WRAPPER_NAMES = {
     "./bin/problem_info.sh": "problem_info_calls",
+    "./bin/hardware_info.sh": "hardware_info_calls",
     "./bin/run_candidate.sh": "run_candidate_calls",
     "./bin/profile_ncu.sh": "profile_ncu_calls",
     "./bin/goal_status.sh": "goal_status_calls",
@@ -1433,6 +1407,7 @@ def _empty_trace_counts() -> dict[str, Any]:
         "wrapper_commands": 0,
         "gpu_wrapper_commands": 0,
         "problem_info_calls": 0,
+        "hardware_info_calls": 0,
         "run_candidate_calls": 0,
         "profile_ncu_calls": 0,
         "goal_status_calls": 0,
@@ -1896,6 +1871,22 @@ def _audit_trace(
     }
 
 
+def _infer_measured_outcome(goal_status: dict[str, Any] | None) -> str:
+    if not isinstance(goal_status, dict):
+        return "unknown"
+    if not bool(goal_status.get("has_correct_solution")):
+        return "no_correct_candidate"
+    beats_eager = bool(goal_status.get("beats_eager"))
+    beats_compile = bool(goal_status.get("beats_compile"))
+    if beats_eager and beats_compile:
+        return "beats_both"
+    if beats_eager:
+        return "beats_eager_only"
+    if beats_compile:
+        return "beats_compile_only"
+    return "beats_none"
+
+
 def _apply_trace_audit_to_completion(
     completion_payload: dict[str, Any],
     audit: dict[str, Any],
@@ -1910,14 +1901,13 @@ def _apply_trace_audit_to_completion(
     if audit.get("valid", True):
         return completion_payload
 
-    if "reported_decision" not in completion_payload:
-        completion_payload["reported_decision"] = completion_payload.get("decision")
-    if "reported_summary" not in completion_payload:
-        completion_payload["reported_summary"] = completion_payload.get("summary")
-    if "reported_success" not in completion_payload:
-        completion_payload["reported_success"] = completion_payload.get("success")
-
-    completion_payload["decision"] = "harness_failure"
+    completion_payload.setdefault(
+        "reported_terminal_state",
+        completion_payload.get("terminal_state") or completion_payload.get("solver_state"),
+    )
+    completion_payload.setdefault("reported_summary", completion_payload.get("summary"))
+    completion_payload.setdefault("reported_success", completion_payload.get("success"))
+    completion_payload["terminal_state"] = "harness_failure"
     completion_payload["success"] = False
     completion_payload["summary"] = f"invalidated by trace audit: {audit.get('summary')}"
     return completion_payload
@@ -1943,6 +1933,11 @@ def _annotate_completion_outcomes(
     completion_payload["raw_beats_compile"] = raw_beats_compile
     completion_payload["raw_beats_both"] = raw_beats_both
     completion_payload["outside_harness_success"] = raw_beats_both
+    completion_payload["measured_outcome"] = _infer_measured_outcome(
+        goal_status if isinstance(goal_status, dict) else None
+    )
+    if completion_payload.get("success") is None:
+        completion_payload["success"] = completion_payload["measured_outcome"] == "beats_both"
     return completion_payload
 
 
@@ -1962,7 +1957,7 @@ def _apply_completion_policy(
     if not isinstance(trace_counts, dict) or not isinstance(goal_status, dict):
         return completion_payload
 
-    if completion_payload.get("decision") != "stalled":
+    if completion_payload.get("terminal_state") != "stalled":
         return completion_payload
     if not _substantial_budget_remaining(goal_status):
         return completion_payload
@@ -1971,20 +1966,20 @@ def _apply_completion_policy(
     if profile_calls >= 1:
         return completion_payload
 
-    if "reported_decision" not in completion_payload:
-        completion_payload["reported_decision"] = completion_payload.get("decision")
-    if "reported_summary" not in completion_payload:
-        completion_payload["reported_summary"] = completion_payload.get("summary")
-    if "reported_success" not in completion_payload:
-        completion_payload["reported_success"] = completion_payload.get("success")
-
-    completion_payload["decision"] = "harness_failure"
+    completion_payload.setdefault(
+        "reported_terminal_state",
+        completion_payload.get("terminal_state") or completion_payload.get("solver_state"),
+    )
+    completion_payload.setdefault("reported_summary", completion_payload.get("summary"))
+    completion_payload.setdefault("reported_success", completion_payload.get("success"))
+    completion_payload["terminal_state"] = "harness_failure"
     completion_payload["success"] = False
     completion_payload["summary"] = (
         "invalidated by completion policy: `stalled` is not allowed while substantial "
         "budget remains and no `./bin/profile_ncu.sh` call was recorded"
     )
     return completion_payload
+
 
 def _parse_pass_k_list(raw: str) -> list[int]:
     values: list[int] = []
@@ -2055,6 +2050,16 @@ def _next_workspace_profile_index(workspace: Path) -> int:
     return max_index + 1
 
 
+def _next_archive_profile_index(run_name: str, level: int, problem_id: int) -> int:
+    profiles_dir = _archive_problem_profiles_dir(run_name, level, problem_id)
+    max_index = 0
+    for child in profiles_dir.glob("profile_*.json"):
+        match = re.fullmatch(r"profile_(\d+)\.json", child.name)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return max_index + 1
+
+
 def _write_workspace_script(path: Path, content: str) -> None:
     write_text(path, content)
     make_executable(path)
@@ -2069,180 +2074,15 @@ def _run_subprocess_capture(command: list[str]) -> subprocess.CompletedProcess[s
     )
 
 
-def _generate_workspace_agents_md(args: argparse.Namespace) -> str:
-    return dedent(
-        f"""
-        # Solver Instructions
-
-        You are an autonomous optimizer for exactly one KernelBench problem.
-
-        Assignment:
-
-        - run name: `{args.run_name}`
-        - level: `{args.level}`
-        - problem id: `{args.problem_id}`
-        - dataset source: `{args.dataset_src}`
-        - available GPU slots for execution: `{args.num_gpus}`
-        - reported GPU name: `{args.gpu_name or "not provided"}`
-        - model budget: `{args.time_budget_minutes}` minutes
-
-        Scope:
-
-        - stay inside this workspace
-        - read `SPEC.md` and `HARDWARE.md` first, then keep referring back to them so the goal does not drift
-        - the project goal is narrow: test whether raw custom CUDA code, without vendor-library wrappers or ATen compute helpers, can beat optimized PyTorch baselines
-        - the harness evaluates the problem in `fp32`; optimize for that judged path
-        - do not inspect unrelated problems
-        - do not inspect maintainer docs in the repository unless explicitly asked
-        - do not inspect harness source code, wrapper scripts, or repository internals to reverse-engineer the evaluator
-        - do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas
-        - do not modify files outside this workspace
-        - use `problem_reference.py` as the reference architecture
-        - edit only `{CANDIDATE_FILENAME}` for the actual solution
-        - in `{CANDIDATE_FILENAME}`, edit only the marked editable blocks and keep the fixed scaffold unchanged
-
-        Local commands:
-
-        - `./bin/problem_info.sh`
-        - `./bin/run_candidate.sh`
-        - `./bin/profile_ncu.sh`
-        - `./bin/goal_status.sh`
-        - `./bin/best_result.sh`
-        - `./bin/complete_problem.sh --decision ... --summary "..."`
-
-        Valid completion decisions:
-
-        - `beats_both_baselines`
-        - `beats_eager_only`
-        - `beats_compile_only`
-        - `budget_exhausted`
-        - `stalled`
-        - `harness_failure`
-
-        `failed_to_generate` is reserved for the launcher if the agent exits without writing completion.
-
-        Allowed reads:
-
-        - `AGENTS.md`
-        - `SPEC.md`
-        - `HARDWARE.md`
-        - `GOAL_STATUS.md`
-        - `goal_status.json`
-        - `problem.json`
-        - `problem_reference.py`
-        - `{CANDIDATE_FILENAME}`
-        - `samples/`
-        - `profiles/`
-        - `baseline.json`
-
-        Allowed edits:
-
-        - `{CANDIDATE_FILENAME}`
-
-        Web policy:
-
-        - if live web search is enabled, use it only for NVIDIA docs
-        - allowed domain is `docs.nvidia.com`
-        - you do not need user confirmation to use the allowed NVIDIA docs search path
-        - do not use shell networking for research or downloads
-        - do not run `curl`, `wget`, package installers, browsers, or ad hoc Python networking code
-        - do not use online papers, blogs, forums, or code repositories for solution ideas
-        - if you need documentation, prefer the hosted web-search tool and keep it within the allowed NVIDIA domain
-
-        Subagents:
-
-        - use `runner` aggressively when timing output, failed-attempt logs, or branch exploration would pollute your context
-        - use `profiler` when `ncu` output would pollute your context
-        - if progress slows, use subagents to explore new branches instead of repeating the same local search loop
-        - subagents must stay on this problem only
-
-        Rules:
-
-        - LOOP UNTIL DONE. NEVER STOP EARLY.
-        - do NOT ask the user whether you should continue
-        - every evaluated attempt must go through `./bin/run_candidate.sh`
-        - there is no limit on wrapper use; even quick sanity checks and simple performance tests must go through the local wrappers
-        - timing and profiling are routine tools, not expensive last resorts
-        - profiling is allowed for small constant or layout changes, not just final candidates
-        - large search loops are expected when needed; exploring many tile sizes, stage counts, vector widths, or block layouts is normal
-        - wrapper commands are authoritative; if a wrapper is slow, wait for it and trust it
-        - do not run `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, inspect `/proc`, or inspect build directories to monitor wrapper progress
-        - all GPU work is serialized through the local wrappers; do not bypass them
-        - do not run ad hoc Python, shell, or benchmarking commands for GPU experiments outside the local wrappers
-        - do not use `python -c`, heredoc Python, or `git diff` as a substitute for reading files or testing ideas
-        - do not read or import `kernel_bench_experiment_agents`, `kernelbench`, or other repository code to infer hidden evaluator details
-        - do not inspect `bin/*.sh`; execute the local commands directly instead
-        - after `./bin/profile_ncu.sh`, read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` or `profiles/latest.raw.csv` only if needed; do not inspect artifact-tree profiler outputs, binary report files, or parse profiler files with ad hoc shell/Python commands
-        - do not ask the user what to do next during the run
-        - do not stop, hand control back, or declare completion early
-        - do not end the run with a plain assistant message; plain summaries are not terminal actions
-        - you may continue autonomously for the full model budget in this workspace; long runs are expected and allowed
-        - there is no human-in-the-loop confirmation step during this run; act autonomously inside the budget
-        - continue autonomously until you either beat both baselines or terminate through `./bin/complete_problem.sh` with a truthful non-success decision
-        - check `./bin/goal_status.sh` before deciding whether to stop
-        - re-read `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` before any major strategy change and before any stop decision
-        - measured status comes from `goal_status.json` and `GOAL_STATUS.md`, including the remaining time budget
-        - the harness enforces the corrected remaining budget; do not run past it
-        - if remaining time is close to zero and the target is still unresolved, call `./bin/complete_problem.sh --decision budget_exhausted` before the harness stops the run
-        - do not call the search stalled while substantial budget remains unless you have already profiled a strong candidate, consulted `HARDWARE.md` and NVIDIA documentation, and then tried a new branch informed by that evidence
-        - if you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch
-        - treat shell networking as forbidden even if the launcher allows it for cluster compatibility
-        - every measured attempt is mirrored into `samples/sample_<id>.py`; use those workspace-local copies instead of inspecting `runs/`
-        - `{CANDIDATE_FILENAME}` must define `ModelNew` and raw custom CUDA/C++ extension code only
-        - internal mixed-precision math is allowed if the candidate still passes the harness `fp32` correctness checks
-        - minimal extension glue is allowed, but ATen compute helpers and native ops are out of scope
-        - do not redefine `Model`, `get_inputs`, or `get_init_inputs`
-        - do not use `torch.compile`, Triton, environment-variable changes, torch backend flags, pure PyTorch matmul shortcuts, `register_buffer`, output-buffer reuse tricks, cuBLAS, cuBLASLt, CUTLASS, or ATen compute wrappers
-        """
-    ).strip() + "\n"
+def _generate_workspace_agents_md(contract: dict[str, Any]) -> str:
+    return render_workspace_agents_md(contract=contract)
 
 
-def _generate_initial_prompt(args: argparse.Namespace) -> str:
-    return dedent(
-        f"""
-        Optimize exactly one KernelBench problem.
-
-        - run name: {args.run_name}
-        - level: {args.level}
-        - problem id: {args.problem_id}
-        - dataset source: {args.dataset_src}
-        - time budget: {args.time_budget_minutes} minutes
-        - GPU slots available for execution: {args.num_gpus}
-
-        Start by reading:
-
-        - `AGENTS.md`
-        - `SPEC.md`
-        - `HARDWARE.md`
-        - `GOAL_STATUS.md`
-        - `problem_reference.py`
-        - `{CANDIDATE_FILENAME}`
-
-        The experiment target is strict: raw custom CUDA code only, with minimal Python/C++ extension glue as needed, but no vendor-library wrappers such as cuBLAS, cuBLASLt, CUTLASS, Triton, or ATen compute helpers.
-        The harness evaluates correctness and runtime on the `fp32` path. Internal mixed-precision math is allowed if the final outputs still pass that `fp32` correctness check.
-
-        Remaining budget is tracked in `GOAL_STATUS.md`; you are allowed to keep working autonomously for hours until the budget is genuinely exhausted. Prefer using the `runner` and `profiler` subagents to keep your own context clean during long searches.
-        There is no human confirmation step during this run. Keep acting autonomously inside the budget, and keep re-reading `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` so the goal, hardware limits, and current status stay explicit.
-        NEVER STOP EARLY. DO NOT ask whether you should continue. Continue working until you either beat both baselines or truthfully terminate through `./bin/complete_problem.sh`.
-        The harness enforces the corrected remaining budget. Do not let remaining time reach zero without first calling `./bin/complete_problem.sh --decision budget_exhausted` if the target is still unresolved.
-
-        If you think you are stalled while substantial budget remains, first consult `HARDWARE.md`, then the linked NVIDIA docs, run `./bin/profile_ncu.sh` on a strong candidate, and try at least one new branch informed by that evidence. Only then may you consider `stalled`.
-
-        Large micro-searches are expected when needed. You are allowed to spend tens or hundreds of timing runs exploring tile sizes, stage counts, vector widths, warp layouts, or launch shapes, as long as every measured attempt goes through the local wrappers. Timing and profiling are normal tools, not expensive last resorts.
-
-        If you run out of ideas, think harder: re-read `HARDWARE.md`, re-read `profiles/latest.summary.txt`, consult `profiles/latest.details.txt` when needed, re-read prior samples in `samples/`, revisit NVIDIA docs, combine prior near-misses, or try a more radical branch.
-
-        Only edit `{CANDIDATE_FILENAME}` for the solution, and only inside its marked editable blocks. Do not inspect harness internals. Do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas. Use the local `./bin/*.sh` commands exactly as provided, avoid shell-network commands entirely, do not run ad hoc GPU experiments outside the wrappers, do not use Python snippets or `git diff` for quick checks, do not run `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, inspect `/proc`, inspect build directories, or use ad hoc shell parsing commands to monitor wrapper progress or mine profiler outputs, and do not finish without `./bin/complete_problem.sh`. After profiling, read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` or `profiles/latest.raw.csv` only if needed. Revisit prior measured attempts through `samples/sample_<id>.py` or `samples/best_sample.py`, never through `runs/`. Do not end with a plain assistant summary. Valid solver-written completion decisions are `beats_both_baselines`, `beats_eager_only`, `beats_compile_only`, `budget_exhausted`, `stalled`, and `harness_failure`.
-        """
-    ).strip() + "\n"
+def _generate_initial_prompt(contract: dict[str, Any], baseline: dict[str, Any]) -> str:
+    return render_initial_prompt(contract=contract, baseline=baseline)
 
 
-def _workspace_wrapper_common(
-    *,
-    kernelbench_python: str,
-    project_root: Path,
-    kernelbench_root: str | None,
-) -> str:
+def _workspace_wrapper_common(*, kernelbench_python: str, kernelbench_root: str | None) -> str:
     kb_root_line = (
         f'KERNELBENCH_ROOT={shlex.quote(str(Path(kernelbench_root).resolve()))}\n'
         if kernelbench_root
@@ -2255,18 +2095,25 @@ def _workspace_wrapper_common(
 
         SCRIPT_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
         WORKSPACE="$(cd "${{SCRIPT_DIR}}/.." && pwd)"
-        PROJECT_ROOT={shlex.quote(str(project_root))}
         KERNELBENCH_PYTHON={shlex.quote(kernelbench_python)}
+        KBE_CLI="${{KBE_CLI:-kbe}}"
         {kb_root_line.rstrip()}
-        PROJECT_PYTHONPATH="${{PROJECT_ROOT}}/src${{PYTHONPATH:+:${{PYTHONPATH}}}}"
+
+        if ! command -v "${{KBE_CLI}}" >/dev/null 2>&1; then
+          echo "kbe CLI is not on PATH. Install this repo into the KernelBench environment first (pip install -e .)." >&2
+          exit 1
+        fi
         """
     ).lstrip()
+
+
+def _shell_multiline_command(lines: list[str]) -> str:
+    return " \\\n".join(lines) + "\n"
 
 
 def _generate_run_wrapper(
     *,
     kernelbench_python: str,
-    project_root: Path,
     kernelbench_root: str | None,
     run_name: str,
     level: int,
@@ -2276,38 +2123,31 @@ def _generate_run_wrapper(
 ) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=kernelbench_root,
     )
-    kb_arg = (
-        '  --kernelbench-root "${KERNELBENCH_ROOT}" \\\n'
-        if kernelbench_root
-        else ""
-    )
-    return common + dedent(
-        f"""
-        CANDIDATE="${{WORKSPACE}}/{CANDIDATE_FILENAME}"
-
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli run-candidate \\
-          --candidate "${{CANDIDATE}}" \\
-          --run-name {shlex.quote(run_name)} \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          --dataset-src {shlex.quote(dataset_src)} \\
-          --workspace "${{WORKSPACE}}" \\
-{kb_arg}          --num-gpu-slots {num_gpus} \\
-          "$@"
-        echo ">>> Re-read GOAL_STATUS.md and SPEC.md before your next decision."
-        echo ">>> Timing and profiling are normal tools. Use ./bin/run_candidate.sh and ./bin/profile_ncu.sh freely."
-        echo ">>> Trust the wrapper result. Do not monitor progress with ps, pgrep, nvidia-smi, strace, /proc, or build-tree inspection."
-        """
+    command_lines = [
+        '"${KBE_CLI}" run-candidate',
+        '  --candidate "${WORKSPACE}/' + CANDIDATE_FILENAME + '"',
+        f'  --run-name {shlex.quote(run_name)}',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        f'  --dataset-src {shlex.quote(dataset_src)}',
+        '  --workspace "${WORKSPACE}"',
+    ]
+    if kernelbench_root:
+        command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
+    command_lines.extend([
+        f'  --num-gpu-slots {num_gpus}',
+        '  "$@"',
+    ])
+    return common + _shell_multiline_command(command_lines) + (
+        'echo ">>> Re-read GOAL_STATUS.md and SPEC.md before your next decision."\n'
     )
 
 
 def _generate_profile_wrapper(
     *,
     kernelbench_python: str,
-    project_root: Path,
     kernelbench_root: str | None,
     run_name: str,
     level: int,
@@ -2317,37 +2157,31 @@ def _generate_profile_wrapper(
 ) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=kernelbench_root,
     )
-    kb_arg = (
-        '  --kernelbench-root "${KERNELBENCH_ROOT}" \\\n'
-        if kernelbench_root
-        else ""
-    )
-    return common + dedent(
-        f"""
-        CANDIDATE="${{WORKSPACE}}/{CANDIDATE_FILENAME}"
-
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli profile-ncu \\
-          --candidate "${{CANDIDATE}}" \\
-          --run-name {shlex.quote(run_name)} \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          --dataset-src {shlex.quote(dataset_src)} \\
-          --workspace "${{WORKSPACE}}" \\
-{kb_arg}          --num-gpu-slots {num_gpus} \\
-          "$@"
-        echo ">>> Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed. Re-read HARDWARE.md and GOAL_STATUS.md."
-        echo ">>> Trust the wrapper result. Do not monitor progress with ps, pgrep, nvidia-smi, strace, /proc, or build-tree inspection."
-        """
+    command_lines = [
+        '"${KBE_CLI}" profile-ncu',
+        '  --candidate "${WORKSPACE}/' + CANDIDATE_FILENAME + '"',
+        f'  --run-name {shlex.quote(run_name)}',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        f'  --dataset-src {shlex.quote(dataset_src)}',
+        '  --workspace "${WORKSPACE}"',
+    ]
+    if kernelbench_root:
+        command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
+    command_lines.extend([
+        f'  --num-gpu-slots {num_gpus}',
+        '  "$@"',
+    ])
+    return common + _shell_multiline_command(command_lines) + (
+        'echo ">>> Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed."\n'
     )
 
 
 def _generate_info_wrapper(
     *,
     kernelbench_python: str,
-    project_root: Path,
     kernelbench_root: str | None,
     level: int,
     problem_id: int,
@@ -2355,97 +2189,73 @@ def _generate_info_wrapper(
 ) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=kernelbench_root,
     )
-    kb_arg = (
-        '  --kernelbench-root "${KERNELBENCH_ROOT}" \\\n'
-        if kernelbench_root
-        else ""
-    )
-    return common + dedent(
-        f"""
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli problem-info \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          --dataset-src {shlex.quote(dataset_src)} \\
-{kb_arg}          "$@"
-        """
-    )
+    command_lines = [
+        '"${KBE_CLI}" problem-info',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        f'  --dataset-src {shlex.quote(dataset_src)}',
+    ]
+    if kernelbench_root:
+        command_lines.append('  --kernelbench-root "${KERNELBENCH_ROOT}"')
+    command_lines.append('  "$@"')
+    return common + _shell_multiline_command(command_lines)
 
 
-def _generate_goal_status_wrapper(
-    *,
-    kernelbench_python: str,
-    project_root: Path,
-    run_name: str,
-    level: int,
-    problem_id: int,
-) -> str:
+def _generate_hardware_info_wrapper(*, kernelbench_python: str) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=None,
     )
-    return common + dedent(
-        f"""
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli goal-status \\
-          --run-name {shlex.quote(run_name)} \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          --workspace "${{WORKSPACE}}" \\
-          "$@"
-        """
-    )
+    return common + 'cat "${WORKSPACE}/hardware.json"\n'
 
 
-def _generate_best_wrapper(
-    *,
-    kernelbench_python: str,
-    project_root: Path,
-    run_name: str,
-    level: int,
-    problem_id: int,
-) -> str:
+def _generate_goal_status_wrapper(*, kernelbench_python: str, run_name: str, level: int, problem_id: int) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=None,
     )
-    return common + dedent(
-        f"""
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli best-result \\
-          --run-name {shlex.quote(run_name)} \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          "$@"
-        """
-    )
+    command_lines = [
+        '"${KBE_CLI}" goal-status',
+        f'  --run-name {shlex.quote(run_name)}',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        '  --workspace "${WORKSPACE}"',
+        '  "$@"',
+    ]
+    return common + _shell_multiline_command(command_lines)
 
 
-def _generate_complete_wrapper(
-    *,
-    kernelbench_python: str,
-    project_root: Path,
-    run_name: str,
-    level: int,
-    problem_id: int,
-) -> str:
+def _generate_best_wrapper(*, kernelbench_python: str, run_name: str, level: int, problem_id: int) -> str:
     common = _workspace_wrapper_common(
         kernelbench_python=kernelbench_python,
-        project_root=project_root,
         kernelbench_root=None,
     )
-    return common + dedent(
-        f"""
-        PYTHONPATH="${{PROJECT_PYTHONPATH}}" "${{KERNELBENCH_PYTHON}}" -m kernel_bench_experiment_agents.cli complete-problem \\
-          --run-name {shlex.quote(run_name)} \\
-          --level {level} \\
-          --problem-id {problem_id} \\
-          --workspace "${{WORKSPACE}}" \\
-          "$@"
-        """
+    command_lines = [
+        '"${KBE_CLI}" best-result',
+        f'  --run-name {shlex.quote(run_name)}',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        '  "$@"',
+    ]
+    return common + _shell_multiline_command(command_lines)
+
+
+def _generate_complete_wrapper(*, kernelbench_python: str, run_name: str, level: int, problem_id: int) -> str:
+    common = _workspace_wrapper_common(
+        kernelbench_python=kernelbench_python,
+        kernelbench_root=None,
     )
+    command_lines = [
+        '"${KBE_CLI}" complete-problem',
+        f'  --run-name {shlex.quote(run_name)}',
+        f'  --level {level}',
+        f'  --problem-id {problem_id}',
+        '  --workspace "${WORKSPACE}"',
+        '  "$@"',
+    ]
+    return common + _shell_multiline_command(command_lines)
 
 
 def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
@@ -2454,6 +2264,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         hardware = resolve_hardware_spec(args.gpu_name)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+
     problem = load_problem(
         level=args.level,
         problem_id=args.problem_id,
@@ -2466,14 +2277,12 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         args.problem_id,
         args.workspace_root,
     )
+    archive_problem_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
+    shutil.rmtree(paths["workspace"], ignore_errors=True)
+    shutil.rmtree(archive_problem_dir, ignore_errors=True)
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
-    for stale_name in ("latest_candidate.py", "completion.json"):
-        stale_path = paths["workspace"] / stale_name
-        if stale_path.exists():
-            stale_path.unlink()
 
-    project_root = experiment_root()
     baseline = _baseline_payload_for_problem(
         level=args.level,
         problem_id=args.problem_id,
@@ -2503,8 +2312,26 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         "eager_baseline_file": baseline["eager"]["source_file"],
         "compile_baseline_file": baseline["compile"]["source_file"],
     }
+    hardware_payload = {
+        "display_name": hardware.display_name,
+        "architecture": hardware.architecture,
+        "compute_capability": hardware.compute_capability,
+        "registers_per_sm": hardware.registers_per_sm,
+        "max_registers_per_thread": hardware.max_registers_per_thread,
+        "max_warps_per_sm": hardware.max_warps_per_sm,
+        "max_blocks_per_sm": hardware.max_blocks_per_sm,
+        "shared_memory_per_sm_kb": hardware.shared_memory_per_sm_kb,
+        "max_shared_memory_per_block_kb": hardware.max_shared_memory_per_block_kb,
+        "shared_memory_carveout_kb": list(hardware.shared_memory_carveout_kb),
+        "guidance": list(hardware.guidance),
+        "doc_urls": list(hardware.doc_urls),
+    }
+    contract = build_workspace_contract(metadata=metadata)
+
     write_json(paths["workspace"] / "problem.json", metadata)
     write_json(paths["workspace"] / "baseline.json", baseline)
+    write_json(paths["workspace"] / "hardware.json", hardware_payload)
+    write_json(paths["workspace"] / "workspace_contract.json", contract)
     write_text(paths["workspace"] / "problem_reference.py", problem.code)
     write_text(_workspace_candidate_path(paths["workspace"]), candidate_template())
     write_text(paths["workspace"] / "HARDWARE.md", render_hardware_markdown(hardware))
@@ -2517,14 +2344,24 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
             hardware_markdown_name="HARDWARE.md",
         ),
     )
-    write_text(paths["workspace"] / "AGENTS.md", _generate_workspace_agents_md(args))
-    write_text(paths["workspace"] / "INITIAL_PROMPT.md", _generate_initial_prompt(args))
+    write_text(paths["workspace"] / "AGENTS.md", _generate_workspace_agents_md(contract))
+    write_text(paths["workspace"] / "INITIAL_PROMPT.md", _generate_initial_prompt(contract, baseline))
+
+    contract_dir = _archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
+    write_json(contract_dir / "problem.json", metadata)
+    write_json(contract_dir / "baseline.json", baseline)
+    write_json(contract_dir / "hardware.json", hardware_payload)
+    write_json(contract_dir / "workspace_contract.json", contract)
+    write_text(contract_dir / "problem_reference.py", problem.code)
+    write_text(contract_dir / "HARDWARE.md", render_hardware_markdown(hardware))
+    write_text(contract_dir / "SPEC.md", _workspace_spec_markdown(problem=problem, metadata=metadata, baseline=baseline, hardware_markdown_name="HARDWARE.md"))
+    write_text(contract_dir / "AGENTS.md", _generate_workspace_agents_md(contract))
+    write_text(contract_dir / "INITIAL_PROMPT.md", _generate_initial_prompt(contract, baseline))
 
     _write_workspace_script(
         paths["bin"] / "run_candidate.sh",
         _generate_run_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             kernelbench_root=resolved_kernelbench_root,
             run_name=args.run_name,
             level=args.level,
@@ -2537,7 +2374,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         paths["bin"] / "profile_ncu.sh",
         _generate_profile_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             kernelbench_root=resolved_kernelbench_root,
             run_name=args.run_name,
             level=args.level,
@@ -2550,7 +2386,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         paths["bin"] / "problem_info.sh",
         _generate_info_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             kernelbench_root=resolved_kernelbench_root,
             level=args.level,
             problem_id=args.problem_id,
@@ -2558,10 +2393,13 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         ),
     )
     _write_workspace_script(
+        paths["bin"] / "hardware_info.sh",
+        _generate_hardware_info_wrapper(kernelbench_python=args.kernelbench_python),
+    )
+    _write_workspace_script(
         paths["bin"] / "goal_status.sh",
         _generate_goal_status_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             run_name=args.run_name,
             level=args.level,
             problem_id=args.problem_id,
@@ -2571,7 +2409,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         paths["bin"] / "best_result.sh",
         _generate_best_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             run_name=args.run_name,
             level=args.level,
             problem_id=args.problem_id,
@@ -2581,7 +2418,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         paths["bin"] / "complete_problem.sh",
         _generate_complete_wrapper(
             kernelbench_python=args.kernelbench_python,
-            project_root=project_root,
             run_name=args.run_name,
             level=args.level,
             problem_id=args.problem_id,
@@ -2598,15 +2434,10 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     _emit(
         {
             "workspace": str(paths["workspace"]),
-            "problem_json": str(paths["workspace"] / "problem.json"),
-            "spec": str(paths["workspace"] / "SPEC.md"),
-            "hardware": str(paths["workspace"] / "HARDWARE.md"),
-            "prompt": str(paths["workspace"] / "INITIAL_PROMPT.md"),
+            "contract_dir": str(contract_dir),
+            "archive_problem_dir": str(archive_problem_dir),
             "candidate": str(_workspace_candidate_path(paths["workspace"])),
             "goal_status": str(paths["workspace"] / "goal_status.json"),
-            "agent_artifact_dir": str(
-                artifact_agent_dir(args.run_name, args.level, args.problem_id)
-            ),
             "status_snapshot": status_snapshot,
         }
     )
@@ -2634,14 +2465,13 @@ def command_problem_info(args: argparse.Namespace) -> None:
 def command_run_candidate(args: argparse.Namespace) -> None:
     candidate_path = Path(args.candidate).resolve()
     workspace = _workspace_path(args.workspace) if args.workspace else None
-    artifact_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     lease_name = f"artifacts:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     sample_id: int | None = None
     kernel_path: Path | None = None
     prompt_path: Path | None = None
     payload: dict[str, Any] | None = None
     sample_json_path: Path | None = None
-    history_path = artifact_dir / "history.jsonl"
+    history_path = _history_path(args.run_name, args.level, args.problem_id)
     failure: Exception | None = None
     persist_failure: Exception | None = None
     status_refresh_failure: Exception | None = None
@@ -2660,7 +2490,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 args.problem_id,
                 sample_id,
             )
-            sample_json_path = artifact_dir / f"sample_{sample_id}.json"
+            sample_json_path = _sample_manifest_path(args.run_name, args.level, args.problem_id, sample_id)
             if args.prompt_path:
                 prompt_path = official_prompt_path(
                     args.run_name,
@@ -2803,31 +2633,52 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             )
     candidate_src = candidate_path.read_text(encoding="utf-8")
     validate_candidate_source(candidate_src)
-    if args.sample_id is not None:
-        sample_label = f"sample_{args.sample_id}"
-    elif workspace is not None:
-        sample_label = f"profile_{_next_workspace_profile_index(workspace)}"
-    else:
-        sample_label = "scratch"
 
-    artifact_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id) / "ncu"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    report_prefix = artifact_dir / (
-        f"level_{args.level}_problem_{args.problem_id}_{sample_label}"
-    )
-    report_path = Path(str(report_prefix) + ".ncu-rep")
-    stdout_path = report_prefix.with_suffix(".stdout.txt")
-    stderr_path = report_prefix.with_suffix(".stderr.txt")
-    details_path = report_prefix.with_suffix(".details.txt")
-    details_stderr_path = report_prefix.with_suffix(".details.stderr.txt")
-    raw_csv_path = report_prefix.with_suffix(".raw.csv")
-    raw_csv_stderr_path = report_prefix.with_suffix(".raw.stderr.txt")
-    summary_path = report_prefix.with_suffix(".summary.txt")
+    lease_name = f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
+    profiles_dir = _archive_problem_profiles_dir(args.run_name, args.level, args.problem_id)
+    reservation_wait_seconds = 0.0
+    commit_wait_seconds = 0.0
+    status_refresh_failure: Exception | None = None
+
+    with lease_problem_artifacts(
+        run_name=args.run_name,
+        level=args.level,
+        problem_id=args.problem_id,
+        lease_name=f"{lease_name}:reserve",
+    ) as artifact_lease:
+        reservation_wait_seconds = artifact_lease.wait_seconds
+        if args.sample_id is not None:
+            sample_label = f"sample_{args.sample_id}"
+        else:
+            sample_label = f"profile_{_next_archive_profile_index(args.run_name, args.level, args.problem_id)}"
+        report_prefix = profiles_dir / sample_label
+        report_path = Path(str(report_prefix) + ".ncu-rep")
+        stdout_path = report_prefix.with_suffix(".stdout.txt")
+        stderr_path = report_prefix.with_suffix(".stderr.txt")
+        details_path = report_prefix.with_suffix(".details.txt")
+        details_stderr_path = report_prefix.with_suffix(".details.stderr.txt")
+        raw_csv_path = report_prefix.with_suffix(".raw.csv")
+        raw_csv_stderr_path = report_prefix.with_suffix(".raw.stderr.txt")
+        summary_path = report_prefix.with_suffix(".summary.txt")
+        profile_json_path = report_prefix.with_suffix(".json")
+        write_json(
+            profile_json_path,
+            {
+                "status": "started",
+                "timestamp": now_iso(),
+                "run_name": args.run_name,
+                "level": args.level,
+                "problem_id": args.problem_id,
+                "sample_label": sample_label,
+                "candidate_path": str(candidate_path),
+                "artifact_reservation_wait_seconds": reservation_wait_seconds,
+            },
+        )
 
     with lease_gpu_slot(
         num_slots=args.num_gpu_slots,
         requested_slot=args.gpu_id,
-        lease_name=f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}",
+        lease_name=lease_name,
     ) as lease:
         command = [
             "ncu",
@@ -2858,8 +2709,10 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         ]
         if args.kernelbench_root:
             command.extend(["--kernelbench-root", args.kernelbench_root])
-
         completed = _run_subprocess_capture(command)
+        gpu_id = lease.slot_id
+        gpu_wait_seconds = lease.wait_seconds
+
     write_text(stdout_path, completed.stdout)
     write_text(stderr_path, completed.stderr)
 
@@ -2888,14 +2741,26 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     summary_text = _summarize_ncu_raw_csv(raw_csv_completed.stdout)
     write_text(summary_path, summary_text)
 
+    keep_report = os.environ.get("KBE_KEEP_NCU_REP", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not keep_report and report_path.exists():
+        report_path.unlink()
+
+    profile_ok = (
+        completed.returncode == 0
+        and details_completed.returncode == 0
+        and raw_csv_completed.returncode == 0
+        and bool(details_completed.stdout.strip())
+        and bool(raw_csv_completed.stdout.strip())
+    )
     payload = {
+        "status": "succeeded" if profile_ok else "failed",
         "timestamp": now_iso(),
         "run_name": args.run_name,
         "level": args.level,
         "problem_id": args.problem_id,
         "sample_label": sample_label,
         "candidate_path": str(candidate_path),
-        "ncu_report_prefix": str(report_prefix),
+        "report_path": str(report_path) if keep_report and report_path.exists() else None,
         "details_path": str(details_path),
         "details_stderr_path": str(details_stderr_path),
         "raw_csv_path": str(raw_csv_path),
@@ -2909,15 +2774,16 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         "details_returncode": details_completed.returncode,
         "raw_csv_command": raw_csv_command,
         "raw_csv_returncode": raw_csv_completed.returncode,
-        "gpu_id": lease.slot_id,
-        "gpu_wait_seconds": lease.wait_seconds,
+        "gpu_id": gpu_id,
+        "gpu_wait_seconds": gpu_wait_seconds,
+        "artifact_reservation_wait_seconds": reservation_wait_seconds,
+        "artifact_commit_wait_seconds": None,
     }
-    write_json(report_prefix.with_suffix(".json"), payload)
 
     emit_payload = dict(payload)
     if workspace is not None:
-        profiles_dir = _workspace_profiles_dir(workspace)
-        profile_base = profiles_dir / sample_label
+        profiles_workspace_dir = _workspace_profiles_dir(workspace)
+        profile_base = profiles_workspace_dir / sample_label
         local_paths = {
             "details_path": profile_base.with_suffix(".details.txt"),
             "details_stderr_path": profile_base.with_suffix(".details.stderr.txt"),
@@ -2937,13 +2803,15 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         write_text(local_paths["summary_path"], summary_text)
         write_text(local_paths["stdout_path"], completed.stdout)
         write_text(local_paths["stderr_path"], completed.stderr)
-        for key, latest_path in latest_paths.items():
-            source_key = "json_path" if key == "json" else key
-            source_path = local_paths[source_key]
-            if source_key == "json_path":
-                continue
-            write_text(latest_path, source_path.read_text(encoding="utf-8"))
-
+        write_json(local_paths["json_path"], payload)
+        write_text(latest_paths["details"], details_completed.stdout)
+        write_text(latest_paths["details_stderr"], details_completed.stderr)
+        write_text(latest_paths["raw_csv"], raw_csv_completed.stdout)
+        write_text(latest_paths["raw_csv_stderr"], raw_csv_completed.stderr)
+        write_text(latest_paths["summary"], summary_text)
+        write_text(latest_paths["stdout"], completed.stdout)
+        write_text(latest_paths["stderr"], completed.stderr)
+        write_json(latest_paths["json"], payload)
         emit_payload = {
             "timestamp": payload["timestamp"],
             "run_name": args.run_name,
@@ -2964,11 +2832,34 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "returncode": completed.returncode,
             "details_returncode": details_completed.returncode,
             "raw_csv_returncode": raw_csv_completed.returncode,
-            "gpu_id": lease.slot_id,
-            "gpu_wait_seconds": lease.wait_seconds,
+            "gpu_id": gpu_id,
+            "gpu_wait_seconds": gpu_wait_seconds,
         }
-        write_json(local_paths["json_path"], emit_payload)
-        write_json(latest_paths["json"], emit_payload)
+
+    try:
+        with lease_problem_artifacts(
+            run_name=args.run_name,
+            level=args.level,
+            problem_id=args.problem_id,
+            lease_name=f"{lease_name}:commit",
+        ) as artifact_lease:
+            payload["artifact_commit_wait_seconds"] = artifact_lease.wait_seconds
+            commit_wait_seconds = artifact_lease.wait_seconds
+            write_json(profile_json_path, payload)
+            append_jsonl(_profile_index_path(args.run_name, args.level, args.problem_id), payload)
+    except Exception as exc:
+        raise SystemExit(f"Failed to persist profiling metadata for {sample_label}: {exc}") from exc
+
+    if workspace is not None:
+        try:
+            _write_goal_status_files(
+                run_name=args.run_name,
+                level=args.level,
+                problem_id=args.problem_id,
+                workspace=workspace,
+            )
+        except Exception as exc:
+            status_refresh_failure = exc
 
     if completed.returncode != 0:
         raise SystemExit(
@@ -2993,12 +2884,16 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"ncu raw csv export produced no readable output; see {raw_csv_path}"
         )
+    if status_refresh_failure is not None:
+        print(
+            f"warning: failed to refresh goal status after profiling {sample_label}: {status_refresh_failure}",
+            file=sys.stderr,
+        )
     _emit(emit_payload)
 
 
 def command_best_result(args: argparse.Namespace) -> None:
-    artifact_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
-    history_path = artifact_dir / "history.jsonl"
+    history_path = _history_path(args.run_name, args.level, args.problem_id)
     if not history_path.exists():
         raise SystemExit(f"No history found at {history_path}")
 
@@ -3036,43 +2931,38 @@ def command_complete_problem(args: argparse.Namespace) -> None:
         problem_id=args.problem_id,
         workspace=workspace,
     )
-    if args.decision == "beats_both_baselines" and not snapshot["beats_both"]:
-        raise SystemExit(
-            "Cannot record beats_both_baselines because goal_status does not show both baselines beaten."
-        )
-    if args.decision == "beats_eager_only" and (
-        not snapshot["beats_eager"] or snapshot["beats_compile"]
-    ):
-        raise SystemExit(
-            "Cannot record beats_eager_only because goal_status does not match that state."
-        )
-    if args.decision == "beats_compile_only" and (
-        not snapshot["beats_compile"] or snapshot["beats_eager"]
-    ):
-        raise SystemExit(
-            "Cannot record beats_compile_only because goal_status does not match that state."
-        )
-    if args.decision == "stalled" and _substantial_budget_remaining(snapshot):
+    if args.state == "stalled" and _substantial_budget_remaining(snapshot):
         if int(snapshot.get("num_profile_runs") or 0) < 1:
             raise SystemExit(
                 "Cannot record stalled while substantial budget remains and no profiler "
                 "run has been recorded. Run ./bin/profile_ncu.sh on a strong candidate "
                 "and try a new branch first."
             )
+
+    measured_outcome = _infer_measured_outcome(snapshot)
     payload = {
         "completed_at": now_iso(),
         "run_name": args.run_name,
         "level": args.level,
         "problem_id": args.problem_id,
         "tool": tool,
-        "decision": args.decision,
-        "success": args.decision == "beats_both_baselines",
+        "solver_state": args.state,
+        "terminal_state": args.state,
+        "measured_outcome": measured_outcome,
+        "success": measured_outcome == "beats_both",
         "summary": args.summary,
         "goal_status": snapshot,
     }
     payload = _annotate_completion_outcomes(payload)
     write_json(completion_path, payload)
     write_json(workspace / "completion.json", payload)
+    candidate_path = _workspace_candidate_path(workspace)
+    if candidate_path.exists():
+        write_text(
+            _archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
+            / "candidate_final.py",
+            candidate_path.read_text(encoding="utf-8"),
+        )
     _emit(payload)
 
 
@@ -3109,6 +2999,11 @@ def _write_final_message(
 
     if final_text:
         write_text(output_path, final_text.strip() + "\n")
+
+
+def command_sync_helper_agent_specs(args: argparse.Namespace) -> None:
+    written = [str(path) for path in sync_helper_agent_specs()]
+    _emit({"written": written})
 
 
 def command_materialize_agent_trace(args: argparse.Namespace) -> None:
@@ -3211,7 +3106,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
     eager_baseline = _load_baseline_file(args.eager_baseline_file)
     compile_baseline = _load_baseline_file(args.compile_baseline_file)
 
-    run_root = experiment_root() / "artifacts" / args.run_name
+    run_root = artifacts_dir() / args.run_name
     if not run_root.exists():
         raise SystemExit(f"No run artifacts found at {run_root}")
 
@@ -3240,6 +3135,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
         "wrapper_commands": 0,
         "gpu_wrapper_commands": 0,
         "problem_info_calls": 0,
+        "hardware_info_calls": 0,
         "run_candidate_calls": 0,
         "profile_ncu_calls": 0,
         "goal_status_calls": 0,
@@ -3269,7 +3165,8 @@ def command_summarize_run(args: argparse.Namespace) -> None:
             if selected_problem_ids and problem_id not in selected_problem_ids:
                 continue
 
-            history_path = problem_dir / "history.jsonl"
+            attempts_dir = problem_dir / "attempts"
+            history_path = attempts_dir / "history.jsonl"
             samples: list[dict[str, Any]] = []
             if history_path.exists():
                 for line in history_path.read_text(encoding="utf-8").splitlines():
@@ -3307,22 +3204,39 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                 default=None,
             )
 
-            problem = load_problem(
-                level=level,
-                problem_id=problem_id,
-                dataset_src=args.dataset_src,
-                explicit_kernelbench_root=args.kernelbench_root,
-            )
-            eager_mean = _baseline_mean_for_problem(
-                baseline=eager_baseline,
-                level=level,
-                problem_name=problem.name,
-            )
-            compile_mean = _baseline_mean_for_problem(
-                baseline=compile_baseline,
-                level=level,
-                problem_name=problem.name,
-            )
+            contract_problem_path = problem_dir / "contract" / "problem.json"
+            contract_baseline_path = problem_dir / "contract" / "baseline.json"
+            contract_problem = _read_json(contract_problem_path) if contract_problem_path.exists() else {}
+            contract_baseline = _read_json(contract_baseline_path) if contract_baseline_path.exists() else {}
+            problem_name = contract_problem.get("problem_name") if isinstance(contract_problem, dict) else None
+
+            if not problem_name and eager_baseline is not None and compile_baseline is not None:
+                problem = load_problem(
+                    level=level,
+                    problem_id=problem_id,
+                    dataset_src=args.dataset_src,
+                    explicit_kernelbench_root=args.kernelbench_root,
+                )
+                problem_name = problem.name
+
+            eager_mean = None
+            compile_mean = None
+            if isinstance(contract_baseline, dict):
+                eager_mean = _as_float(contract_baseline.get("eager", {}).get("runtime_ms"))
+                compile_mean = _as_float(contract_baseline.get("compile", {}).get("runtime_ms"))
+            if eager_mean is None and eager_baseline is not None and problem_name is not None:
+                eager_mean = _baseline_mean_for_problem(
+                    baseline=eager_baseline,
+                    level=level,
+                    problem_name=problem_name,
+                )
+            if compile_mean is None and compile_baseline is not None and problem_name is not None:
+                compile_mean = _baseline_mean_for_problem(
+                    baseline=compile_baseline,
+                    level=level,
+                    problem_name=problem_name,
+                )
+
             row_token_usage = (
                 completion_payload.get("token_usage")
                 if isinstance(completion_payload, dict)
@@ -3375,6 +3289,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                     "wrapper_commands",
                     "gpu_wrapper_commands",
                     "problem_info_calls",
+                    "hardware_info_calls",
                     "run_candidate_calls",
                     "profile_ncu_calls",
                     "goal_status_calls",
@@ -3395,7 +3310,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                 {
                     "level": level,
                     "problem_id": problem_id,
-                    "problem_name": problem.name,
+                    "problem_name": problem_name,
                     "num_samples": len(samples),
                     "compiled_samples": sum(1 for sample in samples if sample["compiled"]),
                     "correct_samples": sum(1 for sample in samples if sample["correct"]),
@@ -3431,8 +3346,18 @@ def command_summarize_run(args: argparse.Namespace) -> None:
                         and compile_mean is not None
                         and effective_best_correct_runtime < compile_mean
                     ),
-                    "completion_decision": (
-                        completion_payload.get("decision")
+                    "solver_state": (
+                        completion_payload.get("solver_state")
+                        if completion_payload is not None
+                        else None
+                    ),
+                    "terminal_state": (
+                        completion_payload.get("terminal_state")
+                        if completion_payload is not None
+                        else None
+                    ),
+                    "measured_outcome": (
+                        completion_payload.get("measured_outcome")
                         if completion_payload is not None
                         else None
                     ),
@@ -3472,12 +3397,19 @@ def command_summarize_run(args: argparse.Namespace) -> None:
         row for row in problem_rows
         if row["best_correct_runtime_ms"] is not None and row["compile_baseline_ms"] is not None
     ]
-    terminal_decisions: dict[str, int] = {}
+    terminal_states: dict[str, int] = {}
+    solver_states: dict[str, int] = {}
+    measured_outcomes: dict[str, int] = {}
     for row in problem_rows:
-        decision = row.get("completion_decision")
-        if not decision:
-            continue
-        terminal_decisions[decision] = terminal_decisions.get(decision, 0) + 1
+        terminal_state = row.get("terminal_state")
+        if terminal_state:
+            terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
+        solver_state = row.get("solver_state")
+        if solver_state:
+            solver_states[solver_state] = solver_states.get(solver_state, 0) + 1
+        measured_outcome = row.get("measured_outcome")
+        if measured_outcome:
+            measured_outcomes[measured_outcome] = measured_outcomes.get(measured_outcome, 0) + 1
 
     pass_at_k: dict[str, Any] = {}
     for k in pass_k_values:
@@ -3527,7 +3459,9 @@ def command_summarize_run(args: argparse.Namespace) -> None:
         "problem_correct_hit_rate": (
             problems_with_correct / total_problems if total_problems else None
         ),
-        "terminal_decisions": terminal_decisions,
+        "terminal_states": terminal_states,
+        "solver_states": solver_states,
+        "measured_outcomes": measured_outcomes,
         "cost_usd": {
             "total_usd": cost_usd_totals["total_usd"],
             "problems_with_cost": cost_usd_totals["problems_with_cost"],
@@ -3567,6 +3501,7 @@ def command_summarize_run(args: argparse.Namespace) -> None:
             for row in problem_rows
         ],
     }
+    write_json(run_root / "run_summary.json", payload)
     _emit(payload)
 
 
@@ -3582,6 +3517,7 @@ def main() -> None:
         "best-result": command_best_result,
         "goal-status": command_goal_status,
         "complete-problem": command_complete_problem,
+        "sync-helper-agent-specs": command_sync_helper_agent_specs,
         "materialize-agent-trace": command_materialize_agent_trace,
         "materialize-codex-trace": command_materialize_agent_trace,
         "summarize-run": command_summarize_run,
