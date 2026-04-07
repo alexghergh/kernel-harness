@@ -4,7 +4,7 @@
 Accepted.
 
 ## Decision
-The solver may report only narrow terminal states such as `done`, `stalled`, and `harness_failure`.
+The solver may report only narrow terminal states such as `done` and `harness_failure`.
 The harness computes measured outcomes like `beats_both` from actual recorded attempts.
 
 ## Consequence

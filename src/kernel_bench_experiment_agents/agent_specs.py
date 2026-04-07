@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterable
 
 from .project import write_text
 
@@ -21,7 +20,7 @@ HELPER_SPECS = (
     HelperAgentSpec(
         name="runner",
         description=(
-            "Execution-focused helper for one assigned KernelBench problem. "
+            "Execution-focused helper for one assigned optimization problem. "
             "Use proactively to run ./bin/run_candidate.sh and summarize results without polluting the main context."
         ),
         shell_commands=("./bin/run_candidate.sh", "./bin/goal_status.sh"),
@@ -31,29 +30,35 @@ HELPER_SPECS = (
             "HARDWARE.md",
             "GOAL_STATUS.md",
             "goal_status.json",
+            "problem_reference.py",
+            "candidate_model_new.py",
             "samples/",
+            "samples/best_result.json",
         ),
         summary_focus=(
-            "Return a compact summary covering correctness failures, compiler failures, runtime measurements, and the current best sample."
+            "Return a compact summary covering correctness failures, compiler failures, runtime measurements, the current best sample, and the most likely next experiment."
         ),
     ),
     HelperAgentSpec(
         name="profiler",
         description=(
-            "Profiling helper for one assigned KernelBench problem. "
+            "Profiling helper for one assigned optimization problem. "
             "Use proactively to run ./bin/profile_ncu.sh and summarize bottlenecks and likely next steps."
         ),
-        shell_commands=("./bin/profile_ncu.sh",),
+        shell_commands=("./bin/profile_ncu.sh", "./bin/goal_status.sh"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
             "HARDWARE.md",
+            "GOAL_STATUS.md",
+            "problem_reference.py",
+            "candidate_model_new.py",
             "profiles/latest.summary.txt",
             "profiles/latest.details.txt",
             "profiles/latest.raw.csv",
         ),
         summary_focus=(
-            "Return short, actionable summaries focused on bottlenecks, dominant kernels, occupancy, memory behavior, and likely next optimization directions."
+            "Return short, actionable summaries focused on bottlenecks, dominant kernels, occupancy, memory behavior, and the most promising next optimization directions."
         ),
     ),
 )
@@ -69,9 +74,9 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         description = "{spec.description}"
         sandbox_mode = "workspace-write"
         developer_instructions = """
-        You are a narrow helper for one assigned KernelBench problem.
+        You are a narrow helper for one assigned optimization problem.
 
-        Read `AGENTS.md` first, then `SPEC.md` and `HARDWARE.md`.
+        Read `AGENTS.md` first, then `SPEC.md`, `HARDWARE.md`, and any directly relevant local files.
         Use shell only for {shell_list}.
         Use normal file reads only for {read_list}.
         Do not inspect unrelated files or wander outside the current workspace.
@@ -99,9 +104,9 @@ def _claude_agent_md(spec: HelperAgentSpec) -> str:
           - Bash
         ---
 
-        You are a narrow helper for one assigned KernelBench problem.
+        You are a narrow helper for one assigned optimization problem.
 
-        Read `AGENTS.md` first, then `SPEC.md` and `HARDWARE.md`.
+        Read `AGENTS.md` first, then `SPEC.md`, `HARDWARE.md`, and any directly relevant local files.
         Use `Bash` only for {shell_list}.
         Use `Read` only for {read_list}.
         Do not inspect unrelated files or wander outside the current workspace.

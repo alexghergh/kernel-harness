@@ -13,7 +13,7 @@ from .common import emit_json
 from .goal_status import write_goal_status_files
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .ncu_summary import summarize_ncu_raw_csv
-from .project import append_jsonl, now_iso, write_json, write_text
+from .project import append_jsonl, artifact_problem_dir, now_iso, relative_path_within, write_json, write_text
 from .subprocess_tools import run_subprocess_capture
 from .workspace_paths import (
     latest_workspace_profile_paths,
@@ -76,6 +76,12 @@ def _write_workspace_profile_mirrors(
     return {**local_paths, **{f"latest_{key}": value for key, value in latest_paths.items()}}
 
 
+def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None) -> str:
+    if workspace is not None:
+        return workspace_relpath(candidate_path, workspace)
+    return candidate_path.name
+
+
 def command_profile_ncu(args: argparse.Namespace) -> None:
     candidate_path = Path(args.candidate).resolve()
     workspace: Path | None = None
@@ -96,6 +102,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     validate_candidate_source(candidate_src)
 
     lease_name = f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
+    problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     profiles_dir = archive_problem_profiles_dir(args.run_name, args.level, args.problem_id)
 
     with lease_problem_artifacts(
@@ -121,6 +128,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         raw_csv_stderr_path = report_prefix.with_suffix(".raw.stderr.txt")
         summary_path = report_prefix.with_suffix(".summary.txt")
         profile_json_path = report_prefix.with_suffix(".json")
+        candidate_ref = _workspace_candidate_reference(candidate_path, workspace)
+        archive_report_prefix = relative_path_within(report_prefix, problem_archive_root)
         write_json(
             profile_json_path,
             {
@@ -130,7 +139,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 "level": args.level,
                 "problem_id": args.problem_id,
                 "sample_label": sample_label,
-                "candidate_path": str(candidate_path),
+                "candidate_path": candidate_ref,
                 "artifact_reservation_wait_seconds": reservation_wait_seconds,
             },
         )
@@ -224,20 +233,53 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         "level": args.level,
         "problem_id": args.problem_id,
         "sample_label": sample_label,
-        "candidate_path": str(candidate_path),
-        "report_path": str(report_path) if keep_report and report_path.exists() else None,
-        "details_path": str(details_path),
-        "details_stderr_path": str(details_stderr_path),
-        "raw_csv_path": str(raw_csv_path),
-        "raw_csv_stderr_path": str(raw_csv_stderr_path),
-        "summary_path": str(summary_path),
-        "stdout_path": str(stdout_path),
-        "stderr_path": str(stderr_path),
+        "candidate_path": candidate_ref,
+        "report_path": f"{archive_report_prefix}.ncu-rep" if keep_report and report_path.exists() else None,
+        "details_path": relative_path_within(details_path, problem_archive_root),
+        "details_stderr_path": relative_path_within(details_stderr_path, problem_archive_root),
+        "raw_csv_path": relative_path_within(raw_csv_path, problem_archive_root),
+        "raw_csv_stderr_path": relative_path_within(raw_csv_stderr_path, problem_archive_root),
+        "summary_path": relative_path_within(summary_path, problem_archive_root),
+        "stdout_path": relative_path_within(stdout_path, problem_archive_root),
+        "stderr_path": relative_path_within(stderr_path, problem_archive_root),
         "returncode": completed.returncode,
-        "command": command,
-        "details_command": details_command,
+        "command": [
+            "ncu",
+            "--set",
+            args.ncu_set,
+            "--force-overwrite",
+            "--target-processes",
+            "all",
+            "--export",
+            archive_report_prefix,
+            "python",
+            "-m",
+            "kernel_bench_experiment_agents.ncu_runner",
+            "--candidate",
+            candidate_ref,
+            "--level",
+            str(args.level),
+            "--problem-id",
+            str(args.problem_id),
+            "--dataset-src",
+            args.dataset_src,
+            "--gpu-id",
+            str(gpu_logical_id),
+            "--run-name",
+            args.run_name,
+            "--sample-label",
+            sample_label,
+        ],
+        "details_command": ["ncu", "--import", f"{archive_report_prefix}.ncu-rep", "--page", "details"],
         "details_returncode": details_completed.returncode,
-        "raw_csv_command": raw_csv_command,
+        "raw_csv_command": [
+            "ncu",
+            "--import",
+            f"{archive_report_prefix}.ncu-rep",
+            "--page",
+            "raw",
+            "--csv",
+        ],
         "raw_csv_returncode": raw_csv_completed.returncode,
         "gpu_id": gpu_id,
         "gpu_device_selector": gpu_device_selector,

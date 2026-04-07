@@ -70,13 +70,11 @@ def goal_status_snapshot(
     best_payload = best_correct_payload(history_path_value)
     best_runtime_ms = None
     best_sample_id = None
-    best_kernel_path = None
     if best_payload is not None:
         result = best_payload.get("result")
         if isinstance(result, dict):
             best_runtime_ms = candidate_runtime(result)
         best_sample_id = best_payload.get("sample_id")
-        best_kernel_path = best_payload.get("official_kernel_path")
 
     eager_ms = as_float(baseline.get("eager", {}).get("runtime_ms"))
     compile_ms = as_float(baseline.get("compile", {}).get("runtime_ms"))
@@ -156,14 +154,12 @@ def goal_status_snapshot(
         "num_profile_runs": len(profiles),
         "best_correct_sample_id": best_sample_id,
         "best_correct_runtime_ms": best_runtime_ms,
-        "best_correct_kernel_path": best_kernel_path,
         "eager_baseline_ms": eager_ms,
         "compile_baseline_ms": compile_ms,
         "beats_eager": beats_eager,
         "beats_compile": beats_compile,
         "beats_both": resolved,
         "has_correct_solution": best_payload is not None,
-        "history_path": str(history_path_value),
         "trace_counts": live_trace_counts,
         "web_searches": live_web_searches,
         "static_docs": ["AGENTS.md", "SPEC.md", "HARDWARE.md"],
@@ -232,8 +228,6 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         )
 
     profiler_line = str(snapshot["num_profile_runs"])
-    if unresolved and int(snapshot.get("num_profile_runs") or 0) < 1:
-        profiler_line += " — you cannot declare stalled until you profile at least once"
     lines = [
         heading,
         "",

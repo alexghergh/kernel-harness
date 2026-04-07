@@ -6,16 +6,45 @@ from .agent_specs import HELPER_SPECS
 from .candidate_contract import CANDIDATE_FILENAME
 
 ALLOWED_WEB_DOMAINS = ["docs.nvidia.com"]
-SOLVER_TERMINAL_STATES = ["done", "stalled", "harness_failure"]
+SOLVER_TERMINAL_STATES = ["done", "harness_failure"]
 LAUNCHER_TERMINAL_STATES = ["budget_exhausted", "failed_to_generate"]
 WORKSPACE_COMMANDS = [
-    {"name": "problem_info", "path": "./bin/problem_info.sh", "gpu": False, "purpose": "print the KernelBench reference problem"},
-    {"name": "hardware_info", "path": "./bin/hardware_info.sh", "gpu": False, "purpose": "print frozen hardware facts for this workspace"},
-    {"name": "run_candidate", "path": "./bin/run_candidate.sh", "gpu": True, "purpose": "evaluate correctness and runtime for the current candidate"},
-    {"name": "profile_ncu", "path": "./bin/profile_ncu.sh", "gpu": True, "purpose": "profile the current candidate with Nsight Compute"},
-    {"name": "goal_status", "path": "./bin/goal_status.sh", "gpu": False, "purpose": "refresh and print live goal status"},
-    {"name": "best_result", "path": "./bin/best_result.sh", "gpu": False, "purpose": "print the best measured correct result so far"},
-    {"name": "finish_problem", "path": "./bin/complete_problem.sh", "gpu": False, "purpose": "record a terminal solver state"},
+    {
+        "name": "hardware_info",
+        "path": "./bin/hardware_info.sh",
+        "gpu": False,
+        "purpose": "print frozen hardware facts for this workspace",
+    },
+    {
+        "name": "run_candidate",
+        "path": "./bin/run_candidate.sh",
+        "gpu": True,
+        "purpose": "evaluate correctness and runtime for the current candidate",
+    },
+    {
+        "name": "profile_ncu",
+        "path": "./bin/profile_ncu.sh",
+        "gpu": True,
+        "purpose": "profile the current candidate with Nsight Compute",
+    },
+    {
+        "name": "goal_status",
+        "path": "./bin/goal_status.sh",
+        "gpu": False,
+        "purpose": "refresh and print live goal status",
+    },
+    {
+        "name": "best_result",
+        "path": "./bin/best_result.sh",
+        "gpu": False,
+        "purpose": "print the best measured correct result so far",
+    },
+    {
+        "name": "finish_problem",
+        "path": "./bin/complete_problem.sh",
+        "gpu": False,
+        "purpose": "record a terminal solver state",
+    },
 ]
 WORKSPACE_STANDING_ORDERS = [
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
@@ -87,7 +116,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
     lines = [
         "# Solver Instructions",
         "",
-        "You are the autonomous solver for exactly one KernelBench problem.",
+        "You are the autonomous solver for exactly one optimization problem.",
         "",
         "Assignment:",
         "",
@@ -114,7 +143,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "- do not inspect repository-maintainer docs or harness internals",
         "- treat `samples/` and `profiles/` as local mirrors of archived outputs, not as separate sources of truth",
         "- do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas",
-        "- use `problem_reference.py` only as the problem reference",
+        "- use `problem_reference.py` as the problem reference",
         f"- edit only `{CANDIDATE_FILENAME}` for the candidate solution, and only inside its marked editable blocks",
         "- the judged path is `fp32`; internal mixed precision is allowed only if the final candidate still passes the `fp32` correctness checks",
         "",
@@ -127,7 +156,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Wrapper argument policy:",
         "",
-        "- treat `./bin/problem_info.sh`, `./bin/hardware_info.sh`, `./bin/run_candidate.sh`, `./bin/profile_ncu.sh`, `./bin/goal_status.sh`, and `./bin/best_result.sh` as fixed commands with no solver-supplied flags",
+        "- treat `./bin/hardware_info.sh`, `./bin/run_candidate.sh`, `./bin/profile_ncu.sh`, `./bin/goal_status.sh`, and `./bin/best_result.sh` as fixed commands with no solver-supplied flags",
         "- `./bin/complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--state` plus `--summary`",
         "",
         "Allowed reads:",
@@ -190,7 +219,7 @@ def render_workspace_spec_md(
     lines = [
         "# Orders",
         "",
-        "You are optimizing one KernelBench problem. The harness decides the measured outcome from actual runs; your job is to keep iterating until you have either solved the problem or truthfully exhausted the allowed stopping conditions.",
+        "You are optimizing one problem. The harness decides the measured outcome from actual runs; your job is to keep iterating until you have either solved the problem or truthfully exhausted the allowed stopping conditions.",
         "",
         "## Target",
         "",
@@ -216,7 +245,6 @@ def render_workspace_spec_md(
         "Solver-written terminal states:",
         "",
         "- `done` — you believe the current search is complete; the harness will infer whether you beat eager, compile, both, or neither from measured artifacts",
-        "- `stalled` — substantial exploration has failed and the remaining time no longer justifies continued search",
         "- `harness_failure` — the environment or harness is broken in a way that blocks truthful progress",
         "",
         "Launcher-only terminal states:",
@@ -258,7 +286,7 @@ def render_workspace_spec_md(
 def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any]) -> str:
     assignment = contract["assignment"]
     lines = [
-        "Optimize exactly one KernelBench problem.",
+        "Optimize exactly one problem.",
         "",
         f"- run name: {assignment['run_name']}",
         f"- level: {assignment['level']}",
@@ -273,7 +301,7 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
         f"Stay inside this workspace. Only edit `{CANDIDATE_FILENAME}`. Use only the local `./bin/*.sh` wrapper commands. Treat every wrapper except `./bin/complete_problem.sh` as a fixed command with no extra flags.",
         "Work independently. There is no user approval step in this run. Do not ask for permission, confirmation, or whether to continue.",
         "If a strategy fails, re-read the docs, profile when useful, consult allowed NVIDIA docs when needed, and start the next strategy yourself.",
-        "Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --state done --summary \"...\"` or another truthful terminal state.",
+        "Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --state done --summary \"...\"` or, if the harness is genuinely broken, `./bin/complete_problem.sh --state harness_failure --summary \"...\"`.",
         "The harness will infer the measured outcome from the recorded runs.",
     ]
     return "\n".join(lines) + "\n"

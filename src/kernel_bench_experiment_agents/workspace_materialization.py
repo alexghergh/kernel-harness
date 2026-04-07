@@ -12,7 +12,6 @@ from .workspace_contract import (
     render_workspace_agents_md,
     render_workspace_spec_md,
 )
-from .workspace_paths import workspace_candidate_path
 
 
 class HardwarePayloadView:
@@ -43,10 +42,6 @@ def build_problem_metadata(
     num_gpus: int,
     model: str,
     time_budget_minutes: int,
-    kernelbench_root_path: str,
-    kernelbench_python: str,
-    workspace: Path,
-    baseline: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "created_at": now_iso(),
@@ -56,19 +51,29 @@ def build_problem_metadata(
         "tool": tool,
         "dataset_src": dataset_src,
         "problem_name": problem.name,
-        "problem_path": problem.path,
         "gpu_name": hardware.display_name,
         "gpu_architecture": hardware.architecture,
         "gpu_compute_capability": hardware.compute_capability,
         "num_gpus": num_gpus,
         "model": model,
         "time_budget_minutes": time_budget_minutes,
+    }
+
+
+def build_archive_provenance(
+    *,
+    kernelbench_root_path: str,
+    kernelbench_python: str,
+    problem: Any,
+    eager_baseline_file: str,
+    compile_baseline_file: str,
+) -> dict[str, Any]:
+    return {
         "kernelbench_root": kernelbench_root_path,
         "kernelbench_python": kernelbench_python,
-        "workspace": str(workspace),
-        "candidate_path": str(workspace_candidate_path(workspace)),
-        "eager_baseline_file": baseline["eager"]["source_file"],
-        "compile_baseline_file": baseline["compile"]["source_file"],
+        "problem_source_path": getattr(problem, "path", None),
+        "eager_baseline_file": eager_baseline_file,
+        "compile_baseline_file": compile_baseline_file,
     }
 
 

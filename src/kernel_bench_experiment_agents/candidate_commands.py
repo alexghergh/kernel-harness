@@ -13,11 +13,13 @@ from .goal_status import write_goal_status_files
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .project import (
     append_jsonl,
+    artifact_problem_dir,
     build_problem_dir,
     next_sample_id,
     now_iso,
     official_kernel_path,
     official_prompt_path,
+    relative_path_within,
     write_json,
     write_text,
 )
@@ -26,13 +28,21 @@ from .workspace_paths import (
     validate_workspace_assignment,
     workspace_candidate_path,
     workspace_path,
+    workspace_relpath,
     write_workspace_sample_copy,
 )
+
+
+def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None) -> str:
+    if workspace is not None:
+        return workspace_relpath(candidate_path, workspace)
+    return candidate_path.name
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
     candidate_path = Path(args.candidate).resolve()
     workspace = workspace_path(args.workspace) if args.workspace else None
+    problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     lease_name = f"artifacts:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     sample_id: int | None = None
     prompt_path: Path | None = None
@@ -72,6 +82,20 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     sample_id,
                 )
 
+            if workspace is not None:
+                validate_workspace_assignment(
+                    workspace,
+                    run_name=args.run_name,
+                    level=args.level,
+                    problem_id=args.problem_id,
+                )
+                expected_candidate_path = workspace_candidate_path(workspace)
+                if candidate_path != expected_candidate_path:
+                    raise CandidateValidationError(
+                        f"Only {CANDIDATE_FILENAME} may be evaluated from the problem workspace."
+                    )
+
+            candidate_ref = _workspace_candidate_reference(candidate_path, workspace)
             payload = {
                 "status": "started",
                 "created_at": now_iso(),
@@ -80,11 +104,15 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "level": args.level,
                 "problem_id": args.problem_id,
                 "sample_id": sample_id,
-                "candidate_path": str(candidate_path),
-                "official_kernel_path": str(kernel_path),
-                "official_prompt_path": str(prompt_path) if prompt_path else None,
-                "stdout_path": str(stdout_path),
-                "stderr_path": str(stderr_path),
+                "candidate_path": candidate_ref,
+                "archive_kernel_path": relative_path_within(kernel_path, problem_archive_root),
+                "archive_prompt_path": (
+                    relative_path_within(prompt_path, problem_archive_root)
+                    if prompt_path is not None
+                    else None
+                ),
+                "stdout_path": relative_path_within(stdout_path, problem_archive_root),
+                "stderr_path": relative_path_within(stderr_path, problem_archive_root),
                 "backend": args.backend,
                 "precision": args.precision,
                 "artifact_reservation_wait_seconds": artifact_lease.wait_seconds,
@@ -98,19 +126,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "result": {},
                 "error": None,
             }
-
-            if workspace is not None:
-                validate_workspace_assignment(
-                    workspace,
-                    run_name=args.run_name,
-                    level=args.level,
-                    problem_id=args.problem_id,
-                )
-                expected_candidate_path = workspace_candidate_path(workspace)
-                if candidate_path != expected_candidate_path:
-                    raise CandidateValidationError(
-                        f"Only {CANDIDATE_FILENAME} may be evaluated from the problem workspace."
-                    )
 
             candidate_src = candidate_path.read_text(encoding="utf-8")
             validate_candidate_source(candidate_src)

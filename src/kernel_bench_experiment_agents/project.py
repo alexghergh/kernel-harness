@@ -255,3 +255,7 @@ def write_text(path: Path, content: str) -> None:
 def make_executable(path: Path) -> None:
     mode = path.stat().st_mode
     path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP)
+
+
+def relative_path_within(path: Path, root: Path) -> str:
+    return str(path.resolve().relative_to(root.resolve()))

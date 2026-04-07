@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .common import emit_json, normalize_tool_name
-from .completion_policy import annotate_completion_outcomes, infer_measured_outcome, substantial_budget_remaining
+from .completion_policy import annotate_completion_outcomes, infer_measured_outcome
 from .project import artifact_agent_dir, now_iso, write_json, write_text
 from .archive_layout import archive_problem_contract_dir, history_path
 from .goal_status import write_goal_status_files
@@ -79,14 +79,6 @@ def command_complete_problem(args: argparse.Namespace) -> None:
             problem_id=args.problem_id,
             workspace=workspace,
         )
-        if args.state == "stalled" and substantial_budget_remaining(snapshot):
-            if int(snapshot.get("num_profile_runs") or 0) < 1:
-                raise SystemExit(
-                    "Cannot record stalled while substantial budget remains and no profiler "
-                    "run has been recorded. Run ./bin/profile_ncu.sh on a strong candidate "
-                    "and try a new branch first."
-                )
-
         measured_outcome = infer_measured_outcome(snapshot)
         payload = {
             "completed_at": now_iso(),

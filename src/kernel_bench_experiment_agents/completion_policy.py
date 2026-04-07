@@ -83,30 +83,4 @@ def annotate_completion_outcomes(
 def apply_completion_policy(
     completion_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    trace_counts = completion_payload.get("trace_counts")
-    goal_status = completion_payload.get("goal_status")
-    if not isinstance(trace_counts, dict) or not isinstance(goal_status, dict):
-        return completion_payload
-
-    if completion_payload.get("terminal_state") != "stalled":
-        return completion_payload
-    if not substantial_budget_remaining(goal_status):
-        return completion_payload
-
-    profile_calls = int(as_float(trace_counts.get("profile_ncu_calls")) or 0)
-    if profile_calls >= 1:
-        return completion_payload
-
-    completion_payload.setdefault(
-        "reported_terminal_state",
-        completion_payload.get("terminal_state") or completion_payload.get("solver_state"),
-    )
-    completion_payload.setdefault("reported_summary", completion_payload.get("summary"))
-    completion_payload.setdefault("reported_success", completion_payload.get("success"))
-    completion_payload["terminal_state"] = "harness_failure"
-    completion_payload["success"] = False
-    completion_payload["summary"] = (
-        "invalidated by completion policy: `stalled` is not allowed while substantial "
-        "budget remains and no `./bin/profile_ncu.sh` call was recorded"
-    )
     return completion_payload

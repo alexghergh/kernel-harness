@@ -9,9 +9,10 @@ from .common import emit_json, normalize_tool_name
 from .goal_status import write_goal_status_files
 from .hardware_catalog import resolve_hardware_spec
 from .kernelbench import load_problem
-from .project import artifact_problem_dir, build_problem_root, kernelbench_root
+from .project import artifact_problem_dir, build_problem_root, kernelbench_root, write_json
 from .run_metrics import baseline_payload_for_problem
 from .workspace_materialization import (
+    build_archive_provenance,
     build_hardware_payload,
     build_problem_metadata,
     write_contract_bundle,
@@ -64,14 +65,17 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         num_gpus=args.num_gpus,
         model=args.model,
         time_budget_minutes=args.time_budget_minutes,
-        kernelbench_root_path=resolved_kernelbench_root,
-        kernelbench_python=args.kernelbench_python,
-        workspace=paths["workspace"],
-        baseline=baseline,
     )
     hardware_payload = build_hardware_payload(hardware)
+    provenance_payload = build_archive_provenance(
+        kernelbench_root_path=resolved_kernelbench_root,
+        kernelbench_python=args.kernelbench_python,
+        problem=problem,
+        eager_baseline_file=args.eager_baseline_file,
+        compile_baseline_file=args.compile_baseline_file,
+    )
 
-    contract = write_contract_bundle(
+    write_contract_bundle(
         target_dir=paths["workspace"],
         metadata=metadata,
         baseline=baseline,
@@ -92,10 +96,10 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         hardware_payload=hardware_payload,
         problem_code=problem.code,
     )
+    write_json(contract_dir / "provenance.json", provenance_payload)
 
     write_default_workspace_wrappers(
         bin_dir=paths["bin"],
-        kernelbench_root_path=resolved_kernelbench_root,
         run_name=args.run_name,
         level=args.level,
         problem_id=args.problem_id,

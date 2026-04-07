@@ -78,9 +78,9 @@ The solver-visible surface is:
 - `profiles/`
 - `bin/*.sh`
 
-The `samples/` and `profiles/` directories inside the workspace are local mirrors for the solver. The durable source of truth remains the corresponding paths under `archive/`.
+The solver should not need to know anything about the surrounding KernelBench checkout. No external filesystem paths should be required to solve the problem. The only archive-only provenance that still points outward lives under `archive/.../contract/provenance.json`, not in the live workspace.
 
-The solver contract explicitly forbids reading or editing outside that workspace.
+The `samples/` and `profiles/` directories inside the workspace are local mirrors for the solver. The durable source of truth remains the corresponding paths under `archive/`.
 
 Prepared workspaces also contain generated helper-agent definitions under `.codex/agents/` and `.claude/agents/`. Those files are runtime assets for Codex/Claude subagent routing; they are rendered from one canonical source and archived under `contract/helper_agents/` with the problem contract.
 
@@ -96,8 +96,6 @@ Examples:
 
 The intended rule is simple: do not hand-edit both forms. Change the generator or the source payload instead.
 
-The launcher also avoids granting extra directories to the solver runtime. This is important because root maintainer docs and repo internals must not leak into solver sessions.
-
 ## Tool/runtime isolation
 
 ### Codex
@@ -108,11 +106,21 @@ The launcher gives each problem its own runtime `CODEX_HOME` under `state/agent_
 
 The launcher copies project-level Claude settings into the workspace and gives each problem its own isolated `CLAUDE_CONFIG_DIR` under `state/agent_home/...`.
 
+### Important boundary note
+
+The harness contract assumes the external sandbox is the real enforcement layer.
+
+The harness itself still provides two weaker layers on top of that:
+
+- fixed workspace wrapper commands
+- trace audit that checks obvious contract violations after the fact
+
+Trace audit is useful during bring-up and regression testing, but it is **not** a replacement for a real sandbox.
+
 ## Wrapper command surface
 
 The workspace contract currently exposes exactly these wrapper commands:
 
-- `./bin/problem_info.sh`
 - `./bin/hardware_info.sh`
 - `./bin/run_candidate.sh`
 - `./bin/profile_ncu.sh`
@@ -120,7 +128,17 @@ The workspace contract currently exposes exactly these wrapper commands:
 - `./bin/best_result.sh`
 - `./bin/complete_problem.sh`
 
-The solver should not use ad hoc shell commands to benchmark, profile, inspect hardware, or terminate the run. Every wrapper other than `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
+The solver should not use ad hoc shell commands to benchmark, profile, inspect hardware, or terminate the run.
+
+Every wrapper other than `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
+
+`./bin/complete_problem.sh` accepts only:
+
+- `--state done`
+- `--state harness_failure`
+- `--summary "..."`
+
+It rejects any other flags or terminal states before calling the harness CLI.
 
 ## Hardware surface
 
@@ -130,7 +148,7 @@ Hardware facts are frozen into:
 - `hardware.json`
 - `./bin/hardware_info.sh`
 
-The intended model is that the solver reads these files rather than probing the machine through `nvidia-smi`, `/proc`, `/etc`, or one-off scripts. The harness now treats this as an explicit contract: hardware access should flow through frozen workspace facts, not ambient host inspection.
+The intended model is that the solver reads these files rather than probing the machine through `nvidia-smi`, `/proc`, `/etc`, or one-off scripts. The harness treats this as part of the workspace contract: hardware access should flow through frozen workspace facts, not ambient host inspection.
 
 ## Completion ownership
 
@@ -139,7 +157,6 @@ The solver does not declare measured performance outcomes.
 Solver-written terminal states are narrow:
 
 - `done`
-- `stalled`
 - `harness_failure`
 
 Launcher-only terminal states are:
@@ -155,7 +172,7 @@ The harness computes the measured outcome from recorded attempts and goal status
 - `beats_none`
 - `no_correct_candidate`
 
-This keeps measured state inside the harness instead of duplicating it in the solver.
+This keeps measured state inside the harness instead of duplicating it in the solver. `done` is a truthful solver stop signal, not a promise that the baselines were beaten.
 
 ## Goal status
 
@@ -180,7 +197,7 @@ That command:
 - validates the candidate source
 - reserves a per-problem sample id
 - snapshots the candidate into `archive/.../attempts/kernels/`
-- evaluates correctness and runtime in an isolated subprocess bound to one leased GPU slot
+- evaluates correctness and runtime in an isolated subprocess bound to one leased GPU selector
 - archives the evaluation subprocess stdout/stderr for that sample
 - appends to `attempts/history.jsonl`
 - refreshes goal status using the corrected wall-clock budget view
@@ -192,7 +209,7 @@ That command:
 The profiler flow:
 
 - reserves a per-problem profile id
-- leases one GPU slot and binds profiling to that isolated visible device set
+- leases one GPU selector and binds profiling to that isolated visible-device set
 - runs Nsight Compute under the harness
 - exports summary/details/raw CSV text outputs
 - writes archive metadata under `profiles/`
@@ -213,9 +230,9 @@ A later materialization step produces `agent/trace_ir.json` and updates `complet
 - web-search summary
 - audit result
 
-Trace audit validates the solver session against the workspace contract, including wrapper-command usage and out-of-scope file edits.
+Trace audit currently validates the solver session against the declared workspace contract, including wrapper-command usage and obvious out-of-scope file edits. If audit invalidates a run, the final terminal state is rewritten to `harness_failure` while preserving the originally reported state separately.
 
-If audit invalidates a run, the final terminal state is rewritten to `harness_failure` while preserving the originally reported state separately.
+If the external sandbox later becomes fully trusted, this audit can be reduced to diagnostics rather than treated as part of run validity.
 
 ## Lock model
 
@@ -223,9 +240,9 @@ The harness uses three lock classes:
 
 - `state/locks/solver/` — one active top-level solver per problem
 - `state/locks/problem_state/` — serialized mutation of per-problem durable state
-- `state/locks/gpu/` — shared GPU slot leasing across problems
+- `state/locks/gpu/` — shared GPU-selector leasing across problems
 
-GPU slots are lease indices, not necessarily physical device ids. At execution time the harness binds the selected slot into an isolated `CUDA_VISIBLE_DEVICES` view, and the evaluation/profile subprocess uses logical device `cuda:0` inside that isolated view. If the cluster already provides a restricted GPU list through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible list instead of probing the host globally.
+GPU locks are keyed by the selected visible-device selector, not just a slot index. At execution time the harness binds the selected selector into an isolated `CUDA_VISIBLE_DEVICES` view, and the evaluation/profile subprocess uses logical device `cuda:0` inside that isolated view. If the cluster already provides a restricted GPU list through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible list instead of probing the host globally.
 
 ## Current refactor status
 
@@ -235,4 +252,5 @@ The current direction is:
 - keep `cli.py` thin and decompose larger runtime/state modules into focused archive, workspace-path, metric, goal-status, candidate-execution, profiling, workspace-materialization, wrapper-generation, and summary modules
 - keep Codex/Claude-specific parsing and runtime setup in thin adapters
 - keep one canonical source for duplicated helper-agent specifications
-- keep measured execution and profiling bound to leased GPU slots through isolated subprocesses
+- keep measured execution and profiling bound to leased GPU selectors through isolated subprocesses
+- keep the solver-facing contract explicit, autonomous, and self-contained

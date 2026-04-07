@@ -1,6 +1,8 @@
 # KernelBench experiment harness
 
-This repository runs one solver agent at a time on one KernelBench problem, records the full run, and keeps the durable artifacts in one place.
+This repository runs one autonomous solver agent at a time on one optimization problem, records the run, and keeps the durable record under `archive/`.
+
+The harness owns measured outcomes. The solver works inside a fresh, self-contained workspace, uses only local wrapper commands, and terminates through one narrow completion wrapper.
 
 ## What it does
 
@@ -13,17 +15,44 @@ For each `(run_name, level, problem_id)` the harness:
 5. records attempts, traces, completion state, and profiler outputs
 6. stores the durable record under `archive/<run_name>/...`
 
-The harness, not the solver, decides whether a final correct candidate beat eager PyTorch, `torch.compile`, both, or neither.
+The harness, not the solver, decides whether the final correct candidate beat eager PyTorch, `torch.compile`, both, or neither.
 
 ## Install
 
-Install this repo into the same Python environment used for KernelBench:
+The harness should live in the same Python environment as the official KernelBench checkout.
+
+### Recommended: use the helper script
 
 ```bash
-pip install -e .
+export KERNELBENCH_ROOT=/path/to/KernelBench
+./scripts/setup_kernelbench_env.sh uv
 ```
 
-That provides the `kbe` CLI used by the generated workspace wrappers.
+That does two things:
+
+1. creates or updates the KernelBench `uv` environment
+2. installs this harness into that same environment so the `kbe` CLI is available
+
+### Manual `uv` flow
+
+```bash
+cd /path/to/KernelBench
+uv sync --extra gpu
+.venv/bin/python -m pip install -e /path/to/this/harness
+```
+
+### Manual `pip` flow
+
+```bash
+cd /path/to/KernelBench
+python3.10 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[gpu]"
+python -m pip install -e /path/to/this/harness
+```
+
+After install, `kbe` should resolve inside the KernelBench environment.
 
 ## Main entrypoints
 
@@ -33,7 +62,7 @@ Top-level launcher:
 scripts/run_agent_problem.sh
 ```
 
-Cleanup for one run:
+Cleanup for one archived run and its disposable state:
 
 ```bash
 scripts/clear_run.sh <run_name>
@@ -63,11 +92,11 @@ If you want the full durable record for a run, copy:
 archive/<run_name>/
 ```
 
-That directory is the canonical archive. It contains everything worth keeping for later analysis. Each problem archive now also includes `archive_manifest.json`, which spells out which subdirectories and file patterns are canonical versus merely workspace mirrors.
+That directory is the canonical archive. Each problem archive also includes `archive_manifest.json`, which explains which files are canonical and which workspace files are only mirrors.
 
 ### Safe to discard
 
-The harness keeps live runtime state under:
+Live mutable state is kept under:
 
 ```text
 state/
@@ -80,7 +109,7 @@ That includes:
 - build directories
 - lock files
 
-Do not treat `state/` as archival storage.
+`state/` is disposable. It is safe to delete **only when no run is active**. Do not treat it as archival storage.
 
 ## Archive layout
 
@@ -114,6 +143,7 @@ The exact solver-facing contract for that workspace:
 - `problem_reference.py`
 - `candidate_model_new.py` — initial candidate scaffold shown to the solver
 - `candidate_final.py` once completion is written
+- `provenance.json` — archive-only provenance for the original KernelBench checkout and baseline input files
 
 ### `agent/`
 
@@ -167,7 +197,7 @@ Each solver workspace contains a small, explicit surface:
 - `profiles/`
 - `bin/*.sh`
 
-The solver is expected to stay inside that workspace and use only the local wrapper scripts. `samples/` and `profiles/` inside the workspace are convenience mirrors of the durable archive, not a second source of truth. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags. The workspace docs explicitly instruct the solver to work independently, avoid approval-seeking or plan-only handoffs, and continue iterating from measured evidence until a truthful terminal state is reached.
+The solver is expected to stay inside that workspace and use only the local wrapper scripts. `samples/` and `profiles/` inside the workspace are convenience mirrors of the durable archive, not a second source of truth. Every wrapper except `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags. `./bin/complete_problem.sh` accepts only `--state` and `--summary`, and only the solver states `done` or `harness_failure`.
 
 ## Canonical JSON vs rendered Markdown
 
@@ -188,7 +218,6 @@ These are not intended to be independently edited. The harness writes both forms
 
 The generated workspace exposes these commands:
 
-- `./bin/problem_info.sh`
 - `./bin/hardware_info.sh`
 - `./bin/run_candidate.sh`
 - `./bin/profile_ncu.sh`
@@ -207,7 +236,6 @@ The solver may terminate only through `./bin/complete_problem.sh`.
 Solver-written terminal states:
 
 - `done`
-- `stalled`
 - `harness_failure`
 
 Launcher-only terminal states:
@@ -223,7 +251,7 @@ Measured outcomes are computed by the harness from recorded attempts:
 - `beats_none`
 - `no_correct_candidate`
 
-The live budget clock shown in `GOAL_STATUS.md` and `goal_status.json` is wall time since workspace creation minus recorded GPU wait time.
+`done` means only that the solver believes the search is complete. It does **not** imply success. The live budget clock shown in `GOAL_STATUS.md` and `goal_status.json` is wall time since workspace creation minus recorded GPU wait time.
 
 A successful run means the measured outcome is `beats_both`.
 
@@ -246,15 +274,15 @@ Generated outputs live inside each prepared workspace and are also archived unde
 
 ## GPU/runtime isolation notes
 
-- GPU slot leases are logical harness slots, not guaranteed physical device ids
-- measured evaluation and Nsight Compute profiling now run in isolated subprocesses with `CUDA_VISIBLE_DEVICES` bound to the leased slot's selector
+- GPU slot leases are logical harness slots backed by visible-device selectors
+- measured evaluation and Nsight Compute profiling run in isolated subprocesses with `CUDA_VISIBLE_DEVICES` bound to the leased selector
 - inside that isolated subprocess the runner always uses logical device `cuda:0`
 - if the cluster already restricts visibility through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible selector list
 
 ## Current implementation notes
 
 - `cli.py` is now a thin parser/dispatcher; workspace generation, execution, status, trace, and summary logic live in dedicated modules under `src/kernel_bench_experiment_agents/`
-- workspace preparation is now split across dedicated wrapper-generation, contract-materialization, problem-info, and prepare-command modules instead of one string-heavy file
+- workspace preparation is now split across dedicated wrapper-generation, contract-materialization, problem-materialization, and prepare-command modules instead of one string-heavy file
 - run summarization is now split into archive scanning, pass@k math, and report aggregation modules instead of one large command file
-- the runtime layout, completion ownership, helper-agent generation, GPU isolation model, and solver-autonomy wording are aligned with the current architecture documents
+- trace audit is currently a bring-up guard that validates wrapper usage and obvious boundary violations against the declared workspace contract; it is not a substitute for a real external sandbox
 - the next major cleanup target is continued runtime hardening around external sandbox enforcement and any remaining archive-surface polish

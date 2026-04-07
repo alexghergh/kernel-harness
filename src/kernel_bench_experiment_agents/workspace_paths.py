@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .candidate_contract import CANDIDATE_FILENAME
-from .project import workspace_dir, write_json, write_text
+from .project import archive_problem_dir, workspace_dir, write_json, write_text
 
 
 def workspace_path(raw: str | Path) -> Path:
@@ -108,13 +108,20 @@ def write_workspace_best_sample(
             best_result_path.unlink()
         return
 
-    official_kernel = payload.get("official_kernel_path")
-    if isinstance(official_kernel, str):
-        official_kernel_path = Path(official_kernel)
-        if official_kernel_path.exists():
+    archive_kernel = payload.get("archive_kernel_path") or payload.get("official_kernel_path")
+    if isinstance(archive_kernel, str):
+        metadata = load_workspace_metadata(workspace)
+        kernel_path = Path(archive_kernel)
+        if not kernel_path.is_absolute():
+            kernel_path = archive_problem_dir(
+                metadata["run_name"],
+                int(metadata["level"]),
+                int(metadata["problem_id"]),
+            ) / kernel_path
+        if kernel_path.exists():
             write_text(
                 best_sample_path,
-                official_kernel_path.read_text(encoding="utf-8"),
+                kernel_path.read_text(encoding="utf-8"),
             )
         elif best_sample_path.exists():
             best_sample_path.unlink()

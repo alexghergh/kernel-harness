@@ -9,7 +9,6 @@ from .common import as_float, normalize_tool_name
 
 _ALLOWED_WEB_SEARCH_HOSTS = ("docs.nvidia.com",)
 _WORKSPACE_WRAPPER_NAMES = {
-    "./bin/problem_info.sh": "problem_info_calls",
     "./bin/hardware_info.sh": "hardware_info_calls",
     "./bin/run_candidate.sh": "run_candidate_calls",
     "./bin/profile_ncu.sh": "profile_ncu_calls",
@@ -248,7 +247,6 @@ def _empty_trace_counts() -> dict[str, Any]:
         "file_change_events": 0,
         "wrapper_commands": 0,
         "gpu_wrapper_commands": 0,
-        "problem_info_calls": 0,
         "hardware_info_calls": 0,
         "run_candidate_calls": 0,
         "profile_ncu_calls": 0,

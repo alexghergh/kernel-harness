@@ -83,14 +83,14 @@ def next_archive_profile_index(run_name: str, level: int, problem_id: int) -> in
 
 
 def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -> dict[str, Any]:
-    problem_root = archive_problem_dir(run_name, level, problem_id)
     workspace_stub = f"state/workspaces/{run_name}/level_{level}/problem_{problem_id}"
     return {
         "schema_version": 1,
         "run_name": run_name,
         "level": level,
         "problem_id": problem_id,
-        "copy_this_directory": str(problem_root),
+        "copy_this_problem_directory": ".",
+        "copy_this_run_directory": "../..",
         "canonical_subdirs": {
             "contract": {
                 "path": "contract/",
@@ -114,6 +114,7 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             {"path": "contract/problem.json", "purpose": "problem metadata and budget start time"},
             {"path": "contract/baseline.json", "purpose": "baseline runtimes for this problem"},
             {"path": "contract/hardware.json", "purpose": "frozen hardware facts"},
+            {"path": "contract/provenance.json", "purpose": "archive-only provenance for the original KernelBench checkout and baseline inputs"},
             {"path": "contract/workspace_contract.json", "purpose": "machine-readable solver contract"},
             {"path": "contract/candidate_model_new.py", "purpose": "initial candidate scaffold shown to the solver"},
             {"path": "contract/candidate_final.py", "purpose": "final workspace candidate captured at completion when available"},

@@ -10,7 +10,7 @@ from .completion_policy import (
     apply_completion_policy,
     apply_trace_audit_to_completion,
 )
-from .project import now_iso, write_json, write_text
+from .project import now_iso, relative_path_within, write_json, write_text
 from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
 from .workspace_paths import read_json_file
@@ -50,6 +50,16 @@ def write_final_message(
         write_text(output_path, final_text)
 
 
+
+
+def _trace_source_reference(*, events_path: Path, output_path: Path) -> str:
+    problem_root = output_path.parent.parent
+    try:
+        return relative_path_within(events_path, problem_root)
+    except ValueError:
+        return events_path.name
+
+
 def command_materialize_agent_trace(args: argparse.Namespace) -> None:
     tool = normalize_tool_name(args.tool)
     events_path = Path(args.events_path).expanduser().resolve()
@@ -69,9 +79,10 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             raw_events=raw_events,
             tool=tool,
         )
+    source_events_path = _trace_source_reference(events_path=events_path, output_path=output_path)
     payload = {
         "tool": tool,
-        "source_events_path": str(events_path),
+        "source_events_path": source_events_path,
         "generated_at": now_iso(),
         "trace_ir_version": 1,
         "num_raw_events": len(raw_events),
@@ -117,7 +128,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             "output_path": str(output_path),
             "num_raw_events": len(raw_events),
             "num_ir_events": len(ir_events),
-            "source_events_path": str(events_path),
+            "source_events_path": source_events_path,
             "token_usage": token_usage,
             "cost_usd": cost_usd,
             "audit": audit,

@@ -89,11 +89,9 @@ def baseline_payload_for_problem(
         "problem_name": problem_name,
         "eager": {
             "runtime_ms": eager_runtime_ms,
-            "source_file": eager_baseline_file,
         },
         "compile": {
             "runtime_ms": compile_runtime_ms,
-            "source_file": compile_baseline_file,
         },
     }
 

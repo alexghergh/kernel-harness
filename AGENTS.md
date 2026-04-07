@@ -23,7 +23,8 @@ It is **not** the solver contract used inside per-problem workspaces. Those work
 ## Repo rules
 
 - Treat root docs and workspace docs as different audiences, even when filenames match.
-- Keep the solver contract explicit and narrow.
+- Keep the solver contract explicit, narrow, and self-contained.
+- Do not leak external filesystem paths into the live solver workspace.
 - Keep generic harness logic separate from tool-specific adapters.
 - Prefer one canonical source over duplicated vendor-specific files.
 - Do not hand-edit generated workspace helper-agent specs. Edit `src/kernel_bench_experiment_agents/agent_specs.py`; `prepare-problem-workspace` regenerates `.codex/agents/*` and `.claude/agents/*` inside each workspace.
@@ -39,6 +40,8 @@ At minimum, run:
 python -m py_compile src/kernel_bench_experiment_agents/*.py
 bash -n scripts/run_agent_problem.sh
 bash -n scripts/clear_run.sh
+bash -n scripts/run_agent_range.sh
+bash -n scripts/run_agent_problem.slurm.sh
 ```
 
 If you change helper-agent specs, regenerate a workspace and inspect the generated `.codex/agents/*` and `.claude/agents/*` inside that workspace.
@@ -48,5 +51,6 @@ If you change helper-agent specs, regenerate a workspace and inspect the generat
 - solver-facing workspaces are self-contained under `state/workspaces/...`
 - durable run outputs live under `archive/<run_name>/...`
 - launcher and harness own measured outcomes
-- solver terminal states are narrow: `done`, `stalled`, `harness_failure`
+- solver terminal states are narrow: `done`, `harness_failure`
 - Codex and Claude remain equal first-class adapters
+- trace audit is a bring-up guard, not the primary sandbox boundary
