@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .archive_layout import history_entries
 from .common import as_float
 
 EAGER_BASELINE_FILENAME = "baseline_time_torch.json"
@@ -134,10 +133,10 @@ def baseline_payload_for_problem(
     }
 
 
-def best_correct_payload(history_path_value: Path) -> dict[str, Any] | None:
+def best_correct_payload(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
     best_payload: dict[str, Any] | None = None
     best_runtime: float | None = None
-    for payload in history_entries(history_path_value):
+    for payload in entries:
         result = payload.get("result")
         if not isinstance(result, dict):
             continue

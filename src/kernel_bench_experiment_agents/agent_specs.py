@@ -55,7 +55,6 @@ HELPER_SPECS = (
             "candidate_model_new.py",
             "profiles/latest.summary.txt",
             "profiles/latest.details.txt",
-            "profiles/latest.raw.csv",
         ),
         summary_focus=(
             "Return short, actionable summaries focused on bottlenecks, dominant kernels, occupancy, memory behavior, and the most promising next optimization directions."

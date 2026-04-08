@@ -6,10 +6,8 @@ from typing import Any
 
 from .archive_layout import (
     goal_status_archive_path,
-    history_path,
-    history_entries,
-    profile_entries,
-    profile_index_path,
+    profile_manifest_entries,
+    sample_manifest_entries,
     trace_events_path,
 )
 from .common import as_float
@@ -63,11 +61,9 @@ def goal_status_snapshot(
 ) -> dict[str, Any]:
     metadata = load_workspace_metadata(workspace)
     baseline = load_workspace_baseline(workspace)
-    history_path_value = history_path(run_name, level, problem_id)
-    profile_index = profile_index_path(run_name, level, problem_id)
-    entries = history_entries(history_path_value)
-    profiles = profile_entries(profile_index)
-    best_payload = best_correct_payload(history_path_value)
+    entries = sample_manifest_entries(run_name, level, problem_id)
+    profiles = profile_manifest_entries(run_name, level, problem_id)
+    best_payload = best_correct_payload(entries)
     best_runtime_ms = None
     best_sample_id = None
     if best_payload is not None:
@@ -171,7 +167,6 @@ def goal_status_snapshot(
             "profiles_dir": "profiles/",
             "latest_profile_summary": "profiles/latest.summary.txt",
             "latest_profile_details": "profiles/latest.details.txt",
-            "latest_profile_raw_csv": "profiles/latest.raw.csv",
         },
         "recommended_actions": recommended_actions,
     }
@@ -253,7 +248,7 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         "- static docs: `AGENTS.md`, `SPEC.md`, `HARDWARE.md`",
         "- live docs: `GOAL_STATUS.md`, `goal_status.json`",
         "- local sample mirrors: `samples/`, `samples/best_sample.py`, `samples/best_result.json`",
-        "- latest profiler mirrors: `profiles/latest.summary.txt`, `profiles/latest.details.txt`, and `profiles/latest.raw.csv`",
+        "- latest profiler mirrors: `profiles/latest.summary.txt` and `profiles/latest.details.txt`",
         "",
         "Source of truth: measured run history plus the live solver trace. Refresh via `./bin/goal_status.sh` or `./bin/run_candidate.sh`.",
     ]
@@ -275,7 +270,7 @@ def write_goal_status_files(
     )
     write_workspace_best_sample(
         workspace,
-        best_correct_payload(history_path(run_name, level, problem_id)),
+        best_correct_payload(sample_manifest_entries(run_name, level, problem_id)),
     )
     write_json(workspace / "goal_status.json", snapshot)
     write_text(workspace / "GOAL_STATUS.md", goal_status_markdown(snapshot))

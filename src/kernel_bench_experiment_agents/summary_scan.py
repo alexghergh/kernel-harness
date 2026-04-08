@@ -11,14 +11,12 @@ from .workspace_paths import read_json_file
 
 def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:
     attempts_dir = problem_dir / "attempts"
-    history_path = attempts_dir / "history.jsonl"
     samples: list[dict[str, Any]] = []
-    if not history_path.exists():
-        return samples
-    for line in history_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        payload = json.loads(line)
+    for manifest_path in sorted(
+        attempts_dir.glob("sample_*.json"),
+        key=lambda path: int(path.stem.split("_", 1)[1]),
+    ):
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         result = payload.get("result", {})
         samples.append(
             {

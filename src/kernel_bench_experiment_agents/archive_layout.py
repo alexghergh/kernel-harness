@@ -27,20 +27,12 @@ def archive_problem_profiles_dir(run_name: str, level: int, problem_id: int) -> 
     return archive_profiles_dir(run_name, level, problem_id)
 
 
-def history_path(run_name: str, level: int, problem_id: int) -> Path:
-    return archive_problem_attempts_dir(run_name, level, problem_id) / "history.jsonl"
-
-
 def sample_manifest_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
     return archive_problem_attempts_dir(run_name, level, problem_id) / f"sample_{sample_id}.json"
 
 
 def goal_status_archive_path(run_name: str, level: int, problem_id: int) -> Path:
     return artifact_agent_dir(run_name, level, problem_id) / "goal_status.json"
-
-
-def profile_index_path(run_name: str, level: int, problem_id: int) -> Path:
-    return archive_problem_profiles_dir(run_name, level, problem_id) / "index.jsonl"
 
 
 def trace_events_path(run_name: str, level: int, problem_id: int) -> Path:
@@ -51,41 +43,61 @@ def archive_manifest_path(run_name: str, level: int, problem_id: int) -> Path:
     return archive_problem_dir(run_name, level, problem_id) / "archive_manifest.json"
 
 
-def read_jsonl_entries(path: Path) -> list[dict[str, Any]]:
+def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
-        return []
-    entries: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
+def _sample_id_from_path(path: Path) -> int | None:
+    match = re.fullmatch(r"sample_(\d+)\.json", path.name)
+    return int(match.group(1)) if match else None
+
+
+def _profile_index_from_path(path: Path) -> int | None:
+    match = re.fullmatch(r"profile_(\d+)\.json", path.name)
+    return int(match.group(1)) if match else None
+
+
+def sample_manifest_entries(run_name: str, level: int, problem_id: int) -> list[dict[str, Any]]:
+    attempts_dir = archive_problem_attempts_dir(run_name, level, problem_id)
+    entries: list[tuple[int, dict[str, Any]]] = []
+    for child in attempts_dir.glob("sample_*.json"):
+        sample_id = _sample_id_from_path(child)
+        payload = _read_json(child)
+        if sample_id is None or payload is None:
             continue
-        payload = json.loads(line)
-        if isinstance(payload, dict):
-            entries.append(payload)
-    return entries
+        entries.append((sample_id, payload))
+    return [payload for _, payload in sorted(entries, key=lambda item: item[0])]
 
 
-def history_entries(path: Path) -> list[dict[str, Any]]:
-    return read_jsonl_entries(path)
-
-
-def profile_entries(path: Path) -> list[dict[str, Any]]:
-    return read_jsonl_entries(path)
+def profile_manifest_entries(run_name: str, level: int, problem_id: int) -> list[dict[str, Any]]:
+    profiles_dir = archive_problem_profiles_dir(run_name, level, problem_id)
+    entries: list[tuple[int, dict[str, Any]]] = []
+    for child in profiles_dir.glob("profile_*.json"):
+        index = _profile_index_from_path(child)
+        payload = _read_json(child)
+        if index is None or payload is None:
+            continue
+        entries.append((index, payload))
+    return [payload for _, payload in sorted(entries, key=lambda item: item[0])]
 
 
 def next_archive_profile_index(run_name: str, level: int, problem_id: int) -> int:
     profiles_dir = archive_problem_profiles_dir(run_name, level, problem_id)
     max_index = 0
     for child in profiles_dir.glob("profile_*.json"):
-        match = re.fullmatch(r"profile_(\d+)\.json", child.name)
-        if match:
-            max_index = max(max_index, int(match.group(1)))
+        index = _profile_index_from_path(child)
+        if index is not None:
+            max_index = max(max_index, index)
     return max_index + 1
 
 
 def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -> dict[str, Any]:
     workspace_stub = f"state/workspaces/{run_name}/level_{level}/problem_{problem_id}"
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_name": run_name,
         "level": level,
         "problem_id": problem_id,
@@ -98,19 +110,19 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             },
             "agent": {
                 "path": "agent/",
-                "purpose": "raw agent events, normalized trace IR, completion, audit, usage, and final message",
+                "purpose": "raw agent events, normalized trace IR, completion, goal-status snapshot, and final message",
             },
             "attempts": {
                 "path": "attempts/",
-                "purpose": "measured attempt history plus candidate kernel snapshots and per-sample stdout/stderr",
+                "purpose": "measured attempt manifests, candidate kernel snapshots, and per-attempt stdout/stderr",
             },
             "profiles": {
                 "path": "profiles/",
-                "purpose": "Nsight Compute metadata plus text/CSV exports",
+                "purpose": "Nsight Compute manifests plus summary/details/stdout/stderr text artifacts",
             },
         },
         "canonical_files": [
-            {"path": "archive_manifest.json", "purpose": "human/operator map of what in this problem archive is canonical"},
+            {"path": "archive_manifest.json", "purpose": "map of what in this problem archive is canonical"},
             {"path": "contract/problem.json", "purpose": "problem metadata and budget start time"},
             {"path": "contract/baseline.json", "purpose": "baseline runtimes for this problem"},
             {"path": "contract/hardware.json", "purpose": "frozen hardware facts"},
@@ -128,16 +140,13 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             {"path": "agent/completion.json", "purpose": "final terminal state plus measured outcome"},
             {"path": "agent/final_message.txt", "purpose": "last model message when available"},
             {"path": "agent/goal_status.json", "purpose": "latest archived goal-status snapshot"},
-            {"path": "attempts/history.jsonl", "purpose": "append-only measured attempt history"},
             {"path": "attempts/sample_<id>.json", "purpose": "per-attempt measured result metadata"},
             {"path": "attempts/sample_<id>.stdout.txt", "purpose": "evaluation subprocess stdout for an attempt"},
             {"path": "attempts/sample_<id>.stderr.txt", "purpose": "evaluation subprocess stderr for an attempt"},
             {"path": "attempts/kernels/", "purpose": "snapshots of candidate code submitted for measurement"},
-            {"path": "profiles/index.jsonl", "purpose": "append-only profile history"},
             {"path": "profiles/profile_<id>.json", "purpose": "per-profile metadata"},
             {"path": "profiles/profile_<id>.summary.txt", "purpose": "first-pass text summary for the solver"},
             {"path": "profiles/profile_<id>.details.txt", "purpose": "full text export from ncu --page details"},
-            {"path": "profiles/profile_<id>.raw.csv", "purpose": "raw CSV export from ncu --page raw --csv"},
             {"path": "profiles/profile_<id>.stdout.txt", "purpose": "profiling command stdout"},
             {"path": "profiles/profile_<id>.stderr.txt", "purpose": "profiling command stderr"},
         ],
@@ -149,12 +158,6 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             f"{workspace_stub}/completion.json",
             f"{workspace_stub}/.codex/agents/",
             f"{workspace_stub}/.claude/agents/",
-        ],
-        "optional_debug_files": [
-            {
-                "path_glob": "profiles/*.ncu-rep",
-                "when_present": "only when KBE_KEEP_NCU_REP is enabled",
-            }
         ],
     }
 

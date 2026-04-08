@@ -5,20 +5,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .archive_layout import history_path, sample_manifest_path
+from .archive_layout import sample_manifest_path
 from .candidate_contract import CANDIDATE_FILENAME
 from .candidate_validation import CandidateValidationError, validate_candidate_source
 from .common import emit_json
 from .goal_status import write_goal_status_files
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .project import (
-    append_jsonl,
     artifact_problem_dir,
     build_problem_dir,
     next_sample_id,
     now_iso,
     official_kernel_path,
-    official_prompt_path,
     relative_path_within,
     write_json,
     write_text,
@@ -45,10 +43,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     lease_name = f"artifacts:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     sample_id: int | None = None
-    prompt_path: Path | None = None
     payload: dict[str, Any] | None = None
     sample_json_path: Path | None = None
-    history_path_value = history_path(args.run_name, args.level, args.problem_id)
     failure: Exception | None = None
     persist_failure: Exception | None = None
 
@@ -74,14 +70,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             )
             stdout_path = sample_json_path.with_suffix(".stdout.txt")
             stderr_path = sample_json_path.with_suffix(".stderr.txt")
-            if args.prompt_path:
-                prompt_path = official_prompt_path(
-                    args.run_name,
-                    args.level,
-                    args.problem_id,
-                    sample_id,
-                )
-
             if workspace is not None:
                 validate_workspace_assignment(
                     workspace,
@@ -106,11 +94,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "sample_id": sample_id,
                 "candidate_path": candidate_ref,
                 "archive_kernel_path": relative_path_within(kernel_path, problem_archive_root),
-                "archive_prompt_path": (
-                    relative_path_within(prompt_path, problem_archive_root)
-                    if prompt_path is not None
-                    else None
-                ),
                 "stdout_path": relative_path_within(stdout_path, problem_archive_root),
                 "stderr_path": relative_path_within(stderr_path, problem_archive_root),
                 "backend": args.backend,
@@ -132,8 +115,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             write_text(kernel_path, candidate_src)
             if workspace is not None:
                 write_workspace_sample_copy(workspace, sample_id, candidate_src)
-            if prompt_path is not None:
-                write_text(prompt_path, Path(args.prompt_path).read_text(encoding="utf-8"))
             write_json(sample_json_path, payload)
 
         with lease_gpu_slot(
@@ -227,7 +208,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     payload["artifact_commit_wait_seconds"] = artifact_lease.wait_seconds
                     payload["updated_at"] = now_iso()
                     write_json(sample_json_path, payload)
-                    append_jsonl(history_path_value, payload)
                     if workspace is not None:
                         write_goal_status_files(
                             run_name=args.run_name,

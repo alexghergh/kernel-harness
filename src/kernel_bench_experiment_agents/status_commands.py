@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 
+from .archive_layout import archive_problem_contract_dir, sample_manifest_entries
 from .common import emit_json, normalize_tool_name
 from .completion_policy import annotate_completion_outcomes, infer_measured_outcome
-from .project import artifact_agent_dir, now_iso, write_json, write_text
-from .archive_layout import archive_problem_contract_dir, history_path
 from .goal_status import write_goal_status_files
 from .gpu_pool import lease_problem_artifacts
+from .project import artifact_agent_dir, now_iso, write_json, write_text
 from .run_metrics import best_correct_payload
 from .workspace_contract import SOLVER_TERMINAL_STATES
 from .workspace_paths import (
@@ -18,13 +18,13 @@ from .workspace_paths import (
 
 
 def command_best_result(args: argparse.Namespace) -> None:
-    history_path_value = history_path(args.run_name, args.level, args.problem_id)
-    if not history_path_value.exists():
-        raise SystemExit(f"No history found at {history_path_value}")
+    entries = sample_manifest_entries(args.run_name, args.level, args.problem_id)
+    if not entries:
+        raise SystemExit("No measured attempt manifests were found in archive/attempts.")
 
-    best_payload = best_correct_payload(history_path_value)
+    best_payload = best_correct_payload(entries)
     if best_payload is None:
-        raise SystemExit("No correct runtime-bearing results were found in history.jsonl")
+        raise SystemExit("No correct runtime-bearing results were found in the attempt manifests.")
     emit_json(best_payload)
 
 

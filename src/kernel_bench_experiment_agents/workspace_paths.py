@@ -134,9 +134,6 @@ def latest_workspace_profile_paths(workspace: Path) -> dict[str, Path]:
     profiles_dir = workspace_profiles_dir(workspace)
     return {
         "details": profiles_dir / "latest.details.txt",
-        "details_stderr": profiles_dir / "latest.details.stderr.txt",
-        "raw_csv": profiles_dir / "latest.raw.csv",
-        "raw_csv_stderr": profiles_dir / "latest.raw.stderr.txt",
         "summary": profiles_dir / "latest.summary.txt",
         "stdout": profiles_dir / "latest.stdout.txt",
         "stderr": profiles_dir / "latest.stderr.txt",

@@ -162,10 +162,6 @@ def archive_attempt_kernel_dir(run_name: str, level: int, problem_id: int) -> Pa
     return ensure_dir(archive_attempts_dir(run_name, level, problem_id) / "kernels")
 
 
-def archive_attempt_prompt_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return ensure_dir(archive_attempts_dir(run_name, level, problem_id) / "prompts")
-
-
 def archive_profiles_dir(run_name: str, level: int, problem_id: int) -> Path:
     return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "profiles")
 
@@ -218,12 +214,6 @@ def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
 def official_kernel_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
     return archive_attempt_kernel_dir(run_name, level, problem_id) / (
         f"level_{level}_problem_{problem_id}_sample_{sample_id}_kernel.py"
-    )
-
-
-def official_prompt_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
-    return archive_attempt_prompt_dir(run_name, level, problem_id) / (
-        f"level_{level}_problem_{problem_id}_sample_{sample_id}_prompt.txt"
     )
 
 
