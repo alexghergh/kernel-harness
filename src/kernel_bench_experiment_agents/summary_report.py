@@ -19,7 +19,6 @@ TRACE_COUNT_KEYS = (
     "file_change_events",
     "wrapper_commands",
     "gpu_wrapper_commands",
-    "problem_info_calls",
     "hardware_info_calls",
     "run_candidate_calls",
     "profile_ncu_calls",

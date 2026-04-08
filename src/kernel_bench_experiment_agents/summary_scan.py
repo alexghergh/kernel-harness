@@ -37,13 +37,10 @@ def _load_completion(problem_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def _baseline_means(contract_problem: dict[str, Any], contract_baseline: dict[str, Any]) -> tuple[float | None, float | None]:
+def _baseline_means(contract_problem: dict[str, Any]) -> tuple[float | None, float | None]:
     eager_mean = None
     compile_mean = None
-    if isinstance(contract_baseline, dict):
-        eager_mean = as_float(contract_baseline.get("eager", {}).get("runtime_ms"))
-        compile_mean = as_float(contract_baseline.get("compile", {}).get("runtime_ms"))
-    if eager_mean is None and isinstance(contract_problem, dict):
+    if isinstance(contract_problem, dict):
         eager_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("eager"))
     if compile_mean is None and isinstance(contract_problem, dict):
         compile_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("compile"))
@@ -66,11 +63,9 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
     )
 
     contract_problem_path = problem_dir / "contract" / "problem.json"
-    contract_baseline_path = problem_dir / "contract" / "baseline.json"
     contract_problem = read_json_file(contract_problem_path) if contract_problem_path.exists() else {}
-    contract_baseline = read_json_file(contract_baseline_path) if contract_baseline_path.exists() else {}
     problem_name = contract_problem.get("problem_name") if isinstance(contract_problem, dict) else None
-    eager_mean, compile_mean = _baseline_means(contract_problem, contract_baseline)
+    eager_mean, compile_mean = _baseline_means(contract_problem)
 
     row_token_usage = completion_payload.get("token_usage") if isinstance(completion_payload, dict) else None
     audit_payload = completion_payload.get("audit") if isinstance(completion_payload, dict) else None

@@ -40,7 +40,7 @@ def candidate_template() -> str:
 
         # edit only the marked blocks in this file
         # do not add imports, helper functions, or classes outside the fixed scaffold
-        # this experiment tests whether raw custom CUDA code can beat optimized PyTorch baselines
+        # this harness tests whether raw custom CUDA code can beat the archived PyTorch baselines
         # vendor-library wrappers, ATen compute helpers, and high-level kernel frameworks are forbidden
 
         CPP_SOURCE = r"""

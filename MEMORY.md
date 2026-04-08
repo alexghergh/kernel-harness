@@ -31,8 +31,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Next steps
 
-- simplify and document the runtime policy surface for Codex and Claude
-- remove stale setup/install assumptions and align the install story with KernelBench's active environment
-- simplify archive contents where duplication is not buying us anything
-- tighten script comments, defaults, and shared shell flow
-- move defaults and docs to H100 + v3 + bf16
+- validate sandbox behavior on real Codex and Claude runs after the current cleanup lands
+- review live normal and failure traces from both tools to harden trace parsing and timeout/billing classification
+- sanity-check end-to-end NCU output on the cluster and revisit region-of-interest profiling later
+- keep reminding the user to manually inspect produced kernels after real runs

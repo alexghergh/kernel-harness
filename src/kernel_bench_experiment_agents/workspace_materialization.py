@@ -105,8 +105,12 @@ def write_contract_bundle(
     problem_code: str,
 ) -> dict[str, Any]:
     contract = build_workspace_contract(metadata=metadata)
-    write_json(target_dir / "problem.json", metadata)
-    write_json(target_dir / "baseline.json", baseline)
+    problem_payload = dict(metadata)
+    problem_payload["baseline_runtime_ms"] = {
+        "eager": baseline.get("eager", {}).get("runtime_ms"),
+        "compile": baseline.get("compile", {}).get("runtime_ms"),
+    }
+    write_json(target_dir / "problem.json", problem_payload)
     write_json(target_dir / "hardware.json", hardware_payload)
     write_json(target_dir / "workspace_contract.json", contract)
     write_text(target_dir / "problem_reference.py", problem_code)

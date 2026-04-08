@@ -123,8 +123,7 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
         },
         "canonical_files": [
             {"path": "archive_manifest.json", "purpose": "map of what in this problem archive is canonical"},
-            {"path": "contract/problem.json", "purpose": "problem metadata and budget start time"},
-            {"path": "contract/baseline.json", "purpose": "baseline runtimes for this problem"},
+            {"path": "contract/problem.json", "purpose": "problem metadata, baseline runtimes, and budget start time"},
             {"path": "contract/hardware.json", "purpose": "frozen hardware facts"},
             {"path": "contract/provenance.json", "purpose": "archive-only provenance for the original KernelBench checkout and baseline inputs"},
             {"path": "contract/workspace_contract.json", "purpose": "machine-readable solver contract"},

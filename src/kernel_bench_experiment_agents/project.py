@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-def experiment_root() -> Path:
+def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
@@ -19,11 +19,11 @@ def ensure_dir(path: Path) -> Path:
 
 
 def archive_dir() -> Path:
-    return ensure_dir(experiment_root() / "archive")
+    return ensure_dir(repo_root() / "archive")
 
 
 def state_dir() -> Path:
-    return ensure_dir(experiment_root() / "state")
+    return ensure_dir(repo_root() / "state")
 
 
 def runtime_dir() -> Path:

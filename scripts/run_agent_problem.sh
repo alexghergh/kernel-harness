@@ -27,6 +27,7 @@ STATE_ROOT="${PROJECT_ROOT}/state"
 ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
 KBHARNESS_CLI="kbharness"
 
+# Prepare a per-problem Codex home so sessions do not share state across runs.
 prepare_runtime_codex_home() {
   local base_home="$1"
   local runtime_home="$2"
@@ -46,6 +47,7 @@ prepare_runtime_codex_home() {
   fi
 }
 
+# Copy the project-scoped Claude settings into the fresh workspace before launch.
 prepare_runtime_claude_project_config() {
   local base_dir="$1"
   local workspace="$2"
@@ -61,6 +63,7 @@ prepare_runtime_claude_project_config() {
   done
 }
 
+# Regenerate the repo-root runtime configs from the shared policy source.
 refresh_runtime_configs() {
   PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" python - "${PROJECT_ROOT}" <<'PY'
 from pathlib import Path
@@ -71,6 +74,7 @@ write_repo_runtime_configs(Path(sys.argv[1]))
 PY
 }
 
+# Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
   local parent_pid="$1"
 
@@ -87,6 +91,7 @@ terminate_agent_pipeline() {
   fi
 }
 
+# Fail early if the active environment does not expose a required executable.
 require_command() {
   local name="$1"
   if ! command -v "${name}" >/dev/null 2>&1; then
@@ -95,6 +100,7 @@ require_command() {
   fi
 }
 
+# Resolve operator-facing launcher settings.
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
   codex|claude) ;;
@@ -117,7 +123,7 @@ DATASET_SRC="${DATASET_SRC:-local}"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 NUM_GPUS="${NUM_GPUS:-1}"
-HARDWARE_NAME="${HARDWARE_NAME:-${GPU_NAME:-}}"
+HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${STATE_ROOT}/workspaces}"
 CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-workspace-write}"
@@ -134,6 +140,7 @@ if [[ -z "${HARDWARE_NAME}" ]]; then
   exit 1
 fi
 
+# Validate the active environment and regenerate tool runtime configs.
 require_command python
 require_command flock
 require_command "${KBHARNESS_CLI}"
@@ -168,6 +175,7 @@ if ! flock -n 9; then
   exit 1
 fi
 
+# Validate authentication before mutating workspace state.
 if [[ "${TOOL}" == "codex" ]]; then
   require_command codex
   if ! CODEX_HOME="${CODEX_BASE_HOME}" codex login status >/dev/null 2>&1; then
@@ -183,7 +191,7 @@ else
   fi
 fi
 
-# Prepare the workspace and archive contract before the agent starts.
+# Prepare the fresh workspace and archive contract before the agent starts.
 PREP_OUTPUT="$({
   "${KBHARNESS_CLI}" prepare-problem-workspace \
     --run-name "${RUN_NAME}" \
@@ -217,6 +225,7 @@ COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
 
+# Materialize isolated per-problem runtime state for the chosen tool.
 if [[ "${TOOL}" == "codex" ]]; then
   prepare_runtime_codex_home "${CODEX_BASE_HOME}" "${AGENT_RUNTIME_HOME}"
   export CODEX_HOME="${AGENT_RUNTIME_HOME}"
@@ -231,6 +240,7 @@ fi
 
 rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
+# Recompute live goal status in place without printing it.
 refresh_goal_status() {
   "${KBHARNESS_CLI}" goal-status \
     --run-name "${RUN_NAME}" \
@@ -239,6 +249,7 @@ refresh_goal_status() {
     --workspace "${WORKSPACE}" >/dev/null 2>&1
 }
 
+# Refresh status and return success only when the corrected remaining budget is zero.
 mark_budget_exhausted_if_needed() {
   local status_path="${WORKSPACE}/goal_status.json"
   local exhausted=""
@@ -260,6 +271,7 @@ PY
   return 1
 }
 
+# Periodically refresh the live budget view and stop the agent when time is exhausted.
 watch_budget_limit() {
   local remaining=""
   while kill -0 "${AGENT_PIPE_PID}" 2>/dev/null; do
@@ -284,6 +296,7 @@ PY
   done
 }
 
+# Launch the agent CLI, capture its raw event stream, and run the budget watcher in parallel.
 set +e
 if [[ "${TOOL}" == "codex" ]]; then
   CODEX_ARGS=(
@@ -329,6 +342,7 @@ kill "${BUDGET_WATCH_PID}" 2>/dev/null || true
 wait "${BUDGET_WATCH_PID}" 2>/dev/null || true
 set -e
 
+# If the solver never wrote completion.json, the launcher writes the fallback terminal state.
 if [[ ! -f "${COMPLETION_PATH}" ]]; then
   mark_budget_exhausted_if_needed >/dev/null 2>&1 || true
   if [[ -f "${BUDGET_EXHAUSTED_MARKER_PATH}" ]]; then
@@ -352,6 +366,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
   fi
 fi
 
+# Normalize the raw streamed trace into the archive-friendly IR after the session ends.
 if ! "${KBHARNESS_CLI}" materialize-agent-trace \
   --tool "${TOOL}" \
   --events-path "${EVENTS_PATH}" \

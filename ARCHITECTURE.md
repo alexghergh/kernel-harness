@@ -98,7 +98,7 @@ Important files:
 - `problem_reference.py` — local copy of the reference PyTorch problem code
 - `candidate_model_new.py` — initial solver scaffold shown at workspace creation
 - `candidate_final.py` — final captured candidate when completion exists
-- `problem.json` — machine-readable problem metadata, baselines, budget, and run identifiers
+- `problem.json` — machine-readable problem metadata, embedded eager/compile baseline runtimes, budget, and run identifiers
 - `hardware.json` — machine-readable hardware facts
 - `workspace_contract.json` — machine-readable solver contract
 - `provenance.json` — archive-only outward provenance for the source KernelBench checkout and timing files
@@ -118,7 +118,7 @@ Important files:
 - `goal_status.json` — archived final goal-status snapshot for where the solver ended
 - `final_message.txt` — the last assistant-visible model message, when one is available
 
-`final_message.txt` is intentionally a convenience artifact. It gives a quick human summary without having to scan the full event stream.
+`final_message.txt` is intentionally a convenience artifact. It is the last assistant-visible text extracted from the raw CLI event stream (or Codex `--output-last-message` when available), so an operator can quickly inspect how the run ended without reading the full event log.
 
 ### `attempts/`
 

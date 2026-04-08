@@ -1,5 +1,28 @@
 from __future__ import annotations
 
+"""Normalize raw Codex and Claude CLI traces into a shared IR.
+
+The parser is intentionally conservative: it keeps the raw event stream in
+`agent/events.jsonl` and produces `agent/trace_ir.json` as a mostly-lossless,
+solver- and operator-friendly view of the same session.
+
+Representative raw shapes that this module understands:
+
+- Codex (`--json`):
+    {"type": "turn.completed", "usage": {...}}
+    {"type": "item.completed", "turn_id": "...", "item": {"type": "command_execution", ...}}
+    {"type": "item.completed", "item": {"type": "web_search", "query": "...", ...}}
+
+- Claude (`--output-format stream-json`):
+    {"type": "assistant", "message": {"id": "...", "content": [{"type": "text", ...}, ...]}}
+    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", ...}]}}
+    {"type": "result", "usage": {...}}  # handled by trace_analysis.py
+
+If you get a live trace that is not captured well by this IR, keep the raw
+`events.jsonl` and extend the parser here instead of trying to infer structure
+from summaries downstream.
+"""
+
 import json
 import re
 from pathlib import Path
@@ -8,6 +31,10 @@ from urllib.parse import urlparse
 
 from .common import normalize_tool_name
 
+
+# ---------------------------------------------------------------------------
+# Raw event loading
+# ---------------------------------------------------------------------------
 
 def load_trace_event_entries(
     events_path: Path,
@@ -32,6 +59,10 @@ def load_trace_event_entries(
     return raw_events, raw_event_entries
 
 
+# ---------------------------------------------------------------------------
+# Shared recursive helpers
+# ---------------------------------------------------------------------------
+
 def _collect_text_fragments(payload: Any, fragments: list[str], limit: int = 6) -> None:
     if len(fragments) >= limit:
         return
@@ -52,6 +83,15 @@ def _collect_text_fragments(payload: Any, fragments: list[str], limit: int = 6) 
             if len(fragments) >= limit:
                 return
             _collect_text_fragments(value, fragments, limit=limit)
+
+
+def _text_excerpt(payload: Any) -> str | None:
+    fragments: list[str] = []
+    _collect_text_fragments(payload, fragments)
+    excerpt = " ".join(fragment.replace("\n", " ") for fragment in fragments).strip()
+    if len(excerpt) > 400:
+        excerpt = excerpt[:397] + "..."
+    return excerpt or None
 
 
 def _collect_urls(payload: Any, *, urls: set[str]) -> None:
@@ -89,69 +129,16 @@ def _sample_refs(payload: Any) -> list[str]:
     return sorted(set(re.findall(r"sample_(\d+)", serialized)))
 
 
-# Claude helpers
-
-def claude_content_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    if payload.get("type") != "assistant":
-        return []
-    message = payload.get("message")
-    if not isinstance(message, dict):
-        return []
-    content = message.get("content")
-    if not isinstance(content, list):
-        return []
-    return [block for block in content if isinstance(block, dict)]
-
-
-
-def claude_tool_use_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        block
-        for block in claude_content_blocks(payload)
-        if block.get("type") == "tool_use"
-    ]
-
-
-
-def claude_tool_name(block: dict[str, Any]) -> str:
-    return str(block.get("name") or "").strip()
-
-
-
-def claude_tool_input(block: dict[str, Any]) -> dict[str, Any]:
-    value = block.get("input")
-    return value if isinstance(value, dict) else {}
-
-
-
-def claude_tool_command(block: dict[str, Any]) -> str | None:
-    tool_input = claude_tool_input(block)
-    for key in ("command", "cmd", "shell_command"):
-        value = tool_input.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-
-def claude_tool_path(block: dict[str, Any]) -> str | None:
-    tool_input = claude_tool_input(block)
-    for key in ("file_path", "path", "target_path"):
-        value = tool_input.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-
-def _text_excerpt(payload: Any) -> str | None:
-    fragments: list[str] = []
-    _collect_text_fragments(payload, fragments)
-    excerpt = " ".join(fragment.replace("\n", " ") for fragment in fragments).strip()
-    if len(excerpt) > 400:
-        excerpt = excerpt[:397] + "..."
-    return excerpt or None
-
+def _domains_from_payload(payload: Any) -> list[str]:
+    urls: set[str] = set()
+    _collect_urls(payload, urls=urls)
+    return sorted(
+        {
+            parsed.hostname
+            for parsed in (urlparse(url) for url in urls)
+            if parsed.hostname
+        }
+    )
 
 
 def _base_ir_event(
@@ -175,7 +162,7 @@ def _base_ir_event(
     parent_tool_use_id: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    event: dict[str, Any] = {
+    return {
         "line": line_number,
         "tool": tool,
         "kind": kind,
@@ -195,21 +182,57 @@ def _base_ir_event(
         "sample_refs": _sample_refs(payload),
         "metadata": metadata or {},
     }
-    return event
 
 
+# ---------------------------------------------------------------------------
+# Claude raw-trace helpers
+# ---------------------------------------------------------------------------
 
-def _claude_domains(payload: Any) -> list[str]:
-    urls: set[str] = set()
-    _collect_urls(payload, urls=urls)
-    return sorted(
-        {
-            parsed.hostname
-            for parsed in (urlparse(url) for url in urls)
-            if parsed.hostname
-        }
-    )
+def claude_content_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("type") != "assistant":
+        return []
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict)]
 
+
+def claude_tool_use_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        block
+        for block in claude_content_blocks(payload)
+        if block.get("type") == "tool_use"
+    ]
+
+
+def claude_tool_name(block: dict[str, Any]) -> str:
+    return str(block.get("name") or "").strip()
+
+
+def claude_tool_input(block: dict[str, Any]) -> dict[str, Any]:
+    value = block.get("input")
+    return value if isinstance(value, dict) else {}
+
+
+def claude_tool_command(block: dict[str, Any]) -> str | None:
+    tool_input = claude_tool_input(block)
+    for key in ("command", "cmd", "shell_command"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def claude_tool_path(block: dict[str, Any]) -> str | None:
+    tool_input = claude_tool_input(block)
+    for key in ("file_path", "path", "target_path"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _claude_ir_events(
@@ -281,7 +304,7 @@ def _claude_ir_events(
                         if isinstance(raw_queries, list)
                         else ([str(query)] if query else [])
                     )
-                    metadata["domains"] = _claude_domains(block)
+                    metadata["domains"] = _domains_from_payload(block)
                 elif tool_name_lower in {"task", "subagent", "agent"}:
                     kind = "subagent_spawn"
                     tool_input = claude_tool_input(block)
@@ -357,7 +380,9 @@ def _claude_ir_events(
     ]
 
 
-# Codex helpers
+# ---------------------------------------------------------------------------
+# Codex raw-trace parsing
+# ---------------------------------------------------------------------------
 
 def _codex_ir_events(
     line_number: int,
@@ -406,7 +431,7 @@ def _codex_ir_events(
                         query = action.get("query")
                 metadata["query"] = str(query) if query else None
                 metadata["queries"] = queries or ([str(query)] if query else [])
-                metadata["domains"] = _claude_domains(item)
+                metadata["domains"] = _domains_from_payload(item)
             elif item_type == "collab_tool_call":
                 tool_name = str(item.get("tool") or "").strip() or None
                 lowered = (tool_name or "").lower()
@@ -429,7 +454,7 @@ def _codex_ir_events(
                         if isinstance(raw_queries, list)
                         else ([str(query)] if query else [])
                     )
-                    metadata["domains"] = _claude_domains(item)
+                    metadata["domains"] = _domains_from_payload(item)
                 else:
                     kind = "tool_call"
             else:
@@ -477,21 +502,26 @@ def _codex_ir_events(
     ]
 
 
+# ---------------------------------------------------------------------------
+# Public entry points
+# ---------------------------------------------------------------------------
 
 def materialize_trace_ir(
     raw_event_entries: list[tuple[int, dict[str, Any]]],
     *,
     tool: str = "codex",
 ) -> list[dict[str, Any]]:
-    tool = normalize_tool_name(tool)
+    normalized_tool = normalize_tool_name(tool)
+    if normalized_tool not in {"codex", "claude"}:
+        raise ValueError(f"Unsupported trace tool: {tool!r}")
+
     ir_events: list[dict[str, Any]] = []
     for line_number, payload in raw_event_entries:
-        if tool == "claude":
+        if normalized_tool == "claude":
             ir_events.extend(_claude_ir_events(line_number, payload))
-        else:
+        elif normalized_tool == "codex":
             ir_events.extend(_codex_ir_events(line_number, payload))
     return ir_events
-
 
 
 def final_message_from_raw_events(
@@ -499,9 +529,12 @@ def final_message_from_raw_events(
     *,
     tool: str,
 ) -> str | None:
-    tool = normalize_tool_name(tool)
+    normalized_tool = normalize_tool_name(tool)
+    if normalized_tool not in {"codex", "claude"}:
+        raise ValueError(f"Unsupported trace tool: {tool!r}")
+
     final_text = None
-    if tool == "claude":
+    if normalized_tool == "claude":
         for payload in reversed(raw_events):
             if payload.get("type") != "assistant":
                 continue
@@ -513,7 +546,7 @@ def final_message_from_raw_events(
             final_text = "\n\n".join(fragment for fragment in fragments if fragment)
             if final_text:
                 break
-    else:
+    elif normalized_tool == "codex":
         for payload in reversed(raw_events):
             fragments: list[str] = []
             _collect_text_fragments(payload, fragments)

@@ -36,7 +36,7 @@ HELPER_SPECS = (
             "samples/best_result.json",
         ),
         summary_focus=(
-            "Return a compact summary covering correctness failures, compiler failures, runtime measurements, the current best sample, and the most likely next experiment."
+            "Return a compact summary covering correctness failures, compiler failures, runtime measurements, the current best sample, and the most likely next implementation branch."
         ),
     ),
     HelperAgentSpec(

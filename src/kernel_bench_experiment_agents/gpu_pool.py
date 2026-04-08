@@ -12,6 +12,9 @@ from typing import Iterator
 
 from .project import artifact_lock_path, gpu_lock_dir, now_iso
 
+GPU_LEASE_MAX_WAIT_SECONDS = 1800.0
+ARTIFACT_LEASE_MAX_WAIT_SECONDS = 1800.0
+
 
 @dataclass
 class GPULease:
@@ -152,13 +155,9 @@ def lease_problem_artifacts(
 
 
 def resolve_gpu_device_selectors(*, num_slots: int) -> tuple[list[str], str]:
-    explicit = os.environ.get("KBE_VISIBLE_GPU_DEVICES", "").strip()
     inherited = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
 
-    if explicit:
-        selectors = _parse_gpu_selector_list(explicit, env_name="KBE_VISIBLE_GPU_DEVICES")
-        source = "KBE_VISIBLE_GPU_DEVICES"
-    elif inherited:
+    if inherited:
         selectors = _parse_gpu_selector_list(inherited, env_name="CUDA_VISIBLE_DEVICES")
         source = "CUDA_VISIBLE_DEVICES"
     else:
@@ -175,8 +174,6 @@ def resolve_gpu_device_selectors(*, num_slots: int) -> tuple[list[str], str]:
 def isolated_gpu_environment(*, device_selector: str) -> dict[str, str]:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = device_selector
-    env["KBE_VISIBLE_GPU_DEVICES"] = device_selector
-    env["KBE_LEASED_GPU_SELECTOR"] = device_selector
     return env
 
 
@@ -208,39 +205,13 @@ def _try_lock(lock_path: Path, *, payload: dict[str, object]):
 def _gpu_lease_timeout_seconds(explicit: float | None) -> float | None:
     if explicit is not None:
         return explicit
-
-    raw_value = os.environ.get("KBE_GPU_LEASE_MAX_WAIT_SECONDS", "").strip()
-    if not raw_value:
-        return 1800.0
-
-    try:
-        parsed = float(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(
-            "KBE_GPU_LEASE_MAX_WAIT_SECONDS must be a positive number or 0 to disable the timeout."
-        ) from exc
-    if parsed <= 0:
-        return None
-    return parsed
+    return GPU_LEASE_MAX_WAIT_SECONDS
 
 
 def _artifact_lease_timeout_seconds(explicit: float | None) -> float | None:
     if explicit is not None:
         return explicit
-
-    raw_value = os.environ.get("KBE_ARTIFACT_LEASE_MAX_WAIT_SECONDS", "").strip()
-    if not raw_value:
-        return 1800.0
-
-    try:
-        parsed = float(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(
-            "KBE_ARTIFACT_LEASE_MAX_WAIT_SECONDS must be a positive number or 0 to disable the timeout."
-        ) from exc
-    if parsed <= 0:
-        return None
-    return parsed
+    return ARTIFACT_LEASE_MAX_WAIT_SECONDS
 
 
 def _read_lock_payload(lock_path: Path) -> dict[str, object] | None:

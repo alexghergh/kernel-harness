@@ -5,6 +5,14 @@ import io
 
 from .common import as_float
 
+# Nsight Compute references for the metric groups below:
+# - Profiling Guide: https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html
+# - CLI Reference / metric naming: https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html
+#
+# The summary intentionally stays small: achieved activity/occupancy, memory
+# throughput, occupancy limiters, and dominant warp stall reasons are usually a
+# better first-pass guide for the solver than dumping every exported metric.
+
 
 def summarize_ncu_raw_csv(raw_csv_text: str) -> str:
     rows = list(csv.DictReader(io.StringIO(raw_csv_text)))

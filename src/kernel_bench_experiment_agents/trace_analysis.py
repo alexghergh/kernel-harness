@@ -52,13 +52,16 @@ _FORBIDDEN_MONITORING_MARKERS = (
 _ALLOWED_CLAUDE_BASH_PREFIXES = tuple(_WORKSPACE_WRAPPER_NAMES)
 
 
-def trace_usage_summary(
-    raw_events: list[dict[str, Any]],
-    *,
-    tool: str = "codex",
-) -> dict[str, Any]:
-    tool = normalize_tool_name(tool)
-    summary = {
+# Usage accounting is tool-specific even though the returned shape is shared.
+#
+# Codex `--json` usage comes from `turn.completed` events. Claude stream-json may
+# report cumulative usage in final `result` events, or per-message usage in
+# assistant messages. Keep the two extraction paths separate instead of relying
+# on a single mixed fallthrough parser.
+
+
+def _empty_usage_summary() -> dict[str, Any]:
+    return {
         "turns_completed": 0,
         "input_tokens": 0,
         "cached_input_tokens": 0,
@@ -67,52 +70,30 @@ def trace_usage_summary(
         "uncached_input_tokens": 0,
     }
 
-    if tool == "claude":
-        def claude_usage_summary_from_result(payload: dict[str, Any]) -> dict[str, int] | None:
-            turns_completed = int(as_float(payload.get("num_turns")) or 0)
 
-            model_usage = payload.get("modelUsage")
-            if isinstance(model_usage, dict):
-                model_usage_blocks = [
-                    value for value in model_usage.values() if isinstance(value, dict)
-                ]
-                if model_usage_blocks:
-                    direct_input_tokens = 0
-                    cache_creation_input_tokens = 0
-                    cache_read_input_tokens = 0
-                    output_tokens = 0
-                    for block in model_usage_blocks:
-                        direct_input_tokens += int(as_float(block.get("inputTokens")) or 0)
-                        cache_creation_input_tokens += int(
-                            as_float(block.get("cacheCreationInputTokens")) or 0
-                        )
-                        cache_read_input_tokens += int(
-                            as_float(block.get("cacheReadInputTokens")) or 0
-                        )
-                        output_tokens += int(as_float(block.get("outputTokens")) or 0)
+def _claude_result_usage_summary(payload: dict[str, Any]) -> dict[str, int] | None:
+    turns_completed = int(as_float(payload.get("num_turns")) or 0)
 
-                    uncached_input_tokens = direct_input_tokens + cache_creation_input_tokens
-                    return {
-                        "turns_completed": turns_completed,
-                        "input_tokens": cache_read_input_tokens + uncached_input_tokens,
-                        "cached_input_tokens": cache_read_input_tokens,
-                        "cache_creation_input_tokens": cache_creation_input_tokens,
-                        "output_tokens": output_tokens,
-                        "uncached_input_tokens": uncached_input_tokens,
-                    }
+    model_usage = payload.get("modelUsage")
+    if isinstance(model_usage, dict):
+        model_usage_blocks = [
+            value for value in model_usage.values() if isinstance(value, dict)
+        ]
+        if model_usage_blocks:
+            direct_input_tokens = 0
+            cache_creation_input_tokens = 0
+            cache_read_input_tokens = 0
+            output_tokens = 0
+            for block in model_usage_blocks:
+                direct_input_tokens += int(as_float(block.get("inputTokens")) or 0)
+                cache_creation_input_tokens += int(
+                    as_float(block.get("cacheCreationInputTokens")) or 0
+                )
+                cache_read_input_tokens += int(
+                    as_float(block.get("cacheReadInputTokens")) or 0
+                )
+                output_tokens += int(as_float(block.get("outputTokens")) or 0)
 
-            usage = payload.get("usage")
-            if not isinstance(usage, dict):
-                return None
-
-            direct_input_tokens = int(as_float(usage.get("input_tokens")) or 0)
-            cache_creation_input_tokens = int(
-                as_float(usage.get("cache_creation_input_tokens")) or 0
-            )
-            cache_read_input_tokens = int(
-                as_float(usage.get("cache_read_input_tokens")) or 0
-            )
-            output_tokens = int(as_float(usage.get("output_tokens")) or 0)
             uncached_input_tokens = direct_input_tokens + cache_creation_input_tokens
             return {
                 "turns_completed": turns_completed,
@@ -123,63 +104,92 @@ def trace_usage_summary(
                 "uncached_input_tokens": uncached_input_tokens,
             }
 
-        result_candidates: list[dict[str, int]] = []
-        for payload in raw_events:
-            if payload.get("type") != "result":
-                continue
-            usage_summary = claude_usage_summary_from_result(payload)
-            if usage_summary is not None:
-                result_candidates.append(usage_summary)
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
 
-        if result_candidates:
-            max_turns_completed = max(
-                candidate["turns_completed"] for candidate in result_candidates
-            )
-            summary = max(
-                result_candidates,
-                key=lambda candidate: (
-                    candidate["input_tokens"] + candidate["output_tokens"],
-                    candidate["turns_completed"],
-                ),
-            )
-            summary["turns_completed"] = max_turns_completed or summary["turns_completed"] or 1
-            return summary
+    direct_input_tokens = int(as_float(usage.get("input_tokens")) or 0)
+    cache_creation_input_tokens = int(
+        as_float(usage.get("cache_creation_input_tokens")) or 0
+    )
+    cache_read_input_tokens = int(
+        as_float(usage.get("cache_read_input_tokens")) or 0
+    )
+    output_tokens = int(as_float(usage.get("output_tokens")) or 0)
+    uncached_input_tokens = direct_input_tokens + cache_creation_input_tokens
+    return {
+        "turns_completed": turns_completed,
+        "input_tokens": cache_read_input_tokens + uncached_input_tokens,
+        "cached_input_tokens": cache_read_input_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "output_tokens": output_tokens,
+        "uncached_input_tokens": uncached_input_tokens,
+    }
 
-        seen_assistant_message_ids: set[str] = set()
-        for payload in raw_events:
-            if payload.get("type") != "assistant":
-                continue
-            message = payload.get("message")
-            if not isinstance(message, dict):
-                continue
-            message_id = message.get("id")
-            if isinstance(message_id, str) and message_id:
-                if message_id in seen_assistant_message_ids:
-                    continue
-                seen_assistant_message_ids.add(message_id)
-            usage = message.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            direct_input_tokens = int(as_float(usage.get("input_tokens")) or 0)
-            cache_creation_input_tokens = int(
-                as_float(usage.get("cache_creation_input_tokens")) or 0
-            )
-            cache_read_input_tokens = int(
-                as_float(usage.get("cache_read_input_tokens")) or 0
-            )
-            summary["turns_completed"] += 1
-            summary["cached_input_tokens"] += cache_read_input_tokens
-            summary["cache_creation_input_tokens"] += cache_creation_input_tokens
-            summary["uncached_input_tokens"] += (
-                direct_input_tokens + cache_creation_input_tokens
-            )
-            summary["output_tokens"] += int(as_float(usage.get("output_tokens")) or 0)
 
-        summary["input_tokens"] = (
-            summary["cached_input_tokens"] + summary["uncached_input_tokens"]
+def _claude_trace_usage_summary(raw_events: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _empty_usage_summary()
+
+    result_candidates: list[dict[str, int]] = []
+    for payload in raw_events:
+        if payload.get("type") != "result":
+            continue
+        usage_summary = _claude_result_usage_summary(payload)
+        if usage_summary is not None:
+            result_candidates.append(usage_summary)
+
+    if result_candidates:
+        max_turns_completed = max(
+            candidate["turns_completed"] for candidate in result_candidates
         )
+        summary = max(
+            result_candidates,
+            key=lambda candidate: (
+                candidate["input_tokens"] + candidate["output_tokens"],
+                candidate["turns_completed"],
+            ),
+        )
+        summary["turns_completed"] = max_turns_completed or summary["turns_completed"] or 1
         return summary
 
+    seen_assistant_message_ids: set[str] = set()
+    for payload in raw_events:
+        if payload.get("type") != "assistant":
+            continue
+        message = payload.get("message")
+        if not isinstance(message, dict):
+            continue
+        message_id = message.get("id")
+        if isinstance(message_id, str) and message_id:
+            if message_id in seen_assistant_message_ids:
+                continue
+            seen_assistant_message_ids.add(message_id)
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        direct_input_tokens = int(as_float(usage.get("input_tokens")) or 0)
+        cache_creation_input_tokens = int(
+            as_float(usage.get("cache_creation_input_tokens")) or 0
+        )
+        cache_read_input_tokens = int(
+            as_float(usage.get("cache_read_input_tokens")) or 0
+        )
+        summary["turns_completed"] += 1
+        summary["cached_input_tokens"] += cache_read_input_tokens
+        summary["cache_creation_input_tokens"] += cache_creation_input_tokens
+        summary["uncached_input_tokens"] += (
+            direct_input_tokens + cache_creation_input_tokens
+        )
+        summary["output_tokens"] += int(as_float(usage.get("output_tokens")) or 0)
+
+    summary["input_tokens"] = (
+        summary["cached_input_tokens"] + summary["uncached_input_tokens"]
+    )
+    return summary
+
+
+def _codex_trace_usage_summary(raw_events: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _empty_usage_summary()
     for payload in raw_events:
         if payload.get("type") != "turn.completed":
             continue
@@ -200,16 +210,20 @@ def trace_usage_summary(
     return summary
 
 
-
-def trace_cost_usd(
+def trace_usage_summary(
     raw_events: list[dict[str, Any]],
     *,
     tool: str = "codex",
-) -> float | None:
-    tool = normalize_tool_name(tool)
-    if tool != "claude":
-        return None
+) -> dict[str, Any]:
+    normalized_tool = normalize_tool_name(tool)
+    if normalized_tool == "claude":
+        return _claude_trace_usage_summary(raw_events)
+    if normalized_tool == "codex":
+        return _codex_trace_usage_summary(raw_events)
+    raise ValueError(f"Unsupported trace tool: {tool!r}")
 
+
+def _claude_trace_cost_usd(raw_events: list[dict[str, Any]]) -> float | None:
     max_cost = None
     for payload in raw_events:
         if payload.get("type") != "result":
@@ -239,6 +253,18 @@ def trace_cost_usd(
 
     return max_cost
 
+
+def trace_cost_usd(
+    raw_events: list[dict[str, Any]],
+    *,
+    tool: str = "codex",
+) -> float | None:
+    normalized_tool = normalize_tool_name(tool)
+    if normalized_tool == "claude":
+        return _claude_trace_cost_usd(raw_events)
+    if normalized_tool == "codex":
+        return None
+    raise ValueError(f"Unsupported trace tool: {tool!r}")
 
 
 def _empty_trace_counts() -> dict[str, Any]:
@@ -427,7 +453,6 @@ def _allowed_workspace_read_paths(workspace: Path) -> set[Path]:
         (workspace / "workspace_contract.json").resolve(),
         (workspace / "problem.json").resolve(),
         (workspace / "problem_reference.py").resolve(),
-        (workspace / "baseline.json").resolve(),
         (workspace / CANDIDATE_FILENAME).resolve(),
     }
 

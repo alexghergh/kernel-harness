@@ -22,6 +22,7 @@ This harness assumes:
 - KernelBench is already installed and working in the **currently active** Python environment
 - the active environment is the one you want this harness to use
 - the KernelBench timing files already exist for your hardware
+- if your timing results live outside the default KernelBench timing tree, set `KERNELBENCH_TIMINGS_DIR` when launching runs
 
 Once that environment is active, install this harness into it from this repo:
 
@@ -115,6 +116,15 @@ sbatch \
   ./scripts/run_agent_problem.slurm.sh
 ```
 
+
+### Summarize one archived run
+
+```bash
+kbharness summarize-run --run-name kernelbench-codex-h100-v3
+```
+
+This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`.
+
 ## Operator knobs you will actually use
 
 These are the main variables worth changing:
@@ -129,6 +139,7 @@ These are the main variables worth changing:
 - `TIME_BUDGET_MINUTES=...`
 - `KERNELBENCH_ROOT=/path/to/KernelBench`
 - `HARDWARE_NAME=H100`
+- `KERNELBENCH_TIMINGS_DIR=/path/to/results/timing/<hardware>` when you need a non-default timings location
 - inherited `CUDA_VISIBLE_DEVICES` when you want to pin visible GPUs from the scheduler or shell
 
 ## Where to look after a run

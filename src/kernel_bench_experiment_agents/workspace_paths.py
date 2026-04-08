@@ -21,7 +21,13 @@ def load_workspace_metadata(workspace: Path) -> dict[str, Any]:
 
 
 def load_workspace_baseline(workspace: Path) -> dict[str, Any]:
-    return read_json_file(workspace / "baseline.json")
+    problem = read_json_file(workspace / "problem.json")
+    baseline_runtime_ms = problem.get("baseline_runtime_ms") if isinstance(problem, dict) else None
+    baseline_runtime_ms = baseline_runtime_ms if isinstance(baseline_runtime_ms, dict) else {}
+    return {
+        "eager": {"runtime_ms": baseline_runtime_ms.get("eager")},
+        "compile": {"runtime_ms": baseline_runtime_ms.get("compile")},
+    }
 
 
 def validate_workspace_assignment(
