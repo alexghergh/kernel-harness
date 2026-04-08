@@ -23,10 +23,10 @@ def run_subprocess_capture(
     )
 
 
-def excerpt(text: str, *, limit: int = 8000) -> str:
+def excerpt(text: str, *, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
-    return "[truncated]... \n" + text[-limit:]
+    return text[:limit] + "\n...[truncated]"
 
 
 def load_json_object(path: Path) -> dict[str, Any]:

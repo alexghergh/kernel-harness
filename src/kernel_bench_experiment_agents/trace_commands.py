@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .agent_specs import write_workspace_helper_agent_specs
 from .common import emit_json, normalize_tool_name
 from .completion_policy import (
     annotate_completion_outcomes,
@@ -15,22 +14,6 @@ from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usa
 from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
 from .workspace_paths import read_json_file
 
-
-def command_sync_helper_agent_specs(args: argparse.Namespace) -> None:
-    workspace = Path(args.workspace).expanduser().resolve()
-    archive_contract_dir = (
-        Path(args.archive_contract_dir).expanduser().resolve()
-        if args.archive_contract_dir
-        else None
-    )
-    written = [
-        str(path)
-        for path in write_workspace_helper_agent_specs(
-            workspace=workspace,
-            archive_contract_dir=archive_contract_dir,
-        )
-    ]
-    emit_json({"written": written, "workspace": str(workspace)})
 
 
 def write_final_message(

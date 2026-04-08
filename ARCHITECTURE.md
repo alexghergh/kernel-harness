@@ -230,6 +230,8 @@ The harness computes the measured outcome from archived attempts:
 
 This keeps measured state inside the harness instead of duplicating it in the solver.
 
+Launcher script exit codes are intentionally narrower than measured outcomes: a valid archived run returns success from `run_agent_problem.sh` even if it did not beat the baselines. Non-zero launcher exits are reserved for harness or launcher failures such as `harness_failure` or `failed_to_generate`.
+
 ## Goal status and the budget watcher
 
 `goal_status.json` and `GOAL_STATUS.md` are live status views.

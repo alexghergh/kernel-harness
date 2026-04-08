@@ -384,12 +384,23 @@ import os
 payload = json.loads(open(os.environ["COMPLETION_PATH"], "r", encoding="utf-8").read())
 print(payload.get("terminal_state", ""))
 print("true" if payload.get("success") else "false")
+print(payload.get("measured_outcome", ""))
 PY
 )
 TERMINAL_STATE="${COMPLETION_STATE[0]:-}"
 SUCCESS="${COMPLETION_STATE[1]:-false}"
+MEASURED_OUTCOME="${COMPLETION_STATE[2]:-}"
 
-echo "Completion state: ${TERMINAL_STATE}" >&2
-if [[ "${SUCCESS}" != "true" || "${AGENT_EXIT}" -ne 0 ]]; then
-  exit 1
-fi
+echo "Completion state: ${TERMINAL_STATE} (measured_outcome=${MEASURED_OUTCOME}, success=${SUCCESS})" >&2
+case "${TERMINAL_STATE}" in
+  harness_failure|failed_to_generate)
+    exit 1
+    ;;
+  done|budget_exhausted)
+    exit 0
+    ;;
+  *)
+    echo "Unexpected terminal state: ${TERMINAL_STATE}" >&2
+    exit 1
+    ;;
+esac

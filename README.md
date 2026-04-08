@@ -142,6 +142,10 @@ These are the main variables worth changing:
 - `KERNELBENCH_TIMINGS_DIR=/path/to/results/timing/<hardware>` when you need a non-default timings location
 - inherited `CUDA_VISIBLE_DEVICES` when you want to pin visible GPUs from the scheduler or shell
 
+## Launcher exit semantics
+
+`./scripts/run_agent_problem.sh` exits `0` for any valid archived run, even if the solver did **not** beat the baselines. It exits non-zero only for harness or launcher failures such as `harness_failure` or `failed_to_generate`. Use `completion.json`, `goal_status.json`, or `kbharness summarize-run` to judge optimization success.
+
 ## Where to look after a run
 
 The only durable copy-out root is:

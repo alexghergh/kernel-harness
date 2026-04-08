@@ -94,6 +94,6 @@ while (( active_jobs > 0 )); do
 done
 
 if (( failures > 0 )); then
-  echo "${failures} problem runs finished with non-success terminal status or launcher failure." >&2
+  echo "${failures} problem runs ended with harness or launcher failure. Valid but unsolved runs do not count as failures here." >&2
   exit 1
 fi

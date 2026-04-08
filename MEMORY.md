@@ -12,6 +12,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 - keep `archive/` as the only durable copy-out root; keep `state/` disposable
 - prefer simple archive artifacts over append-only ledgers when one manifest per attempt/profile is enough
 - keep `summarize-run` for now as the archive-only aggregate view
+- treat launcher exit codes as run-validity signals, not as optimization-success signals
 
 ## Locked decisions
 
@@ -21,6 +22,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 - solver terminal states stay narrow: `done`, `harness_failure`
 - root maintainer docs and workspace solver docs are different audiences even when filenames match
 - the active KernelBench environment is the source of truth; this repo should install into that environment rather than managing a separate Python path
+- valid archived runs may finish without beating baselines; that should not be reported as a launcher failure
 
 ## Important reminders
 
@@ -28,6 +30,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 - do not try to solve that purely with harness logic; later either tighten the sandbox or add narrowly targeted audits
 - sandbox validation, billing/timeout trace handling, and real cluster trace review still need a follow-up pass after live runs
 - ask for live Codex and Claude traces after the next cluster runs so trace parsing and failure handling can be hardened against real payloads
+- keep the current cleanup state in sync with the real uploaded git history before reviewing traces
 
 ## Next steps
 
