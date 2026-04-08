@@ -8,7 +8,7 @@ from typing import Any
 from .archive_layout import sample_manifest_path
 from .candidate_contract import CANDIDATE_FILENAME
 from .candidate_validation import CandidateValidationError, validate_candidate_source
-from .common import emit_json
+from .common import as_float, emit_json
 from .goal_status import write_goal_status_files
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .project import (
@@ -23,6 +23,7 @@ from .project import (
 )
 from .subprocess_tools import excerpt, load_json_object, run_subprocess_capture, serialize_exception
 from .workspace_paths import (
+    load_workspace_metadata,
     validate_workspace_assignment,
     workspace_candidate_path,
     workspace_path,
@@ -35,6 +36,24 @@ def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None)
     if workspace is not None:
         return workspace_relpath(candidate_path, workspace)
     return candidate_path.name
+
+
+def _ref_runtime_warnings(result: dict[str, Any], workspace: Path | None) -> list[str]:
+    if workspace is None:
+        return []
+    metadata = load_workspace_metadata(workspace)
+    baseline_runtime_ms = metadata.get("baseline_runtime_ms") if isinstance(metadata, dict) else None
+    baseline_runtime_ms = baseline_runtime_ms if isinstance(baseline_runtime_ms, dict) else {}
+    eager_baseline = as_float(baseline_runtime_ms.get("eager"))
+    ref_runtime = as_float(result.get("ref_runtime"))
+    if eager_baseline is None or ref_runtime is None or eager_baseline <= 0:
+        return []
+    relative_delta = abs(ref_runtime - eager_baseline) / eager_baseline
+    if relative_delta <= 0.15:
+        return []
+    return [
+        f"KernelBench reported ref_runtime={ref_runtime} ms but the archived eager baseline is {eager_baseline} ms; relative delta {relative_delta:.1%}. Review this problem manually before trusting the baseline comparison."
+    ]
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
@@ -107,6 +126,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "gpu_selector_source": None,
                 "gpu_wait_seconds": None,
                 "result": {},
+                "warnings": [],
                 "error": None,
             }
 
@@ -189,6 +209,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["status"] = "succeeded"
         payload["updated_at"] = now_iso()
         payload["result"] = result
+        payload["warnings"] = _ref_runtime_warnings(result, workspace)
     except Exception as exc:
         failure = exc
         if payload is None or sample_id is None or sample_json_path is None:
