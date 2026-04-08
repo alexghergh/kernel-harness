@@ -1,125 +1,190 @@
 # Architecture
 
-This file describes the current harness contract, not historical behavior.
+This document describes the current system contract for the KernelBench harness.
 
-## Audiences
+## Scope
 
-There are two distinct documentation surfaces:
+The harness runs one autonomous coding agent on one KernelBench optimization problem at a time, records the run, and stores the durable result under `archive/`.
 
-- root docs in this repository root for maintainers and operators
-- generated docs inside each solver workspace for the solver agent
+The harness is responsible for:
 
-Root `AGENTS.md` is for maintainers. Workspace `AGENTS.md` is for the solver. The same filename does not imply the same audience.
+- preparing a fresh workspace
+- rendering the solver-facing contract into that workspace
+- launching Codex or Claude in that workspace
+- exposing a narrow local wrapper surface for timing, profiling, status refresh, and completion
+- recording attempts, traces, status, completion, and profiler outputs
+- aggregating archived results through `summarize-run`
 
-## System model
+The harness is **not** responsible for installing KernelBench itself. KernelBench setup belongs to the official KernelBench repository and the active environment you choose to run this harness in.
 
-A run is keyed by:
+## Documentation audiences
+
+There are two documentation surfaces.
+
+Root docs are for maintainers and operators:
+
+- `README.md`
+- `ARCHITECTURE.md`
+- `AGENTS.md`
+- `MEMORY.md`
+
+Generated workspace docs are for the solver agent:
+
+- `AGENTS.md`
+- `SPEC.md`
+- `HARDWARE.md`
+- `GOAL_STATUS.md`
+
+The same filename does not imply the same audience.
+
+## High-level flow
+
+For one `(run_name, level, problem_id)` tuple, the harness does this:
+
+1. resolves the problem and baseline information from the KernelBench checkout
+2. prepares a fresh self-contained workspace
+3. renders solver-facing docs, helper-agent definitions, and wrapper scripts into that workspace
+4. launches Codex or Claude inside the workspace
+5. lets the solver iterate through wrapper commands
+6. records attempts, traces, completion state, and optional profiles
+7. writes the durable record under `archive/<run_name>/level_<level>/problem_<problem_id>/`
+
+The solver does not decide measured outcomes. The harness decides, from recorded attempts, whether the best correct solution beat eager PyTorch, `torch.compile`, both, or neither.
+
+## Durable vs disposable state
+
+### Durable: `archive/`
+
+`archive/` is the only directory you should copy out for post-run analysis.
+
+Per problem, the durable record is:
 
 ```text
-(run_name, level, problem_id)
+archive/<run_name>/level_<level>/problem_<problem_id>/
+  archive_manifest.json
+  contract/
+  agent/
+  attempts/
+  profiles/
 ```
 
-For one such key, the harness performs this loop:
+### Disposable: `state/`
 
-1. prepare a fresh workspace
-2. render the solver contract into that workspace
-3. launch the agent tool (Codex or Claude) inside that workspace
-4. let the solver iterate through wrapper commands only
-5. record attempts, traces, and optional profiler outputs
-6. archive the durable record under `archive/<run_name>/...`
-
-## Canonical durable state
-
-The canonical durable root is:
-
-```text
-archive/
-```
-
-Everything worth copying out after a run lives there.
-
-Per problem, the archive is split into:
-
-- `archive_manifest.json` — machine-readable map of the canonical archive contents
-- `contract/` — what the solver saw, including the initial candidate scaffold and any captured final candidate
-- `agent/` — raw and normalized agent outputs
-- `attempts/` — measured candidate attempts
-- `profiles/` — profiler outputs
-
-`archive/` is the source of truth for post-run analysis.
-
-## Disposable runtime state
-
-Live mutable state is kept under:
-
-```text
-state/
-```
-
-This includes:
+`state/` contains live mutable runtime data only:
 
 - `state/workspaces/`
 - `state/agent_home/`
 - `state/build/`
 - `state/locks/`
 
-The harness may delete and recreate these paths freely. They are not archival.
+It is safe to delete `state/` only when no run is active.
 
-## Workspace boundary
+## Archive contents
 
-The solver workspace is intended to be self-contained.
+### `archive_manifest.json`
 
-The solver-visible surface is:
+Machine-readable description of the problem archive. It explains what is canonical, what is mirrored into the live workspace, and what should be copied out.
 
-- generated docs
-- `candidate_model_new.py`
+### `contract/`
+
+The exact problem contract shown to the solver, plus frozen structured metadata.
+
+Important files:
+
+- `AGENTS.md` — solver instructions and boundaries
+- `SPEC.md` — problem goal and success criteria
+- `HARDWARE.md` — human-readable hardware facts and guidance
+- `INITIAL_PROMPT.md` — the exact initial launch prompt
+- `problem_reference.py` — local copy of the reference PyTorch problem code
+- `candidate_model_new.py` — initial solver scaffold shown at workspace creation
+- `candidate_final.py` — final captured candidate when completion exists
+- `problem.json` — machine-readable problem metadata, baselines, budget, and run identifiers
+- `hardware.json` — machine-readable hardware facts
+- `workspace_contract.json` — machine-readable solver contract
+- `provenance.json` — archive-only outward provenance for the source KernelBench checkout and timing files
+- `helper_agents/` — generated tool-specific helper-agent definitions archived for inspection
+
+The live workspace should not expose outward filesystem paths. That information belongs only in archive-only provenance.
+
+### `agent/`
+
+The agent-side run record.
+
+Important files:
+
+- `events.jsonl` — raw streamed output from the agent CLI
+- `trace_ir.json` — normalized, mostly-lossless trace representation used by the harness
+- `completion.json` — terminal state plus measured outcome and trace-derived metadata
+- `goal_status.json` — archived final goal-status snapshot for where the solver ended
+- `final_message.txt` — the last assistant-visible model message, when one is available
+
+`final_message.txt` is intentionally a convenience artifact. It gives a quick human summary without having to scan the full event stream.
+
+### `attempts/`
+
+Measured evaluation results for submitted candidates.
+
+Important files:
+
+- `sample_<id>.json` — one measured attempt record with correctness/runtime/build outcome and archive-relative file references
+- `sample_<id>.stdout.txt` — evaluation subprocess stdout for that attempt
+- `sample_<id>.stderr.txt` — evaluation subprocess stderr for that attempt
+- `kernels/level_<level>_problem_<problem_id>_sample_<id>_kernel.py` — archived candidate source measured for that attempt
+
+The harness prefers one manifest per attempt over a second append-only ledger when the manifest already carries the needed data.
+
+### `profiles/`
+
+Nsight Compute profiling artifacts.
+
+Important files:
+
+- `<profile-name>.json` — one profile manifest with attempt linkage and archive-relative file references
+- `<profile-name>.summary.txt` — short solver-facing summary of the selected metrics
+- `<profile-name>.details.txt` — fuller textual profiler output
+- `<profile-name>.stdout.txt` — profiler command stdout
+- `<profile-name>.stderr.txt` — profiler command stderr
+
+The harness keeps text-first profiler outputs. It does not archive `.ncu-rep` files.
+
+## Workspace surface
+
+Each solver workspace is fresh, self-contained, and intentionally small.
+
+Solver-visible files:
+
+- `AGENTS.md`
+- `SPEC.md`
+- `HARDWARE.md`
+- `GOAL_STATUS.md`
+- `goal_status.json`
+- `hardware.json`
+- `workspace_contract.json`
 - `problem_reference.py`
+- `candidate_model_new.py`
 - `samples/`
 - `profiles/`
 - `bin/*.sh`
 
-The solver should not need to know anything about the surrounding KernelBench checkout. No external filesystem paths should be required to solve the problem. The only archive-only provenance that still points outward lives under `archive/.../contract/provenance.json`, not in the live workspace.
+Workspace-local `samples/` and `profiles/` are mirrors for solver convenience. They are not the durable source of truth.
 
-The `samples/` and `profiles/` directories inside the workspace are local mirrors for the solver. The durable source of truth remains the corresponding paths under `archive/`.
+## Canonical JSON vs rendered Markdown
 
-Prepared workspaces also contain generated helper-agent definitions under `.codex/agents/` and `.claude/agents/`. Those files are runtime assets for Codex/Claude subagent routing; they are rendered from one canonical source and archived under `contract/helper_agents/` with the problem contract.
-
-## Canonical structured state
-
-Where the same information appears in JSON and Markdown, the JSON form is the structured source of truth and the Markdown form is a rendered solver-facing view.
+Where both JSON and Markdown exist, the JSON form is the canonical structured source and the Markdown form is a rendered solver-facing view.
 
 Examples:
 
-- `workspace_contract.json` drives workspace `AGENTS.md` and the initial prompt
-- `hardware.json` and `HARDWARE.md` are rendered from the same hardware payload
-- `goal_status.json` is the measured status snapshot and `GOAL_STATUS.md` is its readable view
+- `workspace_contract.json` renders workspace `AGENTS.md` and `INITIAL_PROMPT.md`
+- `hardware.json` renders `HARDWARE.md`
+- `goal_status.json` renders `GOAL_STATUS.md`
 
-The intended rule is simple: do not hand-edit both forms. Change the generator or the source payload instead.
-
-## Tool/runtime isolation
-
-### Codex
-
-The launcher gives each problem its own runtime `CODEX_HOME` under `state/agent_home/...` and patches the copied Codex config so project discovery stops at the workspace instead of walking up to the repo root.
-
-### Claude
-
-The launcher copies project-level Claude settings into the workspace and gives each problem its own isolated `CLAUDE_CONFIG_DIR` under `state/agent_home/...`.
-
-### Important boundary note
-
-The harness contract assumes the external sandbox is the real enforcement layer.
-
-The harness itself still provides two weaker layers on top of that:
-
-- fixed workspace wrapper commands
-- trace audit that checks obvious contract violations after the fact
-
-Trace audit is useful during bring-up and regression testing, but it is **not** a replacement for a real sandbox.
+This is intentional, not independent duplicated documentation.
 
 ## Wrapper command surface
 
-The workspace contract currently exposes exactly these wrapper commands:
+The solver is supposed to work through generated wrapper commands, not ad hoc shell workflows.
+
+The workspace wrapper surface is:
 
 - `./bin/hardware_info.sh`
 - `./bin/run_candidate.sh`
@@ -128,43 +193,34 @@ The workspace contract currently exposes exactly these wrapper commands:
 - `./bin/best_result.sh`
 - `./bin/complete_problem.sh`
 
-The solver should not use ad hoc shell commands to benchmark, profile, inspect hardware, or terminate the run.
+Semantics:
 
-Every wrapper other than `./bin/complete_problem.sh` is a fixed command with no solver-supplied control flags.
+- `run_candidate.sh` is the only supported measured-evaluation path
+- `profile_ncu.sh` is the only supported profiling path
+- `goal_status.sh` refreshes live status explicitly
+- `complete_problem.sh` is the only valid termination path
 
-`./bin/complete_problem.sh` accepts only:
+All wrappers except `complete_problem.sh` are fixed commands with no solver-supplied control flags.
+
+`complete_problem.sh` accepts only:
 
 - `--state done`
 - `--state harness_failure`
 - `--summary "..."`
 
-It rejects any other flags or terminal states before calling the harness CLI.
+## Completion model
 
-## Hardware surface
-
-Hardware facts are frozen into:
-
-- `HARDWARE.md`
-- `hardware.json`
-- `./bin/hardware_info.sh`
-
-The intended model is that the solver reads these files rather than probing the machine through `nvidia-smi`, `/proc`, `/etc`, or one-off scripts. The harness treats this as part of the workspace contract: hardware access should flow through frozen workspace facts, not ambient host inspection.
-
-## Completion ownership
-
-The solver does not declare measured performance outcomes.
-
-Solver-written terminal states are narrow:
+Solver-written terminal states are intentionally narrow:
 
 - `done`
 - `harness_failure`
 
-Launcher-only terminal states are:
+Launcher-owned terminal states are:
 
 - `budget_exhausted`
 - `failed_to_generate`
 
-The harness computes the measured outcome from recorded attempts and goal status:
+The harness computes the measured outcome from archived attempts:
 
 - `beats_both`
 - `beats_eager_only`
@@ -172,85 +228,76 @@ The harness computes the measured outcome from recorded attempts and goal status
 - `beats_none`
 - `no_correct_candidate`
 
-This keeps measured state inside the harness instead of duplicating it in the solver. `done` is a truthful solver stop signal, not a promise that the baselines were beaten.
+This keeps measured state inside the harness instead of duplicating it in the solver.
 
-## Goal status
+## Goal status and the budget watcher
 
-`GOAL_STATUS.md` and `goal_status.json` are live, harness-generated status views.
+`goal_status.json` and `GOAL_STATUS.md` are live status views.
 
-They are derived from:
+They are refreshed:
 
-- attempt history
-- baseline files
-- profiler activity
-- solver trace counts
-- wall time since workspace creation minus recorded GPU-wait time
+- when wrapper commands update state
+- by the launcher budget watcher while the solver is running
 
-The solver should re-read goal status after evaluation, after profiling, and before terminating. The rendered status text also reinforces the autonomy contract: keep working, do not ask for confirmation, and make the next plan yourself when unresolved.
+The watcher runs periodically so the remaining-time view does not depend only on wrapper usage. Tool calls still trigger immediate corrections after measured work such as timing or profiling.
 
-## Attempts and measured evaluation
+The budget clock is wall time since workspace creation minus recorded GPU wait time.
 
-Every measured attempt goes through `./bin/run_candidate.sh`.
+## Runtime policy and sandbox boundary
 
-That command:
+The runtime policy should be semantically the same for Codex and Claude, rendered into each tool's native settings surface.
 
-- validates the candidate source
-- reserves a per-problem sample id
-- snapshots the candidate into `archive/.../attempts/kernels/`
-- evaluates correctness and runtime in an isolated subprocess bound to one leased GPU selector
-- archives the evaluation subprocess stdout/stderr for that sample
-- appends to `attempts/history.jsonl`
-- refreshes goal status using the corrected wall-clock budget view
+Intended policy:
 
-## Profiling
+- workspace-only writes
+- workspace-only intended reads
+- documentation web access only to `docs.nvidia.com`
+- no ad hoc shell networking
+- no host probing
+- helper agents allowed
+- autonomous work, no approval-seeking
 
-`./bin/profile_ncu.sh` is the supported profiling path.
+Important boundary note:
 
-The profiler flow:
+The external sandbox is the real enforcement layer. The harness itself adds two softer layers:
 
-- reserves a per-problem profile id
-- leases one GPU selector and binds profiling to that isolated visible-device set
-- runs Nsight Compute under the harness
-- exports summary/details/raw CSV text outputs
-- writes archive metadata under `profiles/`
-- mirrors the latest text outputs into the live workspace under the per-problem state lock
-- refreshes goal status afterward
+- fixed wrapper commands and generated local docs
+- trace audit as a bring-up/regression check
 
-The text and CSV exports are the first-class solver-facing profiling surface. The raw `.ncu-rep` file is optional debug retention only.
+Trace audit is useful, but it is not the long-term security boundary.
 
-## Trace handling and audit
+## Codex vs Claude restrictions
 
-The launcher records raw CLI output to `agent/events.jsonl`.
+The policy target is the same, but the settings surfaces are not identical.
 
-A later materialization step produces `agent/trace_ir.json` and updates `completion.json` with:
+- Codex provides sandbox mode, network control for sandboxed commands, project-root detection controls, MCP support, and rules for command prefixes.
+- Claude provides sandbox settings, explicit filesystem/network permission rules, project/local settings scopes, and MCP support.
 
-- token usage totals when available
-- cost totals when available
-- trace counts
-- web-search summary
-- audit result
+That is why the goal is semantic parity, not literal file parity.
 
-Trace audit currently validates the solver session against the declared workspace contract, including wrapper-command usage and obvious out-of-scope file edits. If audit invalidates a run, the final terminal state is rewritten to `harness_failure` while preserving the originally reported state separately.
+## KernelBench integration surface
 
-If the external sandbox later becomes fully trusted, this audit can be reduced to diagnostics rather than treated as part of run validity.
+The harness relies on a narrow KernelBench integration surface:
+
+- load the reference problem code
+- evaluate a candidate for correctness/runtime
+- run the profiler path against the problem inputs/model
+- read the standard eager and `torch.compile` timing JSONs for the selected hardware
+
+The harness should ignore any alternate reference runtime fields returned by KernelBench evaluation for decision-making. The source of truth for baseline targets is the archived baseline information already resolved into the workspace and archive.
 
 ## Lock model
 
 The harness uses three lock classes:
 
-- `state/locks/solver/` — one active top-level solver per problem
-- `state/locks/problem_state/` — serialized mutation of per-problem durable state
-- `state/locks/gpu/` — shared GPU-selector leasing across problems
+- solver lock — one active top-level solver per problem
+- problem-state lock — serialized mutation of per-problem durable state
+- GPU lock — shared GPU-selector leasing across problems
 
-GPU locks are keyed by the selected visible-device selector, not just a slot index. At execution time the harness binds the selected selector into an isolated `CUDA_VISIBLE_DEVICES` view, and the evaluation/profile subprocess uses logical device `cuda:0` inside that isolated view. If the cluster already provides a restricted GPU list through `CUDA_VISIBLE_DEVICES`, or you set `KBE_VISIBLE_GPU_DEVICES`, the harness leases against that visible list instead of probing the host globally.
+GPU leasing is based on the visible `CUDA_VISIBLE_DEVICES` view. The harness binds evaluation and profiling subprocesses to one leased selector and then uses logical `cuda:0` inside that isolated view.
 
-## Current refactor status
+## Aggregation
 
-The current direction is:
+`summarize-run` is an operator-facing archive scanner.
 
-- keep archive and workspace contracts stable
-- keep `cli.py` thin and decompose larger runtime/state modules into focused archive, workspace-path, metric, goal-status, candidate-execution, profiling, workspace-materialization, wrapper-generation, and summary modules
-- keep Codex/Claude-specific parsing and runtime setup in thin adapters
-- keep one canonical source for duplicated helper-agent specifications
-- keep measured execution and profiling bound to leased GPU selectors through isolated subprocesses
-- keep the solver-facing contract explicit, autonomous, and self-contained
+Its job is to aggregate archived results for one `run_name` after the fact. It does not participate in solver execution. It exists so the harness has one built-in, archive-only aggregation path instead of pushing every result inspection into ad hoc notebooks.
