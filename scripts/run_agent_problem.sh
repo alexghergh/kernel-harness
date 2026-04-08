@@ -1,49 +1,48 @@
 #!/usr/bin/env bash
+# Run exactly one solver session for one KernelBench problem.
+#
+# Required environment:
+#   TOOL=codex|claude
+#   KERNELBENCH_ROOT=/path/to/KernelBench
+#   HARDWARE_NAME=<timings-subdir name, e.g. H100 or H100_tsubame>
+#
+# Common overrides:
+#   RUN_NAME=kernelbench-codex-h100-v3
+#   LEVEL=1
+#   PROBLEM_ID=1
+#   MODEL=gpt-5-codex|opus
+#   TIME_BUDGET_MINUTES=180
+#   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>
+#
+# Example:
+#   TOOL=codex RUN_NAME=kernelbench-codex-h100-v3 LEVEL=1 PROBLEM_ID=1 \
+#   MODEL=gpt-5-codex TIME_BUDGET_MINUTES=180 \
+#   KERNELBENCH_ROOT=/path/to/KernelBench HARDWARE_NAME=H100 \
+#   ./scripts/run_agent_problem.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 STATE_ROOT="${PROJECT_ROOT}/state"
 ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
+KBHARNESS_CLI="kbharness"
 
 prepare_runtime_codex_home() {
   local base_home="$1"
   local runtime_home="$2"
   local entry
-  local config_path
 
   rm -rf "${runtime_home}"
   mkdir -p "${runtime_home}"
 
-  for entry in .personality_migration auth.json config.toml version.json; do
+  for entry in .personality_migration auth.json config.toml version.json yusa_auth.json; do
     if [[ -f "${base_home}/${entry}" ]]; then
       cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
     fi
   done
 
-  for entry in rules; do
-    if [[ -d "${base_home}/${entry}" ]]; then
-      cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
-    fi
-  done
-
-  config_path="${runtime_home}/config.toml"
-  if [[ -f "${config_path}" ]]; then
-    python - "${config_path}" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-if re.search(r"(?m)^project_root_markers\s*=", text):
-    text = re.sub(r"(?m)^project_root_markers\s*=.*$", "project_root_markers = []", text)
-else:
-    if not text.endswith("\n"):
-        text += "\n"
-    text += "project_root_markers = []\n"
-path.write_text(text, encoding="utf-8")
-PY
+  if [[ -d "${base_home}/rules" ]]; then
+    cp -a "${base_home}/rules" "${runtime_home}/rules"
   fi
 }
 
@@ -55,13 +54,21 @@ prepare_runtime_claude_project_config() {
 
   mkdir -p "${target_dir}"
   rm -f "${target_dir}/settings.json" "${target_dir}/settings.local.json"
-
   for entry in settings.json settings.local.json; do
     if [[ -f "${base_dir}/${entry}" ]]; then
       cp -a "${base_dir}/${entry}" "${target_dir}/${entry}"
     fi
   done
+}
 
+refresh_runtime_configs() {
+  PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" python - "${PROJECT_ROOT}" <<'PY'
+from pathlib import Path
+import sys
+from kernel_bench_experiment_agents.runtime_policy import write_repo_runtime_configs
+
+write_repo_runtime_configs(Path(sys.argv[1]))
+PY
 }
 
 terminate_agent_pipeline() {
@@ -77,6 +84,14 @@ terminate_agent_pipeline() {
       pkill -KILL -P "${parent_pid}" 2>/dev/null || true
     fi
     kill -KILL "${parent_pid}" 2>/dev/null || true
+  fi
+}
+
+require_command() {
+  local name="$1"
+  if ! command -v "${name}" >/dev/null 2>&1; then
+    echo "Required command is not on PATH: ${name}" >&2
+    exit 1
   fi
 }
 
@@ -100,51 +115,33 @@ LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
-TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-720}"
+TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 NUM_GPUS="${NUM_GPUS:-1}"
-GPU_NAME="${GPU_NAME:-}"
+HARDWARE_NAME="${HARDWARE_NAME:-${GPU_NAME:-}}"
+KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${STATE_ROOT}/workspaces}"
 CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-workspace-write}"
 CODEX_SANDBOX_NETWORK_ACCESS="${CODEX_SANDBOX_NETWORK_ACCESS:-false}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-}"
-KERNELBENCH_PYTHON="${KERNELBENCH_PYTHON:-${KERNELBENCH_ROOT:-}/.venv/bin/python}"
-EAGER_BASELINE_FILE="${EAGER_BASELINE_FILE:-}"
-COMPILE_BASELINE_FILE="${COMPILE_BASELINE_FILE:-}"
 BUDGET_POLL_SECONDS="${BUDGET_POLL_SECONDS:-30}"
 
 if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
   echo "KERNELBENCH_ROOT must point to the official KernelBench checkout." >&2
   exit 1
 fi
-
-if [[ ! -x "${KERNELBENCH_PYTHON}" ]]; then
-  echo "KernelBench Python interpreter not found at ${KERNELBENCH_PYTHON}" >&2
-  echo "Run ./scripts/setup_kernelbench_env.sh uv in the KernelBench repo or set KERNELBENCH_PYTHON explicitly." >&2
+if [[ -z "${HARDWARE_NAME}" ]]; then
+  echo "HARDWARE_NAME must name the KernelBench timings subdirectory to use." >&2
   exit 1
 fi
 
-if [[ -z "${EAGER_BASELINE_FILE}" || ! -f "${EAGER_BASELINE_FILE}" ]]; then
-  echo "EAGER_BASELINE_FILE must point to the official eager baseline JSON for this hardware." >&2
-  exit 1
-fi
-
-if [[ -z "${COMPILE_BASELINE_FILE}" || ! -f "${COMPILE_BASELINE_FILE}" ]]; then
-  echo "COMPILE_BASELINE_FILE must point to the official torch.compile baseline JSON for this hardware." >&2
-  exit 1
-fi
-
-export PATH="$(dirname "${KERNELBENCH_PYTHON}"):${PATH}"
-KBE_CLI="${KBE_CLI:-kbe}"
-
-if ! command -v "${KBE_CLI}" >/dev/null 2>&1; then
-  echo "kbe CLI is not on PATH. Install this repo into the KernelBench environment first (pip install -e .)." >&2
-  exit 1
-fi
+require_command python
+require_command flock
+require_command "${KBHARNESS_CLI}"
+refresh_runtime_configs
 
 CODEX_BASE_HOME="${PROJECT_ROOT}/.codex"
 CLAUDE_PROJECT_DIR="${PROJECT_ROOT}/.claude"
 AGENT_RUNTIME_ROOT="${STATE_ROOT}/agent_home"
-
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
 BUILD_PROBLEM_DIR="${STATE_ROOT}/build/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
@@ -162,11 +159,6 @@ mkdir -p \
   "${PROBLEM_STATE_LOCK_DIR}" \
   "${GPU_LOCK_DIR}"
 
-if ! command -v flock >/dev/null 2>&1; then
-  echo "flock is required to enforce one active solver per problem." >&2
-  exit 1
-fi
-
 SAFE_RUN_NAME="$(printf '%s' "${RUN_NAME}" | tr -c 'A-Za-z0-9._-' '_')"
 SOLVER_LOCK_PATH="${SOLVER_LOCK_DIR}/${SAFE_RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
 AGENT_RUNTIME_HOME="${AGENT_RUNTIME_ROOT}/${SAFE_RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
@@ -177,46 +169,39 @@ if ! flock -n 9; then
 fi
 
 if [[ "${TOOL}" == "codex" ]]; then
-  if ! command -v codex >/dev/null 2>&1; then
-    echo "codex CLI is not on PATH." >&2
-    exit 1
-  fi
+  require_command codex
   if ! CODEX_HOME="${CODEX_BASE_HOME}" codex login status >/dev/null 2>&1; then
     echo "Codex is not logged in for CODEX_HOME=${CODEX_BASE_HOME}." >&2
     echo "Run: CODEX_HOME=\"${CODEX_BASE_HOME}\" codex login --device-auth" >&2
     exit 1
   fi
 else
-  if ! command -v claude >/dev/null 2>&1; then
-    echo "claude CLI is not on PATH." >&2
-    exit 1
-  fi
+  require_command claude
   if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     echo "ANTHROPIC_API_KEY must be exported before launching Claude Code." >&2
     exit 1
   fi
 fi
 
+# Prepare the workspace and archive contract before the agent starts.
 PREP_OUTPUT="$({
-  "${KBE_CLI}" prepare-problem-workspace \
+  "${KBHARNESS_CLI}" prepare-problem-workspace \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
     --dataset-src "${DATASET_SRC}" \
     --kernelbench-root "${KERNELBENCH_ROOT}" \
-    --kernelbench-python "${KERNELBENCH_PYTHON}" \
+    --timings-dir "${KERNELBENCH_TIMINGS_DIR}" \
     --workspace-root "${WORKSPACE_ROOT}" \
-    --gpu-name "${GPU_NAME}" \
+    --hardware-name "${HARDWARE_NAME}" \
     --num-gpus "${NUM_GPUS}" \
     --tool "${TOOL}" \
     --model "${MODEL}" \
-    --time-budget-minutes "${TIME_BUDGET_MINUTES}" \
-    --eager-baseline-file "${EAGER_BASELINE_FILE}" \
-    --compile-baseline-file "${COMPILE_BASELINE_FILE}"
+    --time-budget-minutes "${TIME_BUDGET_MINUTES}"
 })"
 
 WORKSPACE="$({
-  PREP_OUTPUT="${PREP_OUTPUT}" "${KERNELBENCH_PYTHON}" - <<'PY'
+  PREP_OUTPUT="${PREP_OUTPUT}" python - <<'PY'
 import json
 import os
 payload = json.loads(os.environ["PREP_OUTPUT"])
@@ -247,7 +232,7 @@ fi
 rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
-  "${KBE_CLI}" goal-status \
+  "${KBHARNESS_CLI}" goal-status \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
@@ -260,15 +245,13 @@ mark_budget_exhausted_if_needed() {
 
   refresh_goal_status || return 1
   exhausted="$({
-    STATUS_PATH="${status_path}" "${KERNELBENCH_PYTHON}" -c '
+    STATUS_PATH="${status_path}" python - <<'PY'
 import json
 import os
-
-path = os.environ["STATUS_PATH"]
-payload = json.loads(open(path, "r", encoding="utf-8").read())
+payload = json.loads(open(os.environ["STATUS_PATH"], "r", encoding="utf-8").read())
 remaining = payload.get("remaining_minutes")
 print("false" if remaining is None else ("true" if float(remaining) <= 0 else "false"))
-'
+PY
   })"
   if [[ "${exhausted}" == "true" ]]; then
     cp -f "${status_path}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
@@ -285,15 +268,13 @@ watch_budget_limit() {
     fi
     if mark_budget_exhausted_if_needed; then
       remaining="$({
-        STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" "${KERNELBENCH_PYTHON}" -c '
+        STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" python - <<'PY'
 import json
 import os
-
-path = os.environ["STATUS_PATH"]
-payload = json.loads(open(path, "r", encoding="utf-8").read())
+payload = json.loads(open(os.environ["STATUS_PATH"], "r", encoding="utf-8").read())
 remaining = payload.get("remaining_minutes")
 print("" if remaining is None else remaining)
-'
+PY
       })"
       echo "Budget exhausted for run=${RUN_NAME} level=${LEVEL} problem=${PROBLEM_ID} (remaining=${remaining}); stopping ${TOOL}." >&2
       terminate_agent_pipeline "${AGENT_PIPE_PID}"
@@ -314,11 +295,9 @@ if [[ "${TOOL}" == "codex" ]]; then
     --model "${MODEL}"
     --json
   )
-
   if [[ "${CODEX_SANDBOX_MODE}" == "workspace-write" ]]; then
     CODEX_ARGS+=( -c "sandbox_workspace_write.network_access=${CODEX_SANDBOX_NETWORK_ACCESS}" )
   fi
-
   (
     codex "${CODEX_ARGS[@]}" \
       --output-last-message "${FINAL_MESSAGE_PATH}" \
@@ -336,7 +315,6 @@ else
   if [[ -n "${CLAUDE_PERMISSION_MODE}" ]]; then
     CLAUDE_ARGS+=( --permission-mode "${CLAUDE_PERMISSION_MODE}" )
   fi
-
   (
     cd "${WORKSPACE}" && claude "${CLAUDE_ARGS[@]}" \
       "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
@@ -354,7 +332,7 @@ set -e
 if [[ ! -f "${COMPLETION_PATH}" ]]; then
   mark_budget_exhausted_if_needed >/dev/null 2>&1 || true
   if [[ -f "${BUDGET_EXHAUSTED_MARKER_PATH}" ]]; then
-    "${KBE_CLI}" complete-problem \
+    "${KBHARNESS_CLI}" complete-problem \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -363,7 +341,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
       --summary "launcher stopped ${TOOL} after the corrected remaining budget reached zero without a solver-written completion" \
       --allow-overwrite >/dev/null
   else
-    "${KBE_CLI}" complete-problem \
+    "${KBHARNESS_CLI}" complete-problem \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -374,7 +352,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
   fi
 fi
 
-if ! "${KBE_CLI}" materialize-agent-trace \
+if ! "${KBHARNESS_CLI}" materialize-agent-trace \
   --tool "${TOOL}" \
   --events-path "${EVENTS_PATH}" \
   --completion-path "${COMPLETION_PATH}" \
@@ -385,11 +363,10 @@ if ! "${KBE_CLI}" materialize-agent-trace \
 fi
 
 readarray -t COMPLETION_STATE < <(
-  COMPLETION_PATH="${COMPLETION_PATH}" "${KERNELBENCH_PYTHON}" - <<'PY'
+  COMPLETION_PATH="${COMPLETION_PATH}" python - <<'PY'
 import json
 import os
-path = os.environ["COMPLETION_PATH"]
-payload = json.loads(open(path, "r", encoding="utf-8").read())
+payload = json.loads(open(os.environ["COMPLETION_PATH"], "r", encoding="utf-8").read())
 print(payload.get("terminal_state", ""))
 print("true" if payload.get("success") else "false")
 PY

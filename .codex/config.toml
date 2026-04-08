@@ -1,7 +1,9 @@
+# Generated from src/kernel_bench_experiment_agents/runtime_policy.py
 personality = "pragmatic"
-# default maintainer setting; solver sessions get their own runtime copy and the launcher
-# keeps workspace-write as the default sandbox mode unless overridden explicitly
+approval_policy = "never"
 sandbox_mode = "workspace-write"
+project_root_markers = []
+allow_login_shell = false
 web_search = "live"
 project_doc_max_bytes = 65536
 model_auto_compact_token_limit = 240000

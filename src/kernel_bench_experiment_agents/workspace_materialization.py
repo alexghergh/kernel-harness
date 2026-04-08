@@ -39,6 +39,7 @@ def build_problem_metadata(
     tool: str,
     problem: Any,
     hardware: Any,
+    hardware_name: str,
     num_gpus: int,
     model: str,
     time_budget_minutes: int,
@@ -51,6 +52,7 @@ def build_problem_metadata(
         "tool": tool,
         "dataset_src": dataset_src,
         "problem_name": problem.name,
+        "hardware_name": hardware_name,
         "gpu_name": hardware.display_name,
         "gpu_architecture": hardware.architecture,
         "gpu_compute_capability": hardware.compute_capability,
@@ -63,17 +65,17 @@ def build_problem_metadata(
 def build_archive_provenance(
     *,
     kernelbench_root_path: str,
-    kernelbench_python: str,
+    timings_dir: str,
     problem: Any,
     eager_baseline_file: str,
     compile_baseline_file: str,
 ) -> dict[str, Any]:
     return {
         "kernelbench_root": kernelbench_root_path,
-        "kernelbench_python": kernelbench_python,
+        "timings_dir": timings_dir,
         "problem_source_path": getattr(problem, "path", None),
-        "eager_baseline_file": eager_baseline_file,
-        "compile_baseline_file": compile_baseline_file,
+        "eager_baseline_file": str(eager_baseline_file),
+        "compile_baseline_file": str(compile_baseline_file),
     }
 
 

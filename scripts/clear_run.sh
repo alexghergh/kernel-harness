@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# Delete one archived run plus its disposable state.
+#
+# Usage:
+#   ./scripts/clear_run.sh <run_name>
+# or:
+#   RUN_NAME=<run_name> ./scripts/clear_run.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,7 +19,6 @@ if [[ -z "${RUN_NAME}" ]]; then
   echo "Set RUN_NAME or pass it as the first argument." >&2
   exit 1
 fi
-
 if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "RUN_NAME may contain only ASCII letters, digits, dot, underscore, and hyphen." >&2
   exit 1

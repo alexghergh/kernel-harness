@@ -1,22 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .common import as_float
-from .kernelbench import load_problem
-from .run_metrics import baseline_mean_for_problem, candidate_runtime
+from .run_metrics import candidate_runtime
 from .workspace_paths import read_json_file
-
-
-@dataclass(frozen=True)
-class SummaryScanConfig:
-    dataset_src: str
-    kernelbench_root: str | None
-    eager_baseline: dict[str, Any] | None
-    compile_baseline: dict[str, Any] | None
 
 
 def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:
@@ -49,61 +39,20 @@ def _load_completion(problem_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def _problem_name_for_row(
-    *,
-    level: int,
-    problem_id: int,
-    contract_problem: dict[str, Any],
-    config: SummaryScanConfig,
-) -> str | None:
-    problem_name = contract_problem.get("problem_name") if isinstance(contract_problem, dict) else None
-    if problem_name:
-        return problem_name
-    if config.eager_baseline is None and config.compile_baseline is None:
-        return None
-    problem = load_problem(
-        level=level,
-        problem_id=problem_id,
-        dataset_src=config.dataset_src,
-        explicit_kernelbench_root=config.kernelbench_root,
-    )
-    return problem.name
-
-
-def _baseline_means(
-    *,
-    level: int,
-    problem_name: str | None,
-    contract_baseline: dict[str, Any],
-    config: SummaryScanConfig,
-) -> tuple[float | None, float | None]:
+def _baseline_means(contract_problem: dict[str, Any], contract_baseline: dict[str, Any]) -> tuple[float | None, float | None]:
     eager_mean = None
     compile_mean = None
     if isinstance(contract_baseline, dict):
         eager_mean = as_float(contract_baseline.get("eager", {}).get("runtime_ms"))
         compile_mean = as_float(contract_baseline.get("compile", {}).get("runtime_ms"))
-    if eager_mean is None and config.eager_baseline is not None and problem_name is not None:
-        eager_mean = baseline_mean_for_problem(
-            baseline=config.eager_baseline,
-            level=level,
-            problem_name=problem_name,
-        )
-    if compile_mean is None and config.compile_baseline is not None and problem_name is not None:
-        compile_mean = baseline_mean_for_problem(
-            baseline=config.compile_baseline,
-            level=level,
-            problem_name=problem_name,
-        )
+    if eager_mean is None and isinstance(contract_problem, dict):
+        eager_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("eager"))
+    if compile_mean is None and isinstance(contract_problem, dict):
+        compile_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("compile"))
     return eager_mean, compile_mean
 
 
-def build_problem_row(
-    *,
-    problem_dir: Path,
-    level: int,
-    problem_id: int,
-    config: SummaryScanConfig,
-) -> dict[str, Any] | None:
+def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict[str, Any] | None:
     samples = _load_samples(problem_dir)
     completion_payload = _load_completion(problem_dir)
     if not samples and completion_payload is None:
@@ -122,18 +71,8 @@ def build_problem_row(
     contract_baseline_path = problem_dir / "contract" / "baseline.json"
     contract_problem = read_json_file(contract_problem_path) if contract_problem_path.exists() else {}
     contract_baseline = read_json_file(contract_baseline_path) if contract_baseline_path.exists() else {}
-    problem_name = _problem_name_for_row(
-        level=level,
-        problem_id=problem_id,
-        contract_problem=contract_problem,
-        config=config,
-    )
-    eager_mean, compile_mean = _baseline_means(
-        level=level,
-        problem_name=problem_name,
-        contract_baseline=contract_baseline,
-        config=config,
-    )
+    problem_name = contract_problem.get("problem_name") if isinstance(contract_problem, dict) else None
+    eager_mean, compile_mean = _baseline_means(contract_problem, contract_baseline)
 
     row_token_usage = completion_payload.get("token_usage") if isinstance(completion_payload, dict) else None
     audit_payload = completion_payload.get("audit") if isinstance(completion_payload, dict) else None
@@ -227,13 +166,7 @@ def build_problem_row(
     }
 
 
-def collect_problem_rows(
-    *,
-    run_root: Path,
-    selected_levels: set[int],
-    selected_problem_ids: set[int],
-    config: SummaryScanConfig,
-) -> list[dict[str, Any]]:
+def collect_problem_rows(*, run_root: Path, selected_levels: set[int], selected_problem_ids: set[int]) -> list[dict[str, Any]]:
     problem_rows: list[dict[str, Any]] = []
     for level_dir in sorted(run_root.glob("level_*")):
         try:
@@ -250,12 +183,7 @@ def collect_problem_rows(
                 continue
             if selected_problem_ids and problem_id not in selected_problem_ids:
                 continue
-            row = build_problem_row(
-                problem_dir=problem_dir,
-                level=level,
-                problem_id=problem_id,
-                config=config,
-            )
+            row = build_problem_row(problem_dir=problem_dir, level=level, problem_id=problem_id)
             if row is not None:
                 problem_rows.append(row)
     return problem_rows

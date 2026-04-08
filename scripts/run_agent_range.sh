@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# Run multiple problems by repeatedly invoking run_agent_problem.sh.
+#
+# Select problems with either:
+#   PROBLEM_IDS=1,4,9
+# or:
+#   START_PROBLEM_ID=1 END_PROBLEM_ID=10
+#
+# Useful overrides:
+#   TOOL=codex|claude
+#   RUN_NAME=kernelbench-codex-h100-v3
+#   LEVEL=1
+#   MAX_PARALLEL_SOLVERS=1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +24,7 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v2"
+DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
 RUN_NAME="${RUN_NAME:-${DEFAULT_RUN_NAME}}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"

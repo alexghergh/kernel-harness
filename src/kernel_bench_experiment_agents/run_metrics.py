@@ -7,6 +7,9 @@ from typing import Any
 from .archive_layout import history_entries
 from .common import as_float
 
+EAGER_BASELINE_FILENAME = "baseline_time_torch.json"
+COMPILE_BASELINE_FILENAME = "baseline_time_torch_compile_inductor_default.json"
+
 
 def candidate_runtime(result: dict[str, Any]) -> float | None:
     runtime = as_float(result.get("runtime"))
@@ -29,7 +32,42 @@ def candidate_runtime(result: dict[str, Any]) -> float | None:
     return None
 
 
-def load_baseline_file(path: str | None) -> dict[str, Any] | None:
+def timings_dir_for_hardware(*, kernelbench_root: str, timings_dir: str | None, hardware_name: str) -> Path:
+    if timings_dir:
+        path = Path(timings_dir).expanduser().resolve()
+    else:
+        path = (
+            Path(kernelbench_root).expanduser().resolve()
+            / "results"
+            / "timing"
+            / hardware_name
+        )
+    if not path.exists():
+        raise RuntimeError(
+            f"KernelBench timings directory does not exist: {path}. "
+            "Set KERNELBENCH_TIMINGS_DIR explicitly or choose a hardware name that matches an existing timings subdirectory."
+        )
+    return path
+
+
+def baseline_file_paths(*, kernelbench_root: str, timings_dir: str | None, hardware_name: str) -> tuple[Path, Path]:
+    root = timings_dir_for_hardware(
+        kernelbench_root=kernelbench_root,
+        timings_dir=timings_dir,
+        hardware_name=hardware_name,
+    )
+    eager_path = root / EAGER_BASELINE_FILENAME
+    compile_path = root / COMPILE_BASELINE_FILENAME
+    missing = [str(path) for path in (eager_path, compile_path) if not path.exists()]
+    if missing:
+        raise RuntimeError(
+            "Missing expected KernelBench baseline file(s): "
+            + ", ".join(missing)
+        )
+    return eager_path, compile_path
+
+
+def load_baseline_file(path: str | Path | None) -> dict[str, Any] | None:
     if not path:
         return None
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -60,8 +98,8 @@ def baseline_payload_for_problem(
     level: int,
     problem_id: int,
     problem_name: str,
-    eager_baseline_file: str,
-    compile_baseline_file: str,
+    eager_baseline_file: str | Path,
+    compile_baseline_file: str | Path,
 ) -> dict[str, Any]:
     eager_payload = load_baseline_file(eager_baseline_file)
     compile_payload = load_baseline_file(compile_baseline_file)

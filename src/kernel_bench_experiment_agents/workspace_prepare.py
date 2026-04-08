@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
-
+from pathlib import Path
 from .agent_specs import write_workspace_helper_agent_specs
 from .archive_layout import archive_problem_contract_dir, write_archive_problem_manifest
 from .common import emit_json, normalize_tool_name
@@ -10,7 +10,7 @@ from .goal_status import write_goal_status_files
 from .hardware_catalog import resolve_hardware_spec
 from .kernelbench import load_problem
 from .project import artifact_problem_dir, build_problem_root, kernelbench_root, write_json
-from .run_metrics import baseline_payload_for_problem
+from .run_metrics import baseline_file_paths, baseline_payload_for_problem
 from .workspace_materialization import (
     build_archive_provenance,
     build_hardware_payload,
@@ -24,7 +24,7 @@ from .workspace_wrappers import write_default_workspace_wrappers
 def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     resolved_kernelbench_root = str(kernelbench_root(args.kernelbench_root))
     try:
-        hardware = resolve_hardware_spec(args.gpu_name)
+        hardware = resolve_hardware_spec(args.hardware_name)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -47,12 +47,18 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
 
+    eager_baseline_file, compile_baseline_file = baseline_file_paths(
+        kernelbench_root=resolved_kernelbench_root,
+        timings_dir=args.timings_dir,
+        hardware_name=args.hardware_name,
+    )
+
     baseline = baseline_payload_for_problem(
         level=args.level,
         problem_id=args.problem_id,
         problem_name=problem.name,
-        eager_baseline_file=args.eager_baseline_file,
-        compile_baseline_file=args.compile_baseline_file,
+        eager_baseline_file=eager_baseline_file,
+        compile_baseline_file=compile_baseline_file,
     )
     metadata = build_problem_metadata(
         run_name=args.run_name,
@@ -62,6 +68,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         tool=normalize_tool_name(args.tool),
         problem=problem,
         hardware=hardware,
+        hardware_name=args.hardware_name,
         num_gpus=args.num_gpus,
         model=args.model,
         time_budget_minutes=args.time_budget_minutes,
@@ -69,10 +76,10 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
     hardware_payload = build_hardware_payload(hardware)
     provenance_payload = build_archive_provenance(
         kernelbench_root_path=resolved_kernelbench_root,
-        kernelbench_python=args.kernelbench_python,
+        timings_dir=str((Path(args.timings_dir).expanduser().resolve() if args.timings_dir else eager_baseline_file.parent)),
         problem=problem,
-        eager_baseline_file=args.eager_baseline_file,
-        compile_baseline_file=args.compile_baseline_file,
+        eager_baseline_file=eager_baseline_file,
+        compile_baseline_file=compile_baseline_file,
     )
 
     write_contract_bundle(

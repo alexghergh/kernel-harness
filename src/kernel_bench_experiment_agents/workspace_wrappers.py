@@ -21,10 +21,10 @@ def workspace_wrapper_common() -> str:
 
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         WORKSPACE="$(cd "${SCRIPT_DIR}/.." && pwd)"
-        KBE_CLI="${KBE_CLI:-kbe}"
+        KBHARNESS_CLI="kbharness"
 
-        if ! command -v "${KBE_CLI}" >/dev/null 2>&1; then
-          echo "kbe CLI is not on PATH. Install this repo into the KernelBench environment first (pip install -e .)." >&2
+        if ! command -v "${KBHARNESS_CLI}" >/dev/null 2>&1; then
+          echo "kbharness is not on PATH. Install this repo into the active KernelBench environment first (uv pip install -e .)." >&2
           exit 1
         fi
         """
@@ -45,7 +45,7 @@ def generate_run_wrapper(
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
-        '"${KBE_CLI}" run-candidate',
+        '"${KBHARNESS_CLI}" run-candidate',
         f'  --candidate "${{WORKSPACE}}/{CANDIDATE_FILENAME}"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
@@ -69,7 +69,7 @@ def generate_profile_wrapper(
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
-        '"${KBE_CLI}" profile-ncu',
+        '"${KBHARNESS_CLI}" profile-ncu',
         f'  --candidate "${{WORKSPACE}}/{CANDIDATE_FILENAME}"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
@@ -91,7 +91,7 @@ def generate_hardware_info_wrapper() -> str:
 def generate_goal_status_wrapper(*, run_name: str, level: int, problem_id: int) -> str:
     common = workspace_wrapper_common()
     command_lines = [
-        '"${KBE_CLI}" goal-status',
+        '"${KBHARNESS_CLI}" goal-status',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
@@ -103,7 +103,7 @@ def generate_goal_status_wrapper(*, run_name: str, level: int, problem_id: int) 
 def generate_best_wrapper(*, run_name: str, level: int, problem_id: int) -> str:
     common = workspace_wrapper_common()
     command_lines = [
-        '"${KBE_CLI}" best-result',
+        '"${KBHARNESS_CLI}" best-result',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
@@ -160,7 +160,7 @@ def generate_complete_wrapper(*, run_name: str, level: int, problem_id: int) -> 
         """
     ).lstrip()
     command_lines = [
-        '"${KBE_CLI}" complete-problem',
+        '"${KBHARNESS_CLI}" complete-problem',
         '  "$@"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',

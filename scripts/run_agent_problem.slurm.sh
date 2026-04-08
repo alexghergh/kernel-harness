@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=kernelbench-agent
-#YBATCH -r h100_1
+#SBATCH --job-name=kernelbench-harness
 #SBATCH --gres=gpu:1
 #SBATCH --time=13:00:00
 #SBATCH --output=slurm-out/%x-%j.out
 #SBATCH --error=slurm-err/%x-%j.err
+# Thin Slurm wrapper around run_agent_range.sh.
+#
+# Submit from a shell where the intended Python environment is already active,
+# or make sure `python`, `kbharness`, and the chosen agent CLI are on PATH in
+# the batch environment.
+#
+# Example:
+#   sbatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+set -euo pipefail
 
-module load cuda
-
-# edit these defaults before submitting with plain `sbatch`
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-/home/alexghergh/KernelBench}"
-PYENV_ENV="${PYENV_ENV:-kernelbench-3.10}"
-HARDWARE_NAME="${HARDWARE_NAME:-H100_tsubame}"
+
+module load cuda || true
 
 TOOL="${TOOL:-claude}"
 case "${TOOL}" in
@@ -24,7 +28,7 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v2"
+DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
 DEFAULT_MODEL="gpt-5-codex"
 if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="opus"
@@ -35,36 +39,14 @@ LEVEL="${LEVEL:-1}"
 PROBLEM_IDS="${PROBLEM_IDS:-}"
 START_PROBLEM_ID="${START_PROBLEM_ID:-1}"
 END_PROBLEM_ID="${END_PROBLEM_ID:-100}"
-MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-10}"
+MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 NUM_GPUS="${NUM_GPUS:-${SLURM_GPUS_ON_NODE:-1}}"
-GPU_NAME="${GPU_NAME:-H100}"
-OPENAI_API_KEY="${OPENAI_API_KEY:-}"
-ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-
-export PATH="$HOME/.local/node_modules/.bin:$PATH"
-export PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
-export PATH="${PYENV_ROOT}/bin:${PATH}"
-export OPENAI_API_KEY
-export ANTHROPIC_API_KEY
-
-if ! command -v pyenv >/dev/null 2>&1; then
-  echo "pyenv is required on the compute node for this wrapper." >&2
-  exit 1
-fi
-
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
-pyenv activate "${PYENV_ENV}"
-
-export KERNELBENCH_ROOT
-export KERNELBENCH_PYTHON="${KERNELBENCH_PYTHON:-${KERNELBENCH_ROOT}/.venv/bin/python}"
-export EAGER_BASELINE_FILE="${EAGER_BASELINE_FILE:-${KERNELBENCH_ROOT}/results/timing/${HARDWARE_NAME}/baseline_time_torch.json}"
-export COMPILE_BASELINE_FILE="${COMPILE_BASELINE_FILE:-${KERNELBENCH_ROOT}/results/timing/${HARDWARE_NAME}/baseline_time_torch_compile_inductor_default.json}"
-export NUM_GPUS
-export GPU_NAME
+HARDWARE_NAME="${HARDWARE_NAME:-H100}"
+KERNELBENCH_ROOT="${KERNELBENCH_ROOT:?KERNELBENCH_ROOT must be set}"
+KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 
 cd "${PROJECT_ROOT}"
 
@@ -100,5 +82,7 @@ DATASET_SRC="${DATASET_SRC}" \
 MODEL="${MODEL}" \
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES}" \
 NUM_GPUS="${NUM_GPUS}" \
-GPU_NAME="${GPU_NAME}" \
+HARDWARE_NAME="${HARDWARE_NAME}" \
+KERNELBENCH_ROOT="${KERNELBENCH_ROOT}" \
+KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR}" \
 "${SCRIPT_DIR}/run_agent_range.sh"

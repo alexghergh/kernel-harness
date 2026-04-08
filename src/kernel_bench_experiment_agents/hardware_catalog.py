@@ -154,7 +154,7 @@ def resolve_hardware_spec(gpu_name: str) -> HardwareSpec:
     normalized = _normalize_gpu_name(gpu_name)
     if not normalized:
         raise ValueError(
-            "GPU_NAME is required. Set it to a supported alias such as H100, A100, "
+            "HARDWARE_NAME is required. Set it to a supported alias such as H100, A100, "
             "L40S, or B200."
         )
     for spec in _CATALOG:
@@ -163,7 +163,7 @@ def resolve_hardware_spec(gpu_name: str) -> HardwareSpec:
                 return spec
     supported = ", ".join(spec.display_name for spec in _CATALOG)
     raise ValueError(
-        f"Unsupported GPU_NAME {gpu_name!r}. Supported GPU families: {supported}."
+        f"Unsupported HARDWARE_NAME {gpu_name!r}. Supported GPU families: {supported}."
     )
 
 

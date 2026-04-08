@@ -1,4 +1,4 @@
-"""KernelBench experiment helper package."""
+"""KernelBench harness package."""
 
 __all__ = ["__version__"]
 
