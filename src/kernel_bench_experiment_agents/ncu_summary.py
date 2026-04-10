@@ -2,8 +2,8 @@
 
 The harness still profiles with the configured NCU section set, but this reducer keeps the
 solver-visible summary promptable by highlighting the most actionable counters. We intentionally
-keep the summary smaller than CudaForge's full 24-metric judge input while borrowing a few extra
-cache, bandwidth, and occupancy signals that are genuinely useful for diagnosing common bottlenecks.
+keep the summary much smaller than the full profiler export while retaining the bottleneck signals
+that are most useful for guided CUDA iteration in this harness.
 """
 
 from __future__ import annotations
@@ -17,10 +17,38 @@ from .common import as_float
 # - Profiling Guide: https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html
 # - CLI Reference / metric naming: https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html
 #
-# We keep the solver-facing summary compact on purpose. Cache hit rates, DRAM bytes/s, and
-# launch occupancy limiters help distinguish locality problems, bandwidth saturation, and
-# resource-cap bottlenecks, while the dedicated warp-stall section below already exposes the
-# most actionable latency, sync, and dependency signals when those counters are present.
+# CudaForge Appendix E.3 / Table 10 publishes a task-agnostic shortlist of 24 metrics. We do NOT
+# expose all of them to the solver by default here, but we keep the paper's shortlist commented as a
+# reference for future profiling-policy changes.
+#
+#   1.  sm__cycles_active.avg
+#   2.  sm__warps_active.avg.pct_of_peak_sustained_active
+#   3.  launch__occupancy_limit_blocks
+#   4.  launch__occupancy_limit_registers
+#   5.  launch__occupancy_limit_shared_mem
+#   6.  launch__registers_per_thread
+#   7.  sm__inst_executed.sum
+#   8.  sm__inst_executed_pipe_fp32.avg.pct_of_peak_sustained_active
+#   9.  sm__inst_executed_pipe_tensor.avg.pct_of_peak_sustained_active
+#   10. dram__bytes_read.sum
+#   11. dram__bytes_write.sum
+#   12. dram__throughput.avg.pct_of_peak_sustained_elapsed
+#   13. dram__bytes.sum.per_second
+#   14. gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed
+#   15. l1tex__t_sector_hit_rate.pct
+#   16. l1tex__throughput.avg.pct_of_peak_sustained_active
+#   17. lts__t_sector_hit_rate.pct
+#   18. lts__throughput.avg.pct_of_peak_sustained_active
+#   19. smsp__warp_issue_stalled_memory_dependency_per_warp_active.pct
+#   20. smsp__warp_issue_stalled_short_scoreboard_per_warp_active.pct
+#   21. smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct
+#   22. smsp__warp_issue_stalled_barrier_per_warp_active.pct
+#   23. smsp__warp_issue_stalled_branch_resolving_per_warp_active.pct
+#   24. smsp__sass_average_branch_targets_threads_uniform.pct
+#
+# In this harness we currently foreground only the subset that most often changes the next concrete
+# optimization move: throughput/occupancy basics, DRAM locality and directionality, shared-memory
+# pathologies, launch occupancy limiters, tensor-pipe utilization, and top warp-stall reasons.
 
 KEY_METRIC_GROUPS = (
     (
@@ -34,6 +62,10 @@ KEY_METRIC_GROUPS = (
             ),
             ("registers per thread", "launch__registers_per_thread"),
             ("achieved occupancy", "sm__warps_active.avg.pct_of_peak_sustained_active"),
+            (
+                "tensor-pipe utilization",
+                "sm__inst_executed_pipe_tensor.avg.pct_of_peak_sustained_active",
+            ),
         ),
     ),
     (
@@ -41,6 +73,8 @@ KEY_METRIC_GROUPS = (
         (
             ("DRAM throughput", "dram__throughput.avg.pct_of_peak_sustained_elapsed"),
             ("DRAM bytes per second", "dram__bytes.sum.per_second"),
+            ("DRAM bytes read", "dram__bytes_read.sum"),
+            ("DRAM bytes write", "dram__bytes_write.sum"),
             ("L1/TEX hit rate", "l1tex__t_sector_hit_rate.pct"),
             ("L1/TEX throughput", "l1tex__throughput.avg.pct_of_peak_sustained_active"),
             ("L2 hit rate", "lts__t_sector_hit_rate.pct"),
