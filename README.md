@@ -4,10 +4,11 @@ This repository runs autonomous coding agents on KernelBench optimization proble
 
 At a high level:
 
-- the harness prepares a fresh problem workspace
+- the harness prepares a fresh per-problem workspace
 - the agent works only inside that workspace
 - local wrapper commands handle timing, profiling, status refresh, and completion
-- the harness records attempts, traces, completion state, and summaries under `archive/`
+- the durable record lives under `archive/`
+- disposable live state lives under `state/`
 
 For the detailed system contract, archive layout, workspace layout, and runtime boundary notes, read `ARCHITECTURE.md`.
 
@@ -28,9 +29,7 @@ cd /path/to/kernel-bench-experiment-agents
 uv pip install -e .
 ```
 
-Do **not** rely on a separate Python inside the KernelBench checkout. The launcher assumes the active environment already has both editable installs available on `PATH` and `PYTHONPATH`.
-
-This harness also assumes:
+This harness assumes:
 
 - the official KernelBench checkout already exists
 - the KernelBench timing files already exist for your hardware
@@ -38,14 +37,15 @@ This harness also assumes:
 
 ## Authenticate the agent tools
 
+Run these commands from the harness repo root.
+
 ### Codex
 
-Preferred path: sign in with the repo-local Codex home that the launcher reuses.
+Preferred path: sign in once using the shared harness Codex home.
 
 ```bash
-PROJECT_ROOT=/path/to/kernel-bench-experiment-agents
-CODEX_HOME="${PROJECT_ROOT}/.codex" codex login --device-auth
-CODEX_HOME="${PROJECT_ROOT}/.codex" codex login status
+DATA_ROOT=. CODEX_HOME="./state/config/codex" codex login --device-auth
+DATA_ROOT=. CODEX_HOME="./state/config/codex" codex login status
 ```
 
 Alternative: export an API key instead.
@@ -56,13 +56,11 @@ export OPENAI_API_KEY=...
 
 ### Claude Code
 
-Preferred path: sign in with your Claude Code subscription first.
+Preferred path: sign in once using the shared harness Claude config dir.
 
 ```bash
-claude login
+DATA_ROOT=. CLAUDE_CONFIG_DIR="./state/config/claude" claude login
 ```
-
-The launcher copies project settings from `PROJECT_ROOT/.claude/settings.json` and reuses subscription credentials from your Claude config when they exist.
 
 Alternatives: export API credentials or an OAuth token.
 
@@ -76,10 +74,11 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 
 ## Most common runs
 
+Run these scripts from the harness repo root.
+
 ### Run one problem
 
 ```bash
-PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
@@ -95,7 +94,6 @@ HARDWARE_NAME=H100 \
 ### Run one problem with Claude
 
 ```bash
-PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
@@ -111,7 +109,6 @@ HARDWARE_NAME=H100 \
 ### Run a contiguous range
 
 ```bash
-PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
@@ -128,7 +125,6 @@ HARDWARE_NAME=H100 \
 ### Run an explicit problem list
 
 ```bash
-PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
@@ -143,9 +139,11 @@ HARDWARE_NAME=H100 \
 
 ### Submit the Slurm wrapper
 
+Submit from the harness repo root.
+
 ```bash
 ybatch \
-  --export=PROJECT_ROOT=/path/to/kernel-bench-experiment-agents,TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
+  --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
   ./scripts/run_agent_problem.slurm.sh
 ```
 
@@ -163,7 +161,7 @@ This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary
 
 These are the main variables worth changing:
 
-- `PROJECT_ROOT=/path/to/this/repo`
+- `DATA_ROOT=/path/for/archive-and-state` if you want artifacts somewhere other than `./`
 - `TOOL=codex|claude`
 - `MODEL=...`
 - `RUN_NAME=...`
@@ -186,7 +184,7 @@ The only durable copy-out root is:
 archive/<run_name>/
 ```
 
-Live workspaces, locks, and build products live under `state/` and are disposable once no run is active.
+Live workspaces, locks, shared tool config, and build products live under `state/` and are disposable once no run is active.
 
 ## CLI surface
 
@@ -204,6 +202,6 @@ Read `ARCHITECTURE.md` for:
 
 - archive contents and file meanings
 - workspace contents and solver boundaries
-- completion semantics
+- shared Codex / Claude config layout under `state/config/`
 - how profiling, attempts, traces, and summaries are recorded
 - what parts of the runtime policy are hard enforcement vs documented intent

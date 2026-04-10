@@ -43,11 +43,12 @@ For one `(run_name, level, problem_id)` tuple, the harness does this:
 
 1. resolves the problem and baseline information from the KernelBench checkout
 2. prepares a fresh self-contained workspace
-3. renders solver-facing docs, helper-agent definitions, and wrapper scripts into that workspace
-4. launches Codex or Claude inside the workspace
-5. lets the solver iterate through wrapper commands
-6. records attempts, traces, completion state, and optional profiles
-7. writes the durable record under `archive/<run_name>/level_<level>/problem_<problem_id>/`
+3. renders solver-facing docs and wrapper scripts into that workspace
+4. refreshes the shared tool-private config under `state/config/`
+5. launches Codex or Claude with the current working directory set to that workspace
+6. lets the solver iterate through wrapper commands
+7. records attempts, traces, completion state, and optional profiles
+8. writes the durable record under `archive/<run_name>/level_<level>/problem_<problem_id>/`
 
 The solver does not decide measured outcomes. The harness decides, from recorded attempts, whether the best correct solution beat eager PyTorch, `torch.compile`, both, or neither.
 
@@ -73,11 +74,34 @@ archive/<run_name>/level_<level>/problem_<problem_id>/
 `state/` contains live mutable runtime data only:
 
 - `state/workspaces/`
-- `state/agent_home/`
 - `state/build/`
 - `state/locks/`
+- `state/config/codex/`
+- `state/config/claude/`
 
 It is safe to delete `state/` only when no run is active.
+
+`DATA_ROOT` controls where `archive/` and `state/` are written. It does **not** decide where repository source files live.
+
+## Shared tool-private config
+
+The workspace is solver-visible. Tool-private config and auth live outside it.
+
+- Codex uses `CODEX_HOME=state/config/codex/`
+- Claude uses `CLAUDE_CONFIG_DIR=state/config/claude/`
+
+Those shared tool dirs are where the harness writes:
+
+- generated Codex `config.toml`
+- generated Claude `settings.json`
+- generated helper-agent definitions for both tools
+- tool-managed local state such as auth/session/history files
+
+This split is deliberate:
+
+- the workspace should contain only problem files the solver is meant to read or edit
+- tool auth/config should not sit inside the solver-visible workspace
+- traces are **not** recovered from shared tool history files; each problem captures its own streamed `agent/events.jsonl` directly from the launcher
 
 ## Archive contents
 
@@ -102,7 +126,7 @@ Important files:
 - `hardware.json` — machine-readable hardware facts
 - `workspace_contract.json` — machine-readable solver contract
 - `provenance.json` — archive-only outward provenance for the source KernelBench checkout and timing files
-- `helper_agents/` — generated tool-specific helper-agent definitions archived for inspection
+- `helper_agents/` — archived copies of the generated Codex and Claude helper-agent definitions
 
 The live workspace should not expose outward filesystem paths. That information belongs only in archive-only provenance.
 
@@ -112,7 +136,7 @@ The agent-side run record.
 
 Important files:
 
-- `events.jsonl` — raw streamed output from the agent CLI
+- `events.jsonl` — raw streamed output from the agent CLI for this problem only
 - `trace_ir.json` — normalized, mostly-lossless trace representation used by the harness
 - `completion.json` — terminal state plus measured outcome and trace-derived metadata
 - `goal_status.json` — archived final goal-status snapshot for where the solver ended
@@ -131,19 +155,17 @@ Important files:
 - `sample_<id>.stderr.txt` — evaluation subprocess stderr for that attempt
 - `kernels/level_<level>_problem_<problem_id>_sample_<id>_kernel.py` — archived candidate source measured for that attempt
 
-The harness prefers one manifest per attempt over a second append-only ledger when the manifest already carries the needed data.
-
 ### `profiles/`
 
 Nsight Compute profiling artifacts.
 
 Important files:
 
-- `<profile-name>.json` — one profile manifest with attempt linkage and archive-relative file references
-- `<profile-name>.summary.txt` — short solver-facing summary of the selected metrics
-- `<profile-name>.details.txt` — fuller textual profiler output
-- `<profile-name>.stdout.txt` — profiler command stdout
-- `<profile-name>.stderr.txt` — profiler command stderr
+- `profile_<id>.json` — one profile manifest with attempt linkage and archive-relative file references
+- `profile_<id>.summary.txt` — short solver-facing summary of the selected metrics
+- `profile_<id>.details.txt` — fuller textual profiler output
+- `profile_<id>.stdout.txt` — profiler command stdout
+- `profile_<id>.stderr.txt` — profiler command stderr
 
 The harness keeps text-first profiler outputs. It does not archive `.ncu-rep` files.
 
@@ -160,6 +182,7 @@ Solver-visible files:
 - `goal_status.json`
 - `hardware.json`
 - `workspace_contract.json`
+- `problem.json`
 - `problem_reference.py`
 - `candidate_model_new.py`
 - `samples/`
@@ -167,6 +190,16 @@ Solver-visible files:
 - `bin/*.sh`
 
 Workspace-local `samples/` and `profiles/` are mirrors for solver convenience. They are not the durable source of truth.
+
+Notably absent from the workspace:
+
+- Codex `auth.json`
+- Codex `config.toml`
+- Claude `settings.json`
+- Claude credential files
+- tool-private helper-agent config
+
+Those live under `state/config/` instead.
 
 ## Canonical JSON vs rendered Markdown
 
@@ -198,22 +231,21 @@ Semantics:
 - `run_candidate.sh` is the only supported measured-evaluation path
 - `profile_ncu.sh` is the only supported profiling path
 - `goal_status.sh` refreshes live status explicitly
-- `complete_problem.sh` is the only valid termination path
+- `complete_problem.sh` is the only valid solver termination path
 
 All wrappers except `complete_problem.sh` are fixed commands with no solver-supplied control flags.
 
 `complete_problem.sh` accepts only:
 
-- `--state done`
-- `--state harness_failure`
 - `--summary "..."`
 
 ## Completion model
 
-Solver-written terminal states are intentionally narrow:
+Solver-written completion is intentionally narrow:
 
-- `done`
-- `harness_failure`
+- the only solver-visible exit path is `./bin/complete_problem.sh --summary "..."`
+- the solver does not choose between `done`, `budget_exhausted`, or other launcher-owned outcomes
+- the harness records solver completion as `done` and infers the measured outcome from archived attempts
 
 Launcher-owned terminal states are:
 
@@ -230,8 +262,6 @@ The harness computes the measured outcome from archived attempts:
 
 This keeps measured state inside the harness instead of duplicating it in the solver.
 
-Launcher script exit codes are intentionally narrower than measured outcomes: a valid archived run returns success from `run_agent_problem.sh` even if it did not beat the baselines. Non-zero launcher exits are reserved for harness or launcher failures such as `harness_failure` or `failed_to_generate`.
-
 ## Goal status and the budget watcher
 
 `goal_status.json` and `GOAL_STATUS.md` are live status views.
@@ -243,7 +273,12 @@ They are refreshed:
 
 The watcher runs periodically so the remaining-time view does not depend only on wrapper usage. Tool calls still trigger immediate corrections after measured work such as timing or profiling.
 
-The budget clock is wall time since workspace creation minus recorded GPU wait time.
+The budget clock is wall time since workspace creation minus:
+
+- recorded historical GPU wait time from completed run/profile operations
+- any currently active live GPU lease wait in progress
+
+Live GPU-queue wait markers live under `state/locks/live_gpu_wait/`.
 
 ## Runtime policy and sandbox boundary
 
@@ -268,14 +303,14 @@ The external sandbox is the real enforcement layer. The harness itself adds two 
 
 Trace audit is useful, but it is not the long-term security boundary.
 
-## Codex vs Claude restrictions
+## Codex vs Claude integration notes
 
-The policy target is the same, but the settings surfaces are not identical.
+The policy target is the same, but the config surfaces are different.
 
-- Codex provides sandbox mode, network control for sandboxed commands, project-root detection controls, MCP support, and rules for command prefixes.
-- Claude provides sandbox settings, explicit filesystem/network permission rules, project/local settings scopes, and MCP support.
+- Codex uses `CODEX_HOME` for config, auth, helper agents, history, and other local state. The harness writes the generated Codex policy directly into `state/config/codex/config.toml`.
+- Claude uses `CLAUDE_CONFIG_DIR` for config, credentials, helper agents, and other local state. The harness writes the generated Claude policy directly into `state/config/claude/settings.json`.
 
-That is why the goal is semantic parity, not literal file parity.
+In both cases, the current working directory remains the per-problem workspace.
 
 ## KernelBench integration surface
 
@@ -286,7 +321,7 @@ The harness relies on a narrow KernelBench integration surface:
 - run the profiler path against the problem inputs/model
 - read the standard eager and `torch.compile` timing JSONs for the selected hardware
 
-The harness should ignore any alternate reference runtime fields returned by KernelBench evaluation for decision-making. The source of truth for baseline targets is the archived baseline information already resolved into the workspace and archive.
+The harness ignores any alternate reference runtime fields returned by KernelBench evaluation for decision-making. The source of truth for baseline targets is the archived baseline information already resolved into the workspace and archive.
 
 ## Lock model
 
@@ -300,6 +335,6 @@ GPU leasing is based on the visible `CUDA_VISIBLE_DEVICES` view. The harness bin
 
 ## Aggregation
 
-`summarize-run` is an user-facing archive scanner.
+`summarize-run` is a user-facing archive scanner.
 
 Its job is to aggregate archived results for one `run_name` after the fact. It does not participate in solver execution. It exists so the harness has one built-in, archive-only aggregation path instead of pushing every result inspection into ad hoc notebooks.
