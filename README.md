@@ -111,10 +111,12 @@ HARDWARE_NAME=H100 \
 ### Submit the Slurm wrapper
 
 ```bash
-sbatch \
+ybatch \
   --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
   ./scripts/run_agent_problem.slurm.sh
 ```
+
+Use `sbatch` instead of `ybatch` on clusters that expose plain Slurm submission.
 
 
 ### Summarize one archived run

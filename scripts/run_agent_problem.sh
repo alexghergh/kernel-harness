@@ -14,6 +14,10 @@
 #   TIME_BUDGET_MINUTES=180
 #   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>
 #
+# Internal launcher policy like the workspace root, sandbox mode, and budget
+# watcher cadence is fixed in this script on purpose. Keep the public env surface
+# small and change those defaults in code when the harness behavior changes.
+#
 # Example:
 #   TOOL=codex RUN_NAME=kernelbench-codex-h100-v3 LEVEL=1 PROBLEM_ID=1 \
 #   MODEL=gpt-5-codex TIME_BUDGET_MINUTES=180 \
@@ -100,6 +104,38 @@ require_command() {
   fi
 }
 
+# Infer how many GPU slots the workspace should describe from the scheduler-visible
+# device set. This is documentation/control-plane metadata; runtime binding still
+# comes from the leased selector and CUDA_VISIBLE_DEVICES.
+visible_gpu_slot_count() {
+  local raw="${CUDA_VISIBLE_DEVICES:-}"
+  local trimmed entry count=0
+
+  if [[ -n "${SLURM_GPUS_ON_NODE:-}" && "${SLURM_GPUS_ON_NODE}" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "${SLURM_GPUS_ON_NODE}"
+    return
+  fi
+
+  if [[ -z "${raw}" ]]; then
+    printf '1\n'
+    return
+  fi
+
+  IFS=',' read -r -a entries <<< "${raw}"
+  for entry in "${entries[@]}"; do
+    trimmed="${entry#${entry%%[![:space:]]*}}"
+    trimmed="${trimmed%${trimmed##*[![:space:]]}}"
+    [[ -n "${trimmed}" ]] || continue
+    count=$((count + 1))
+  done
+
+  if (( count == 0 )); then
+    printf '1\n'
+  else
+    printf '%s\n' "${count}"
+  fi
+}
+
 # Resolve operator-facing launcher settings.
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
@@ -110,26 +146,25 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
 DEFAULT_MODEL="gpt-5-codex"
 if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="opus"
 fi
 
-RUN_NAME="${RUN_NAME:-${DEFAULT_RUN_NAME}}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
-NUM_GPUS="${NUM_GPUS:-1}"
 HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-${STATE_ROOT}/workspaces}"
-CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-workspace-write}"
-CODEX_SANDBOX_NETWORK_ACCESS="${CODEX_SANDBOX_NETWORK_ACCESS:-false}"
-CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-}"
-BUDGET_POLL_SECONDS="${BUDGET_POLL_SECONDS:-30}"
+
+WORKSPACE_ROOT="${STATE_ROOT}/workspaces"
+NUM_GPU_SLOTS="$(visible_gpu_slot_count)"
+CODEX_SANDBOX_MODE="workspace-write"
+CODEX_SANDBOX_NETWORK_ACCESS="false"
+BUDGET_POLL_SECONDS=30
 
 if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
   echo "KERNELBENCH_ROOT must point to the official KernelBench checkout." >&2
@@ -202,7 +237,7 @@ PREP_OUTPUT="$({
     --timings-dir "${KERNELBENCH_TIMINGS_DIR}" \
     --workspace-root "${WORKSPACE_ROOT}" \
     --hardware-name "${HARDWARE_NAME}" \
-    --num-gpus "${NUM_GPUS}" \
+    --num-gpus "${NUM_GPU_SLOTS}" \
     --tool "${TOOL}" \
     --model "${MODEL}" \
     --time-budget-minutes "${TIME_BUDGET_MINUTES}"
@@ -325,9 +360,6 @@ else
     --setting-sources project,local
     --model "${MODEL}"
   )
-  if [[ -n "${CLAUDE_PERMISSION_MODE}" ]]; then
-    CLAUDE_ARGS+=( --permission-mode "${CLAUDE_PERMISSION_MODE}" )
-  fi
   (
     cd "${WORKSPACE}" && claude "${CLAUDE_ARGS[@]}" \
       "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"

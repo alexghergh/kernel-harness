@@ -13,7 +13,7 @@ STATE_ROOT="${PROJECT_ROOT}/state"
 ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
 
 RUN_NAME="${RUN_NAME:-${1:-}}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-${STATE_ROOT}/workspaces}"
+WORKSPACE_ROOT="${STATE_ROOT}/workspaces"
 
 if [[ -z "${RUN_NAME}" ]]; then
   echo "Set RUN_NAME or pass it as the first argument." >&2

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=kernelbench-harness
+#YBATCH -r h100_1
 #SBATCH --gres=gpu:1
 #SBATCH --time=13:00:00
 #SBATCH --output=slurm-out/%x-%j.out
@@ -11,7 +12,9 @@
 # the batch environment.
 #
 # Example:
-#   sbatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+#   ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+#
+# Replace `ybatch` with `sbatch` on clusters that use plain Slurm submission.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,13 +31,12 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
 DEFAULT_MODEL="gpt-5-codex"
 if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="opus"
 fi
 
-RUN_NAME="${RUN_NAME:-${DEFAULT_RUN_NAME}}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_IDS="${PROBLEM_IDS:-}"
 START_PROBLEM_ID="${START_PROBLEM_ID:-1}"
@@ -43,7 +45,6 @@ MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 MODEL="${MODEL:-${DEFAULT_MODEL}}"
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
-NUM_GPUS="${NUM_GPUS:-${SLURM_GPUS_ON_NODE:-1}}"
 HARDWARE_NAME="${HARDWARE_NAME:-H100}"
 KERNELBENCH_ROOT="${KERNELBENCH_ROOT:?KERNELBENCH_ROOT must be set}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
@@ -57,7 +58,7 @@ if [[ "${TOOL}" == "codex" ]]; then
   fi
   if ! CODEX_HOME="${PROJECT_ROOT}/.codex" codex login status >/dev/null 2>&1; then
     echo "Codex is not logged in for CODEX_HOME=${PROJECT_ROOT}/.codex." >&2
-    echo "Run once before sbatch: CODEX_HOME=\"${PROJECT_ROOT}/.codex\" codex login --device-auth" >&2
+    echo "Run once before ybatch/sbatch: CODEX_HOME=\"${PROJECT_ROOT}/.codex\" codex login --device-auth" >&2
     exit 1
   fi
 else
@@ -81,7 +82,6 @@ MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS}" \
 DATASET_SRC="${DATASET_SRC}" \
 MODEL="${MODEL}" \
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES}" \
-NUM_GPUS="${NUM_GPUS}" \
 HARDWARE_NAME="${HARDWARE_NAME}" \
 KERNELBENCH_ROOT="${KERNELBENCH_ROOT}" \
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR}" \

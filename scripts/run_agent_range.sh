@@ -24,8 +24,7 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_RUN_NAME="kernelbench-${TOOL}-h100-v3"
-RUN_NAME="${RUN_NAME:-${DEFAULT_RUN_NAME}}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 RUN_STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
