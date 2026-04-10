@@ -1,3 +1,8 @@
+"""Collect small shared helpers used across commands, summaries, and trace handling.
+
+Keeping these primitives here avoids repeating JSON emission, numeric coercion, and tool-name normalization logic.
+"""
+
 from __future__ import annotations
 
 import json

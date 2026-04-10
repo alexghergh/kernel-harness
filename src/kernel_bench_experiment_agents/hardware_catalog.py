@@ -1,3 +1,8 @@
+"""Store the frozen hardware facts and markdown rendering used in each workspace.
+
+Workspace preparation resolves one named hardware spec here and propagates it into docs, metadata, and prompts.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

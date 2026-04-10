@@ -1,3 +1,8 @@
+"""Implement the trace-materialization command that normalizes raw Codex and Claude event streams.
+
+The launcher runs this after each solver session so later modules can read one common trace IR format.
+"""
+
 from __future__ import annotations
 
 import argparse

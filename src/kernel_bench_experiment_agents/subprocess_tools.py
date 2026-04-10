@@ -1,3 +1,8 @@
+"""Wrap subprocess execution and error serialization for measured run and profile commands.
+
+The rest of the harness uses these helpers to keep stdout/stderr capture and failure reporting uniform.
+"""
+
 from __future__ import annotations
 
 import json

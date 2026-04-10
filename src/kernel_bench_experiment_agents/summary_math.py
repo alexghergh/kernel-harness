@@ -1,3 +1,8 @@
+"""Collect small mathematical helpers used while computing archived-run summaries.
+
+Keeping these utilities separate keeps the reporting layer focused on structure instead of scalar math details.
+"""
+
 from __future__ import annotations
 
 import math

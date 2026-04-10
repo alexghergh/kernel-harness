@@ -1,3 +1,8 @@
+"""Wrap the official KernelBench loaders and evaluation helpers behind harness-friendly functions.
+
+The measured runner modules import this so the rest of the harness does not need to know KernelBench internals directly.
+"""
+
 from __future__ import annotations
 
 import importlib

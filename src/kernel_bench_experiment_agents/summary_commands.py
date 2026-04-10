@@ -1,3 +1,8 @@
+"""Expose the top-level archived-run summarization command.
+
+This command ties together scan and report helpers to produce one run-level JSON summary from durable artifacts.
+"""
+
 from __future__ import annotations
 
 import argparse

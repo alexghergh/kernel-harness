@@ -1,3 +1,8 @@
+"""Describe the solver-editable candidate file and its starter template.
+
+Workspace materialization imports this so every problem starts from the same candidate filename and scaffold.
+"""
+
 from __future__ import annotations
 
 import re

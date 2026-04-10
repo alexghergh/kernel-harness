@@ -1,3 +1,8 @@
+"""Define the durable archive file layout and helpers for reading archived problem manifests.
+
+Other modules use these paths when they need stable, cross-run locations instead of live workspace state.
+"""
+
 from __future__ import annotations
 
 import json

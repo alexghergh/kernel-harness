@@ -1,3 +1,8 @@
+"""Scan archived problem directories and collect the raw inputs needed for run-level summaries.
+
+The reporting layer depends on these helpers to traverse the archive without touching live workspace state.
+"""
+
 from __future__ import annotations
 
 import json

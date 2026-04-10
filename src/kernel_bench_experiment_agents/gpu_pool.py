@@ -1,3 +1,8 @@
+"""Manage GPU-slot and per-problem artifact leases for run and profile commands.
+
+The launcher and measurement commands depend on these helpers to serialize archive writes and bind work to one visible GPU.
+"""
+
 from __future__ import annotations
 
 import fcntl

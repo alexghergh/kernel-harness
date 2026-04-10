@@ -1,3 +1,8 @@
+"""Summarize measured candidate attempts against the archived eager and compile baselines.
+
+Goal status, completion payloads, and run summaries all use these helpers when they need best-result comparisons.
+"""
+
 from __future__ import annotations
 
 import json

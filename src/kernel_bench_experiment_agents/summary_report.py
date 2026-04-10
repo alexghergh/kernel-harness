@@ -1,3 +1,8 @@
+"""Assemble the final per-run summary payload from scanned archived problem results.
+
+This module sits above summary scanning and math helpers to produce the durable run-level report written into archive/.
+"""
+
 from __future__ import annotations
 
 from typing import Any

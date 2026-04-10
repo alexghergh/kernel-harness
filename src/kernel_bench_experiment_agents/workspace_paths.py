@@ -1,3 +1,8 @@
+"""Resolve live workspace paths and read the generated workspace metadata files.
+
+Run, profile, status, and completion commands all use these helpers to verify they are operating on the assigned workspace.
+"""
+
 from __future__ import annotations
 
 import json

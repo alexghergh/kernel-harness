@@ -1,3 +1,8 @@
+"""Perform lightweight static validation on candidate source before the harness executes it.
+
+The run and profile paths use this to reject obviously unsafe or malformed candidates early.
+"""
+
 from __future__ import annotations
 
 import ast

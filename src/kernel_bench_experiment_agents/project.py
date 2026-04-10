@@ -1,3 +1,8 @@
+"""Provide repository-root path resolution plus the small file and directory helpers used everywhere.
+
+Almost every other module imports these helpers to keep path conventions and write behavior consistent.
+"""
+
 from __future__ import annotations
 
 import json

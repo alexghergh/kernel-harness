@@ -1,3 +1,8 @@
+"""Launch the actual KernelBench evaluation for one frozen candidate snapshot.
+
+The higher-level run command shells out to this module so the measured subprocess stays small and isolated.
+"""
+
 from __future__ import annotations
 
 import argparse

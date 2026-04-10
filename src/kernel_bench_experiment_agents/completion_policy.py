@@ -1,3 +1,8 @@
+"""Compute derived completion fields such as measured outcomes and audit annotations.
+
+Status-writing commands call into this module so completion payload semantics stay consistent across solver and launcher exits.
+"""
+
 from __future__ import annotations
 
 from typing import Any

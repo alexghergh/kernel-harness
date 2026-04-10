@@ -1,3 +1,8 @@
+"""Define the normalized trace event representation shared across agent backends.
+
+Trace commands parse vendor-specific raw events into this common IR before analysis and audit happen.
+"""
+
 from __future__ import annotations
 
 """Normalize raw Codex and Claude CLI traces into a shared IR.
