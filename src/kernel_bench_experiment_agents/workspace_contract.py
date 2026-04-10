@@ -1,65 +1,24 @@
+"""Build the solver-visible workspace contract and markdown docs for one problem.
+
+Workspace materialization uses these renderers to turn typed metadata and shared policy into the files the agent actually reads.
+"""
+
 from __future__ import annotations
 
 from typing import Any
 
-from .agent_specs import HELPER_SPECS
 from .candidate_contract import CANDIDATE_FILENAME
-
-ALLOWED_WEB_DOMAINS = ["docs.nvidia.com"]
-SOLVER_TERMINAL_STATES = ["done", "harness_failure"]
-LAUNCHER_TERMINAL_STATES = ["budget_exhausted", "failed_to_generate"]
-WORKSPACE_COMMANDS = [
-    {
-        "name": "hardware_info",
-        "path": "./bin/hardware_info.sh",
-        "gpu": False,
-        "purpose": "print frozen hardware facts for this workspace",
-    },
-    {
-        "name": "run_candidate",
-        "path": "./bin/run_candidate.sh",
-        "gpu": True,
-        "purpose": "evaluate correctness and runtime for the current candidate",
-    },
-    {
-        "name": "profile_ncu",
-        "path": "./bin/profile_ncu.sh",
-        "gpu": True,
-        "purpose": "profile the current candidate with Nsight Compute",
-    },
-    {
-        "name": "goal_status",
-        "path": "./bin/goal_status.sh",
-        "gpu": False,
-        "purpose": "refresh and print live goal status",
-    },
-    {
-        "name": "best_result",
-        "path": "./bin/best_result.sh",
-        "gpu": False,
-        "purpose": "print the best measured correct result so far",
-    },
-    {
-        "name": "finish_problem",
-        "path": "./bin/complete_problem.sh",
-        "gpu": False,
-        "purpose": "record a terminal solver state",
-    },
-]
-WORKSPACE_STANDING_ORDERS = [
-    "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
-    "Do not ask whether to proceed. Pick the next reasonable action yourself.",
-    "Do not end with a plain assistant message. The only valid exit is ./bin/complete_problem.sh.",
-    "After every measured run or profile, re-read GOAL_STATUS.md and keep iterating if it still says UNRESOLVED.",
-    "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
-]
-WORKSPACE_STUCK_PROTOCOL = [
-    "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
-    "Run ./bin/profile_ncu.sh if you do not already have profiling for the current idea.",
-    "Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed.",
-    "Use hosted web search only for docs.nvidia.com when you need CUDA or hardware guidance.",
-    "Make a new implementation plan and continue without asking the user for permission.",
-]
+from .policy_model import (
+    ALLOWED_WEB_DOMAINS,
+    HELPER_SPECS,
+    LAUNCHER_TERMINAL_STATES,
+    SOLVER_TERMINAL_STATES,
+    WORKSPACE_COMMAND_SPECS,
+    WORKSPACE_EDIT_PATHS,
+    WORKSPACE_READ_PATHS,
+    WORKSPACE_STANDING_ORDERS,
+    WORKSPACE_STUCK_PROTOCOL,
+)
 
 
 def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -74,23 +33,19 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
             "num_gpus": metadata.get("num_gpus"),
             "time_budget_minutes": metadata.get("time_budget_minutes"),
             "model": metadata.get("model"),
+            "precision": metadata.get("precision", "bf16"),
         },
-        "reads": [
-            "AGENTS.md",
-            "SPEC.md",
-            "HARDWARE.md",
-            "GOAL_STATUS.md",
-            "goal_status.json",
-            "hardware.json",
-            "workspace_contract.json",
-            "problem.json",
-            "problem_reference.py",
-            CANDIDATE_FILENAME,
-            "samples/",
-            "profiles/",
+        "reads": list(WORKSPACE_READ_PATHS),
+        "edits": list(WORKSPACE_EDIT_PATHS),
+        "wrapper_commands": [
+            {
+                "name": spec.name,
+                "path": spec.path,
+                "gpu": spec.uses_gpu,
+                "purpose": spec.purpose,
+            }
+            for spec in WORKSPACE_COMMAND_SPECS
         ],
-        "edits": [CANDIDATE_FILENAME],
-        "wrapper_commands": WORKSPACE_COMMANDS,
         "helper_agents": [spec.name for spec in HELPER_SPECS],
         "behavior": {
             "independent_execution": True,
@@ -100,18 +55,21 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
             "stuck_protocol": list(WORKSPACE_STUCK_PROTOCOL),
         },
         "web": {
-            "allowed_domains": ALLOWED_WEB_DOMAINS,
+            "allowed_domains": list(ALLOWED_WEB_DOMAINS),
             "shell_network_forbidden": True,
         },
-        "solver_terminal_states": SOLVER_TERMINAL_STATES,
-        "launcher_terminal_states": LAUNCHER_TERMINAL_STATES,
+        "solver_terminal_states": list(SOLVER_TERMINAL_STATES),
+        "launcher_terminal_states": list(LAUNCHER_TERMINAL_STATES),
     }
 
 
+# These markdown renderers are the solver-facing contract for a prepared workspace,
+# so they must stay aligned with the wrapper interface and runtime policy.
 def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
     assignment = contract["assignment"]
     behavior = contract.get("behavior") or {}
     helper_names = ", ".join(f"`{name}`" for name in contract.get("helper_agents", []))
+    precision = assignment.get("precision") or "bf16"
     lines = [
         "# Solver Instructions",
         "",
@@ -127,6 +85,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         f"- reported GPU name: `{assignment.get('gpu_name') or 'not provided'}`",
         f"- available GPU slots for wrapper execution: `{assignment.get('num_gpus')}`",
         f"- total solver budget: `{assignment.get('time_budget_minutes')}` minutes",
+        f"- judged precision path: `{precision}`",
         "",
         "Read order:",
         "",
@@ -144,7 +103,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "- do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas",
         "- use `problem_reference.py` as the problem reference",
         f"- edit only `{CANDIDATE_FILENAME}` for the candidate solution, and only inside its marked editable blocks",
-        "- the judged path is `bf16`; internal mixed precision is allowed only if the final candidate still passes the `bf16` correctness checks",
+        f"- the judged path is `{precision}`; internal mixed precision is allowed only if the final candidate still passes the `{precision}` correctness checks",
         "",
         "Allowed wrapper commands:",
         "",
@@ -156,7 +115,8 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "Wrapper argument policy:",
         "",
         "- treat `./bin/hardware_info.sh`, `./bin/run_candidate.sh`, `./bin/profile_ncu.sh`, `./bin/goal_status.sh`, and `./bin/best_result.sh` as fixed commands with no solver-supplied flags",
-        "- `./bin/complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--state` plus `--summary`",
+        "- `./bin/complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--summary`",
+        "- `./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust them and wait for them to return instead of treating them as hung",
         "",
         "Allowed reads:",
         "",
@@ -179,11 +139,10 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Completion:",
         "",
-        "- the solver may terminate only through `./bin/complete_problem.sh`",
-        "- valid solver-written terminal states are:",
-        *[f"  - `{state}`" for state in contract["solver_terminal_states"]],
-        "- `./bin/complete_problem.sh --state done --summary \"...\"` means \"I am done; the harness will infer the measured baseline outcome from actual artifacts\"",
+        "- the solver may terminate only through `./bin/complete_problem.sh --summary \"...\"`",
+        "- solver-written completion is always recorded as `done`; the harness infers the measured outcome from actual artifacts",
         "- `budget_exhausted` and `failed_to_generate` are launcher-only states",
+        "- post-hoc harness invalidation is handled by archive policy, not by solver-supplied `--state` flags",
         "- do not end with a plain assistant message",
         "",
         "Standing orders:",
@@ -215,6 +174,7 @@ def render_workspace_spec_md(
     baseline: dict[str, Any],
     hardware_markdown_name: str,
 ) -> str:
+    precision = metadata.get("precision", "bf16")
     lines = [
         "# Orders",
         "",
@@ -228,7 +188,7 @@ def render_workspace_spec_md(
         "- the strongest outcome is to beat both baselines with one correct candidate",
         f"- optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}`",
         "- the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; vendor-library wrappers, Triton, and ATen compute helpers are forbidden",
-        "- correctness and runtime are evaluated on the harness `bf16` path",
+        f"- correctness and runtime are evaluated on the harness `{precision}` path",
         "",
         "## Autonomy",
         "",
@@ -239,17 +199,16 @@ def render_workspace_spec_md(
         "",
         "## Termination",
         "",
-        "The only valid exit path is `./bin/complete_problem.sh`.",
+        "The only valid exit path is `./bin/complete_problem.sh --summary \"...\"`.",
         "",
-        "Solver-written terminal states:",
+        "Solver-written completion:",
         "",
-        "- `done` — you believe the current search is complete; the harness will infer whether you beat eager, compile, both, or neither from measured artifacts",
-        "- `harness_failure` — the environment or harness is broken in a way that blocks truthful progress",
+        "- use `./bin/complete_problem.sh --summary \"...\"` when you believe the current search is complete",
+        "- the harness records that as `done` and infers whether you beat eager, compile, both, or neither from measured artifacts",
         "",
         "Launcher-only terminal states:",
         "",
-        "- `budget_exhausted`",
-        "- `failed_to_generate`",
+        *[f"- `{state}`" for state in LAUNCHER_TERMINAL_STATES],
         "",
         "## Loop",
         "",
@@ -260,6 +219,7 @@ def render_workspace_spec_md(
         "5. Repeat until `./bin/complete_problem.sh` is justified.",
         "",
         "All wrappers other than `./bin/complete_problem.sh` are fixed commands. Do not pass alternate paths, run ids, or extra control flags to them.",
+        "`./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust them and wait for the wrapper result instead of treating them as hung.",
         "",
         "## Budget and status",
         "",
@@ -284,6 +244,7 @@ def render_workspace_spec_md(
 
 def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any]) -> str:
     assignment = contract["assignment"]
+    precision = assignment.get("precision") or "bf16"
     lines = [
         "Optimize exactly one problem.",
         "",
@@ -295,12 +256,14 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
         f"- eager baseline: {baseline['eager']['runtime_ms']} ms",
         f"- compile baseline: {baseline['compile']['runtime_ms']} ms",
         f"- total solver budget: {assignment.get('time_budget_minutes')} minutes",
+        f"- judged precision path: {precision}",
         "",
         "Start by reading `AGENTS.md`, then `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md`.",
         f"Stay inside this workspace. Only edit `{CANDIDATE_FILENAME}`. Use only the local `./bin/*.sh` wrapper commands. Treat every wrapper except `./bin/complete_problem.sh` as a fixed command with no extra flags.",
         "Work independently. There is no user approval step in this run. Do not ask for permission, confirmation, or whether to continue.",
         "If a strategy fails, re-read the docs, profile when useful, consult allowed NVIDIA docs when needed, and start the next strategy yourself.",
-        "Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --state done --summary \"...\"` or, if the harness is genuinely broken, `./bin/complete_problem.sh --state harness_failure --summary \"...\"`.",
+        "`./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust the wrapper output and wait for them to finish.",
+        "Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --summary \"...\"`.",
         "The harness will infer the measured outcome from the recorded runs.",
     ]
     return "\n".join(lines) + "\n"

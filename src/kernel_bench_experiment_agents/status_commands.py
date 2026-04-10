@@ -1,3 +1,8 @@
+"""Implement status, best-result, and completion commands for one problem workspace.
+
+These commands are the bridge between solver-visible wrappers and the durable completion artifacts written into the archive.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -7,9 +12,9 @@ from .common import emit_json, normalize_tool_name
 from .completion_policy import annotate_completion_outcomes, infer_measured_outcome
 from .goal_status import write_goal_status_files
 from .gpu_pool import lease_problem_artifacts
+from .policy_model import SOLVER_TERMINAL_STATES
 from .project import artifact_agent_dir, now_iso, write_json, write_text
 from .run_metrics import best_correct_payload
-from .workspace_contract import SOLVER_TERMINAL_STATES
 from .workspace_paths import (
     validate_workspace_assignment,
     workspace_candidate_path,
@@ -28,6 +33,8 @@ def command_best_result(args: argparse.Namespace) -> None:
     emit_json(best_payload)
 
 
+# Goal status is regenerated under the per-problem artifact lock so the solver sees
+# the latest measured state before it decides whether to continue or complete.
 def command_goal_status(args: argparse.Namespace) -> None:
     workspace = workspace_path(args.workspace)
     validate_workspace_assignment(
@@ -51,7 +58,12 @@ def command_goal_status(args: argparse.Namespace) -> None:
     emit_json(snapshot)
 
 
-def command_complete_problem(args: argparse.Namespace) -> None:
+def _write_completion_payload(
+    *,
+    args: argparse.Namespace,
+    terminal_state: str,
+    summary: str,
+) -> dict[str, object]:
     workspace = workspace_path(args.workspace)
     metadata = validate_workspace_assignment(
         workspace,
@@ -86,11 +98,11 @@ def command_complete_problem(args: argparse.Namespace) -> None:
             "level": args.level,
             "problem_id": args.problem_id,
             "tool": tool,
-            "solver_state": args.state if args.state in SOLVER_TERMINAL_STATES else None,
-            "terminal_state": args.state,
+            "solver_state": terminal_state if terminal_state in SOLVER_TERMINAL_STATES else None,
+            "terminal_state": terminal_state,
             "measured_outcome": measured_outcome,
             "success": measured_outcome == "beats_both",
-            "summary": args.summary,
+            "summary": summary,
             "goal_status": snapshot,
         }
         payload = annotate_completion_outcomes(payload)
@@ -103,4 +115,22 @@ def command_complete_problem(args: argparse.Namespace) -> None:
                 / "candidate_final.py",
                 candidate_path.read_text(encoding="utf-8"),
             )
-    emit_json(payload)
+    return payload
+
+
+# Solver completion is intentionally summary-only: the agent may report that it is
+# done, but launcher-only states such as budget exhaustion are recorded elsewhere.
+def command_complete_problem(args: argparse.Namespace) -> None:
+    emit_json(_write_completion_payload(args=args, terminal_state="done", summary=args.summary))
+
+
+# Launcher completion keeps the explicit terminal state surface needed for budget
+# exhaustion and other non-solver endings.
+def command_record_launcher_completion(args: argparse.Namespace) -> None:
+    emit_json(
+        _write_completion_payload(
+            args=args,
+            terminal_state=args.state,
+            summary=args.summary,
+        )
+    )

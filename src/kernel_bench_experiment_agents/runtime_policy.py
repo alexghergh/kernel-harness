@@ -1,18 +1,23 @@
+"""Render repo-owned Codex and Claude runtime configs from the shared harness policy.
+
+The launcher regenerates these files so vendor-specific settings stay synchronized with the canonical Python policy model.
+"""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+from .policy_model import ALLOWED_WEB_DOMAINS
 from .project import ensure_dir, write_text
 
-ALLOWED_DOC_DOMAINS = ("docs.nvidia.com",)
-
-# Claude and Codex expose different settings surfaces. This module defines the
-# intended runtime policy once and renders the closest native configuration for each.
+# Claude and Codex expose different settings surfaces. This module renders the
+# native tool configs from the shared typed harness policy.
 
 
 def render_codex_config() -> str:
-    allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_DOC_DOMAINS)
+    """Render the repo-owned Codex config that the launcher copies into isolated runtime homes."""
+    allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
     return (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
         'personality = "pragmatic"\n'
@@ -23,6 +28,8 @@ def render_codex_config() -> str:
         'web_search = "live"\n'
         'project_doc_max_bytes = 65536\n'
         'model_auto_compact_token_limit = 240000\n\n'
+        '[features]\n'
+        'unified_exec = false\n\n'
         '[agents]\n'
         'max_threads = 6\n'
         'max_depth = 1\n\n'
@@ -34,12 +41,13 @@ def render_codex_config() -> str:
 
 
 def claude_settings_payload() -> dict[str, object]:
+    """Build the project-level Claude settings payload from the shared allowed-domain policy."""
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
         "disableBypassPermissionsMode": "disable",
         "permissions": {
             "allow": [
-                *(f"WebFetch(domain:{domain})" for domain in ALLOWED_DOC_DOMAINS),
+                *(f"WebFetch(domain:{domain})" for domain in ALLOWED_WEB_DOMAINS),
             ],
             "deny": [
                 "Read(./.env)",
@@ -91,7 +99,7 @@ def claude_settings_payload() -> dict[str, object]:
                 ],
             },
             "network": {
-                "allowedDomains": list(ALLOWED_DOC_DOMAINS),
+                "allowedDomains": list(ALLOWED_WEB_DOMAINS),
             },
         },
     }

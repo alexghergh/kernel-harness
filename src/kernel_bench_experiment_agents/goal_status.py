@@ -1,3 +1,8 @@
+"""Build and render the live per-problem goal status that the solver re-reads after each step.
+
+This module bridges archived attempts, profiler outputs, and live trace counts back into workspace-facing status files.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -59,6 +64,7 @@ def goal_status_snapshot(
     problem_id: int,
     workspace: Path,
 ) -> dict[str, Any]:
+    """Collect the current archived measurements and trace-derived activity into one live snapshot."""
     metadata = load_workspace_metadata(workspace)
     baseline = load_workspace_baseline(workspace)
     entries = sample_manifest_entries(run_name, level, problem_id)
@@ -116,7 +122,7 @@ def goal_status_snapshot(
     recommended_actions = []
     if resolved:
         recommended_actions.append(
-            "Re-check SPEC.md once, then end via ./bin/complete_problem.sh --state done --summary 'both baselines beaten'."
+            "Re-check SPEC.md once, then end via ./bin/complete_problem.sh --summary 'both baselines beaten'."
         )
     else:
         recommended_actions.extend(
@@ -124,7 +130,8 @@ def goal_status_snapshot(
                 "Keep iterating until both baselines are beaten or another truthful terminal state is justified.",
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
                 "Use ./bin/profile_ncu.sh when stuck; read profiles/latest.summary.txt first.",
-                "Do not end with a plain assistant message. The only valid exit path is ./bin/complete_problem.sh.",
+                "Do not end with a plain assistant message. The only valid exit path is ./bin/complete_problem.sh --summary ...",
+                "./bin/run_candidate.sh and ./bin/profile_ncu.sh may take a while; wait for the wrapper result instead of treating them as hung.",
             ]
         )
 
@@ -173,6 +180,7 @@ def goal_status_snapshot(
 
 
 def goal_status_markdown(snapshot: dict[str, Any]) -> str:
+    """Render the live goal-status markdown that the solver re-reads during the loop."""
     best_runtime = snapshot.get("best_correct_runtime_ms")
     eager_baseline = snapshot.get("eager_baseline_ms")
     compile_baseline = snapshot.get("compile_baseline_ms")
@@ -198,12 +206,13 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Wrapper commands are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
             "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
             "- The budget clock is wall time since workspace creation minus recorded GPU wait time. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
-            "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh`.",
+            "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh --summary ...`.",
+            "- `./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; wait for the wrapper result instead of treating them as hung.",
         ]
     else:
         heading = "# Goal Status: RESOLVED — both baselines beaten; complete with success"
         standing_orders = [
-            "- Re-check `SPEC.md` once, then end through `./bin/complete_problem.sh --state done --summary 'both baselines beaten'.",
+            "- Re-check `SPEC.md` once, then end through `./bin/complete_problem.sh --summary 'both baselines beaten'.",
         ]
 
     if remaining_minutes is None:

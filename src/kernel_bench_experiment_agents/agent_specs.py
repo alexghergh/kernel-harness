@@ -1,67 +1,15 @@
+"""Render helper-agent specs for Codex and Claude from the shared harness policy.
+
+These files sit beside the generated workspace docs so helper agents inherit the same narrow surface as the main solver.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
+from .policy_model import HELPER_SPECS, HelperAgentSpec
 from .project import write_text
-
-
-@dataclass(frozen=True)
-class HelperAgentSpec:
-    name: str
-    description: str
-    shell_commands: tuple[str, ...]
-    read_paths: tuple[str, ...]
-    summary_focus: str
-
-
-HELPER_SPECS = (
-    HelperAgentSpec(
-        name="runner",
-        description=(
-            "Execution-focused helper for one assigned optimization problem. "
-            "Use proactively to run ./bin/run_candidate.sh and summarize results without polluting the main context."
-        ),
-        shell_commands=("./bin/run_candidate.sh", "./bin/goal_status.sh"),
-        read_paths=(
-            "AGENTS.md",
-            "SPEC.md",
-            "HARDWARE.md",
-            "GOAL_STATUS.md",
-            "goal_status.json",
-            "problem_reference.py",
-            "candidate_model_new.py",
-            "samples/",
-            "samples/best_result.json",
-        ),
-        summary_focus=(
-            "Return a compact summary covering correctness failures, compiler failures, runtime measurements, the current best sample, and the most likely next implementation branch."
-        ),
-    ),
-    HelperAgentSpec(
-        name="profiler",
-        description=(
-            "Profiling helper for one assigned optimization problem. "
-            "Use proactively to run ./bin/profile_ncu.sh and summarize bottlenecks and likely next steps."
-        ),
-        shell_commands=("./bin/profile_ncu.sh", "./bin/goal_status.sh"),
-        read_paths=(
-            "AGENTS.md",
-            "SPEC.md",
-            "HARDWARE.md",
-            "GOAL_STATUS.md",
-            "problem_reference.py",
-            "candidate_model_new.py",
-            "profiles/latest.summary.txt",
-            "profiles/latest.details.txt",
-        ),
-        summary_focus=(
-            "Return short, actionable summaries focused on bottlenecks, dominant kernels, occupancy, memory behavior, and the most promising next optimization directions."
-        ),
-    ),
-)
-
 
 
 def _codex_agent_toml(spec: HelperAgentSpec) -> str:
@@ -80,6 +28,7 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         Use normal file reads only for {read_list}.
         Do not inspect unrelated files or wander outside the current workspace.
         Do not use ad hoc shell commands to inspect directories or parse files.
+        If one of the allowed wrappers is slow, wait for it to finish instead of trying to inspect processes or the GPU.
         Do not edit any files.
         Work independently: do not ask the user or the main agent for permission to proceed once assigned.
         When finished, return only a concise actionable summary; do not ask follow-up questions.
@@ -110,6 +59,7 @@ def _claude_agent_md(spec: HelperAgentSpec) -> str:
         Use `Read` only for {read_list}.
         Do not inspect unrelated files or wander outside the current workspace.
         Do not use shell commands or Python snippets to inspect profiler outputs or parse files.
+        If one of the allowed wrappers is slow, wait for it to finish instead of trying to inspect processes or the GPU.
         Do not edit any files.
         Work independently: do not ask the user or the main agent for permission to proceed once assigned.
         When finished, return only a concise actionable summary; do not ask follow-up questions.

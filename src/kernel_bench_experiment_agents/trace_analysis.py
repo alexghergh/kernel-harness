@@ -1,3 +1,8 @@
+"""Analyze normalized solver traces into counts, audits, and cost summaries.
+
+Goal status, completion audit, and run reporting all depend on this module once raw tool traces have been normalized.
+"""
+
 from __future__ import annotations
 
 import re
@@ -6,20 +11,11 @@ from typing import Any
 
 from .candidate_contract import CANDIDATE_FILENAME
 from .common import as_float, normalize_tool_name
+from .policy_model import ALLOWED_WEB_DOMAINS, GPU_WRAPPER_PATHS, WORKSPACE_WRAPPER_TRACE_KEYS
 
-_ALLOWED_WEB_SEARCH_HOSTS = ("docs.nvidia.com",)
-_WORKSPACE_WRAPPER_NAMES = {
-    "./bin/hardware_info.sh": "hardware_info_calls",
-    "./bin/run_candidate.sh": "run_candidate_calls",
-    "./bin/profile_ncu.sh": "profile_ncu_calls",
-    "./bin/goal_status.sh": "goal_status_calls",
-    "./bin/best_result.sh": "best_result_calls",
-    "./bin/complete_problem.sh": "complete_problem_calls",
-}
-_GPU_WRAPPER_PREFIXES = (
-    "./bin/run_candidate.sh",
-    "./bin/profile_ncu.sh",
-)
+_ALLOWED_WEB_SEARCH_HOSTS = ALLOWED_WEB_DOMAINS
+_WORKSPACE_WRAPPER_NAMES = WORKSPACE_WRAPPER_TRACE_KEYS
+_GPU_WRAPPER_PREFIXES = GPU_WRAPPER_PATHS
 _FORBIDDEN_INSPECTION_MARKERS = (
     ".ptx",
     ".cubin",

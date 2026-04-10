@@ -1,3 +1,5 @@
+"""Render the small shell wrappers that expose the harness CLI inside a workspace."""
+
 from __future__ import annotations
 
 import shlex
@@ -42,6 +44,7 @@ def generate_run_wrapper(
     problem_id: int,
     dataset_src: str,
     num_gpus: int,
+    precision: str,
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
@@ -53,6 +56,7 @@ def generate_run_wrapper(
         f'  --dataset-src {shlex.quote(dataset_src)}',
         '  --workspace "${WORKSPACE}"',
         f'  --num-gpu-slots {num_gpus}',
+        f'  --precision {shlex.quote(precision)}',
     ]
     return common + shell_multiline_command(command_lines) + (
         'echo ">>> Read GOAL_STATUS.md now. If it still says UNRESOLVED, choose the next action yourself and keep iterating."\n'
@@ -66,6 +70,7 @@ def generate_profile_wrapper(
     problem_id: int,
     dataset_src: str,
     num_gpus: int,
+    precision: str,
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
@@ -77,6 +82,7 @@ def generate_profile_wrapper(
         f'  --dataset-src {shlex.quote(dataset_src)}',
         '  --workspace "${WORKSPACE}"',
         f'  --num-gpu-slots {num_gpus}',
+        f'  --precision {shlex.quote(precision)}',
     ]
     return common + shell_multiline_command(command_lines) + (
         'echo ">>> Read profiles/latest.summary.txt first, then GOAL_STATUS.md, then pick the next optimization step yourself."\n'
@@ -115,48 +121,32 @@ def generate_complete_wrapper(*, run_name: str, level: int, problem_id: int) -> 
     common = workspace_wrapper_common()
     validation = dedent(
         """
-        STATE=""
+        HAVE_SUMMARY=false
         while [[ $# -gt 0 ]]; do
           case "$1" in
-            --state)
-              shift
-              if [[ $# -eq 0 ]]; then
-                echo "complete_problem.sh: --state requires a value" >&2
-                exit 2
-              fi
-              STATE="$1"
-              ;;
-            --state=*)
-              STATE="${1#--state=}"
-              ;;
             --summary)
               shift
               if [[ $# -eq 0 ]]; then
                 echo "complete_problem.sh: --summary requires a value" >&2
                 exit 2
               fi
+              HAVE_SUMMARY=true
               ;;
             --summary=*)
+              HAVE_SUMMARY=true
               ;;
             *)
-              echo "complete_problem.sh only accepts --state and --summary" >&2
+              echo "complete_problem.sh only accepts --summary" >&2
               exit 2
               ;;
           esac
           shift
         done
 
-        case "${STATE}" in
-          done|harness_failure) ;;
-          "")
-            echo "complete_problem.sh requires --state done or --state harness_failure" >&2
-            exit 2
-            ;;
-          *)
-            echo "complete_problem.sh only accepts --state done or --state harness_failure" >&2
-            exit 2
-            ;;
-        esac
+        if [[ "${HAVE_SUMMARY}" != true ]]; then
+          echo "complete_problem.sh requires --summary" >&2
+          exit 2
+        fi
         """
     ).lstrip()
     command_lines = [
@@ -178,6 +168,7 @@ def write_default_workspace_wrappers(
     problem_id: int,
     dataset_src: str,
     num_gpus: int,
+    precision: str,
 ) -> list[Path]:
     wrappers = {
         "run_candidate.sh": generate_run_wrapper(
@@ -186,6 +177,7 @@ def write_default_workspace_wrappers(
             problem_id=problem_id,
             dataset_src=dataset_src,
             num_gpus=num_gpus,
+            precision=precision,
         ),
         "profile_ncu.sh": generate_profile_wrapper(
             run_name=run_name,
@@ -193,6 +185,7 @@ def write_default_workspace_wrappers(
             problem_id=problem_id,
             dataset_src=dataset_src,
             num_gpus=num_gpus,
+            precision=precision,
         ),
         "hardware_info.sh": generate_hardware_info_wrapper(),
         "goal_status.sh": generate_goal_status_wrapper(
