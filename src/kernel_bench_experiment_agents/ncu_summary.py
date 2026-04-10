@@ -1,7 +1,9 @@
 """Build a compact solver-facing Nsight Compute summary from the raw CSV export.
 
-The harness profiles with the full NCU set, but this reducer keeps the text promptable by
-highlighting the most actionable counters plus a CudaForge-style reference subset.
+The harness still profiles with the configured NCU section set, but this reducer keeps the
+solver-visible summary promptable by highlighting the most actionable counters. We intentionally
+keep the summary smaller than CudaForge's full 24-metric judge input while borrowing a few extra
+cache, bandwidth, and occupancy signals that are genuinely useful for diagnosing common bottlenecks.
 """
 
 from __future__ import annotations
@@ -15,79 +17,11 @@ from .common import as_float
 # - Profiling Guide: https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html
 # - CLI Reference / metric naming: https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html
 #
-# The summary intentionally stays much smaller than the raw export, but it now also
-# exposes the exact CudaForge-style 24-metric subset when those counters are present
-# in the raw CSV. This keeps the agent focused without discarding common judge signals.
+# We keep the solver-facing summary compact on purpose. Cache hit rates, DRAM bytes/s, and
+# launch occupancy limiters help distinguish locality problems, bandwidth saturation, and
+# resource-cap bottlenecks, while the dedicated warp-stall section below already exposes the
+# most actionable latency, sync, and dependency signals when those counters are present.
 
-CUDAFORGE_METRIC_GROUPS = (
-    (
-        "CudaForge reference: execution and occupancy",
-        (
-            ("SM cycles active", "sm__cycles_active.avg"),
-            ("achieved occupancy", "sm__warps_active.avg.pct_of_peak_sustained_active"),
-            ("block limit by blocks", "launch__occupancy_limit_blocks"),
-            ("block limit by registers", "launch__occupancy_limit_registers"),
-            ("block limit by shared memory", "launch__occupancy_limit_shared_mem"),
-            ("registers per thread", "launch__registers_per_thread"),
-            ("instructions executed", "sm__inst_executed.sum"),
-            (
-                "FP32 pipe utilization",
-                "sm__inst_executed_pipe_fp32.avg.pct_of_peak_sustained_active",
-            ),
-            (
-                "tensor pipe utilization",
-                "sm__inst_executed_pipe_tensor.avg.pct_of_peak_sustained_active",
-            ),
-            (
-                "branch target uniformity",
-                "smsp__sass_average_branch_targets_threads_uniform.pct",
-            ),
-        ),
-    ),
-    (
-        "CudaForge reference: memory system",
-        (
-            ("DRAM bytes read", "dram__bytes_read.sum"),
-            ("DRAM bytes written", "dram__bytes_write.sum"),
-            ("DRAM throughput", "dram__throughput.avg.pct_of_peak_sustained_elapsed"),
-            ("DRAM bytes per second", "dram__bytes.sum.per_second"),
-            ("GPU DRAM throughput", "gpu__dram_throughput.avg.pct_of_peak_sustained_elapsed"),
-            ("L1/TEX hit rate", "l1tex__t_sector_hit_rate.pct"),
-            ("L1/TEX throughput", "l1tex__throughput.avg.pct_of_peak_sustained_active"),
-            ("L2 hit rate", "lts__t_sector_hit_rate.pct"),
-            ("L2 throughput", "lts__throughput.avg.pct_of_peak_sustained_active"),
-        ),
-    ),
-    (
-        "CudaForge reference: dominant stalls",
-        (
-            (
-                "stall: memory dependency",
-                "smsp__warp_issue_stalled_memory_dependency_per_warp_active.pct",
-            ),
-            (
-                "stall: short scoreboard",
-                "smsp__warp_issue_stalled_short_scoreboard_per_warp_active.pct",
-            ),
-            (
-                "stall: long scoreboard",
-                "smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct",
-            ),
-            (
-                "stall: barrier",
-                "smsp__warp_issue_stalled_barrier_per_warp_active.pct",
-            ),
-            (
-                "stall: branch resolving",
-                "smsp__warp_issue_stalled_branch_resolving_per_warp_active.pct",
-            ),
-        ),
-    ),
-)
-
-
-# The first section stays short and architecture-agnostic so the agent can skim it
-# before diving into the fuller CudaForge-aligned subset below.
 KEY_METRIC_GROUPS = (
     (
         "Key performance metrics",
@@ -103,21 +37,24 @@ KEY_METRIC_GROUPS = (
         ),
     ),
     (
-        "Memory and shared-memory indicators",
+        "Memory and cache indicators",
         (
-            ("L1/TEX throughput", "l1tex__throughput.avg.pct_of_peak_sustained_active"),
-            ("L2 throughput", "lts__throughput.avg.pct_of_peak_sustained_active"),
             ("DRAM throughput", "dram__throughput.avg.pct_of_peak_sustained_elapsed"),
+            ("DRAM bytes per second", "dram__bytes.sum.per_second"),
+            ("L1/TEX hit rate", "l1tex__t_sector_hit_rate.pct"),
+            ("L1/TEX throughput", "l1tex__throughput.avg.pct_of_peak_sustained_active"),
+            ("L2 hit rate", "lts__t_sector_hit_rate.pct"),
+            ("L2 throughput", "lts__throughput.avg.pct_of_peak_sustained_active"),
+        ),
+    ),
+    (
+        "Shared-memory and occupancy limiters",
+        (
             ("shared-memory conflict n-way", "derived__memory_l1_conflicts_shared_nway"),
             (
                 "shared-memory excessive wavefronts",
                 "derived__memory_l1_wavefronts_shared_excessive",
             ),
-        ),
-    ),
-    (
-        "Occupancy limiters",
-        (
             ("block limit by blocks", "launch__occupancy_limit_blocks"),
             ("block limit by registers", "launch__occupancy_limit_registers"),
             ("block limit by shared memory", "launch__occupancy_limit_shared_mem"),
@@ -168,19 +105,6 @@ def summarize_ncu_raw_csv(raw_csv_text: str) -> str:
             wrote_any = True
         if not wrote_any:
             lines.append("- no values found in the exported raw CSV")
-        lines.append("")
-
-    for title, metrics in CUDAFORGE_METRIC_GROUPS:
-        lines.append(f"## {title}")
-        wrote_any = False
-        for label, key in metrics:
-            value = first_value(key)
-            if value is None:
-                continue
-            lines.append(f"- {label}: {value}")
-            wrote_any = True
-        if not wrote_any:
-            lines.append("- none of these counters were present in the exported raw CSV")
         lines.append("")
 
     stall_entries: list[tuple[str, float, str]] = []
