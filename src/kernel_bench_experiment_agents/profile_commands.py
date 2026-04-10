@@ -15,6 +15,11 @@ from .candidate_contract import CANDIDATE_FILENAME
 from .candidate_snapshot import read_validated_candidate_source, write_profile_candidate_snapshot
 from .common import emit_json
 from .goal_status import write_goal_status_files
+from .live_gpu_wait import (
+    clear_live_gpu_wait_marker,
+    create_live_gpu_wait_marker,
+    settle_live_gpu_wait_marker,
+)
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .ncu_summary import summarize_ncu_raw_csv
 from .project import artifact_problem_dir, now_iso, relative_path_within, write_json, write_text
@@ -123,6 +128,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     gpu_logical_id = None
     gpu_selector_source = None
     gpu_wait_seconds = None
+    live_gpu_wait_marker = None
     failure: Exception | None = None
     persist_failure: Exception | None = None
 
@@ -168,11 +174,23 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         write_json(profile_json_path, payload)
 
     try:
+        # Keep goal-status budget accounting honest while this profiler wrapper is
+        # queued for a GPU lease by recording the in-flight wait immediately.
+        live_gpu_wait_marker = create_live_gpu_wait_marker(
+            run_name=args.run_name,
+            level=args.level,
+            problem_id=args.problem_id,
+            operation="profile_ncu",
+            requested_gpu=args.gpu_id,
+            num_gpu_slots=args.num_gpu_slots,
+        )
         with lease_gpu_slot(
             num_slots=args.num_gpu_slots,
             requested_slot=args.gpu_id,
             lease_name=lease_name,
         ) as lease:
+            settle_live_gpu_wait_marker(live_gpu_wait_marker, wait_seconds=lease.wait_seconds)
+
             isolated_env = isolated_gpu_environment(device_selector=lease.device_selector)
             command = [
                 "ncu",
@@ -331,6 +349,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 }
             )
     finally:
+        clear_live_gpu_wait_marker(live_gpu_wait_marker)
         if payload is not None and profile_json_path is not None:
             try:
                 with lease_problem_artifacts(

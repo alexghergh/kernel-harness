@@ -79,8 +79,10 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
     "Do not end with a plain assistant message. The only valid exit is ./bin/complete_problem.sh.",
+    "Never start a second wrapper call while another wrapper is still running.",
     "After every measured run or profile, re-read GOAL_STATUS.md and keep iterating if it still says UNRESOLVED.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
+    "Never overlap wrapper calls. Start a new ./bin/*.sh command only after the previous wrapper has fully returned.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (

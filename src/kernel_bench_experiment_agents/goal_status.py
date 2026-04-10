@@ -16,6 +16,7 @@ from .archive_layout import (
     trace_events_path,
 )
 from .common import as_float
+from .live_gpu_wait import active_live_gpu_wait_seconds
 from .project import now_iso, write_json, write_text
 from .run_metrics import best_correct_payload, candidate_runtime, sum_numeric_field
 from .trace_analysis import trace_counts, web_searches_from_ir
@@ -97,10 +98,14 @@ def goal_status_snapshot(
         if isinstance(payload.get("result"), dict)
         and candidate_runtime(payload["result"]) is not None
     )
-    gpu_wait_minutes_total = (
+    recorded_gpu_wait_minutes = (
         sum_numeric_field(entries, "gpu_wait_seconds")
         + sum_numeric_field(profiles, "gpu_wait_seconds")
     ) / 60.0
+    live_gpu_wait_minutes = (
+        active_live_gpu_wait_seconds(run_name, level, problem_id) / 60.0
+    )
+    gpu_wait_minutes_total = recorded_gpu_wait_minutes + live_gpu_wait_minutes
     started_at = metadata.get("created_at")
     wall_clock_elapsed_minutes = _elapsed_minutes_since(started_at)
     budget_minutes = as_float(metadata.get("time_budget_minutes"))
@@ -131,6 +136,7 @@ def goal_status_snapshot(
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
                 "Use ./bin/profile_ncu.sh when stuck; read profiles/latest.summary.txt first.",
                 "Do not end with a plain assistant message. The only valid exit path is ./bin/complete_problem.sh --summary ...",
+                "Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has fully returned.",
                 "./bin/run_candidate.sh and ./bin/profile_ncu.sh may take a while; wait for the wrapper result instead of treating them as hung.",
             ]
         )
@@ -146,6 +152,8 @@ def goal_status_snapshot(
         "time_budget_minutes": budget_minutes,
         "wall_clock_elapsed_minutes": wall_clock_elapsed_minutes,
         "elapsed_minutes": counted_elapsed_minutes,
+        "recorded_gpu_wait_minutes": recorded_gpu_wait_minutes,
+        "live_gpu_wait_minutes": live_gpu_wait_minutes,
         "gpu_wait_minutes_total": gpu_wait_minutes_total,
         "remaining_minutes": remaining_minutes,
         "status_mode": "resolved" if resolved else "unresolved",
@@ -187,6 +195,8 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
     problem_name = snapshot.get("problem_name") or "unknown"
     wall_clock_elapsed_minutes = as_float(snapshot.get("wall_clock_elapsed_minutes"))
     elapsed_minutes = as_float(snapshot.get("elapsed_minutes"))
+    recorded_gpu_wait_minutes = as_float(snapshot.get("recorded_gpu_wait_minutes"))
+    live_gpu_wait_minutes = as_float(snapshot.get("live_gpu_wait_minutes"))
     gpu_wait_minutes_total = as_float(snapshot.get("gpu_wait_minutes_total"))
     remaining_minutes = as_float(snapshot.get("remaining_minutes"))
     time_budget_minutes = as_float(snapshot.get("time_budget_minutes"))
@@ -203,9 +213,10 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Do NOT ask the user for confirmation, approval, or whether to continue. Choose the next action yourself.",
             "- Re-read `SPEC.md` and `HARDWARE.md` before every major strategy change.",
             "- Timing and profiling are normal tools, not expensive last resorts. Use them even for small constant or layout changes.",
+            "- Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has fully returned.",
             "- Wrapper commands are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
             "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
-            "- The budget clock is wall time since workspace creation minus recorded GPU wait time. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
+            "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
             "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh --summary ...`.",
             "- `./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; wait for the wrapper result instead of treating them as hung.",
         ]
@@ -251,7 +262,9 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- profiler calls: {profiler_line}",
         f"- best correct sample: {snapshot.get('best_correct_sample_id')}",
         f"- wall-clock minutes since workspace creation: {wall_clock_elapsed_minutes}",
-        f"- gpu wait minutes excluded from budget: {gpu_wait_minutes_total}",
+        f"- completed gpu wait minutes excluded from budget: {recorded_gpu_wait_minutes}",
+        f"- currently active gpu queue-wait minutes excluded from budget: {live_gpu_wait_minutes}",
+        f"- total gpu wait minutes excluded from budget: {gpu_wait_minutes_total}",
         f"- elapsed minutes counted against budget: {elapsed_minutes}",
         f"- remaining minutes: {remaining_line}",
         "- static docs: `AGENTS.md`, `SPEC.md`, `HARDWARE.md`",

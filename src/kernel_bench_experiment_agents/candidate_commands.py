@@ -16,6 +16,11 @@ from .candidate_snapshot import read_validated_candidate_source, write_run_candi
 from .candidate_validation import CandidateValidationError
 from .common import as_float, emit_json
 from .goal_status import write_goal_status_files
+from .live_gpu_wait import (
+    clear_live_gpu_wait_marker,
+    create_live_gpu_wait_marker,
+    settle_live_gpu_wait_marker,
+)
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .project import (
     artifact_problem_dir,
@@ -71,6 +76,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     sample_id: int | None = None
     payload: dict[str, Any] | None = None
     sample_json_path: Path | None = None
+    live_gpu_wait_marker = None
     failure: Exception | None = None
     persist_failure: Exception | None = None
 
@@ -149,11 +155,24 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 write_workspace_sample_copy(workspace, sample_id, candidate_src)
             write_json(sample_json_path, payload)
 
+        # The launcher polls goal status while this wrapper may still be queued for a
+        # GPU lease, so record the live wait immediately instead of only after the
+        # command eventually persists gpu_wait_seconds at the end of the run.
+        live_gpu_wait_marker = create_live_gpu_wait_marker(
+            run_name=args.run_name,
+            level=args.level,
+            problem_id=args.problem_id,
+            operation="run_candidate",
+            requested_gpu=args.gpu_id,
+            num_gpu_slots=args.num_gpu_slots,
+        )
         with lease_gpu_slot(
             num_slots=args.num_gpu_slots,
             requested_slot=args.gpu_id,
             lease_name=f"run:{args.run_name}:level_{args.level}:problem_{args.problem_id}",
         ) as lease:
+            settle_live_gpu_wait_marker(live_gpu_wait_marker, wait_seconds=lease.wait_seconds)
+
             runner_output_path = build_problem_dir(
                 args.run_name,
                 args.level,
@@ -230,6 +249,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["updated_at"] = now_iso()
         payload["error"] = serialize_exception(exc)
     finally:
+        clear_live_gpu_wait_marker(live_gpu_wait_marker)
         if payload is not None and sample_json_path is not None:
             try:
                 with lease_problem_artifacts(
