@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Run multiple problems by repeatedly invoking run_agent_problem.sh.
 #
+# Required environment:
+#   PROJECT_ROOT=/abs/path/to/this/repo
+#
 # Select problems with either:
 #   PROBLEM_IDS=1,4,9
 # or:
 #   START_PROBLEM_ID=1 END_PROBLEM_ID=10
-#
-# Useful overrides:
-#   TOOL=codex|claude
-#   RUN_NAME=kernelbench-codex-h100-v3
-#   LEVEL=1
-#   MAX_PARALLEL_SOLVERS=1
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+  echo "PROJECT_ROOT must point at the harness repository root." >&2
+  exit 1
+fi
+PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
 
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
@@ -64,35 +65,40 @@ report_elapsed_time() {
 
 trap report_elapsed_time EXIT
 
-echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT} (tool=${TOOL}, level=${LEVEL}, problems=${#PROBLEM_ID_LIST[@]}, max_parallel_solvers=${MAX_PARALLEL_SOLVERS})" >&2
+echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
+
+action_run_one() {
+  local pid="$1"
+  PROJECT_ROOT="${PROJECT_ROOT}" \
+  TOOL="${TOOL}" \
+  RUN_NAME="${RUN_NAME}" \
+  LEVEL="${LEVEL}" \
+  PROBLEM_ID="${pid}" \
+  DATASET_SRC="${DATASET_SRC:-local}" \
+  MODEL="${MODEL:-}" \
+  TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}" \
+  HARDWARE_NAME="${HARDWARE_NAME:-}" \
+  KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}" \
+  KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}" \
+  PRECISION="${PRECISION:-bf16}" \
+  "${PROJECT_ROOT}/scripts/run_agent_problem.sh"
+}
 
 active_jobs=0
-failures=0
 for raw_pid in "${PROBLEM_ID_LIST[@]}"; do
   pid="$(trim "${raw_pid}")"
   [[ -n "${pid}" ]] || continue
 
-  echo "Launching ${TOOL} for level ${LEVEL} problem ${pid} under run ${RUN_NAME}" >&2
-  TOOL="${TOOL}" RUN_NAME="${RUN_NAME}" LEVEL="${LEVEL}" PROBLEM_ID="${pid}" \
-    "${SCRIPT_DIR}/run_agent_problem.sh" &
-  active_jobs=$((active_jobs + 1))
-
-  if (( active_jobs >= MAX_PARALLEL_SOLVERS )); then
-    if ! wait -n; then
-      failures=$((failures + 1))
-    fi
+  while (( active_jobs >= MAX_PARALLEL_SOLVERS )); do
+    wait -n
     active_jobs=$((active_jobs - 1))
-  fi
+  done
+
+  action_run_one "${pid}" &
+  active_jobs=$((active_jobs + 1))
 done
 
 while (( active_jobs > 0 )); do
-  if ! wait -n; then
-    failures=$((failures + 1))
-  fi
+  wait -n
   active_jobs=$((active_jobs - 1))
 done
-
-if (( failures > 0 )); then
-  echo "${failures} problem runs ended with harness or launcher failure. Valid but unsolved runs do not count as failures here." >&2
-  exit 1
-fi

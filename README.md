@@ -11,42 +11,67 @@ At a high level:
 
 For the detailed system contract, archive layout, workspace layout, and runtime boundary notes, read `ARCHITECTURE.md`.
 
-## Before you use this repo
+## Install KernelBench and this harness into the same environment
 
-Set up the official KernelBench environment first, following the KernelBench repository instructions:
+Create and activate the Python environment you want to use for both repos. The important part is that **KernelBench and this harness are installed into the same active environment**.
 
-- <https://github.com/ScalingIntelligence/KernelBench>
-
-This harness assumes:
-
-- KernelBench is already installed and working in the **currently active** Python environment
-- the active environment is the one you want this harness to use
-- the KernelBench timing files already exist for your hardware
-- if your timing results live outside the default KernelBench timing tree, set `KERNELBENCH_TIMINGS_DIR` when launching runs
-
-Once that environment is active, install this harness into it from this repo:
+Example:
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
+
+cd /path/to/KernelBench
+uv pip install -e .
+
+cd /path/to/kernel-bench-experiment-agents
 uv pip install -e .
 ```
+
+Do **not** rely on a separate Python inside the KernelBench checkout. The launcher assumes the active environment already has both editable installs available on `PATH` and `PYTHONPATH`.
+
+This harness also assumes:
+
+- the official KernelBench checkout already exists
+- the KernelBench timing files already exist for your hardware
+- if your timing results live outside the default KernelBench timing tree, you will set `KERNELBENCH_TIMINGS_DIR` when launching runs
 
 ## Authenticate the agent tools
 
 ### Codex
 
-Use a repo-local Codex home so the launcher can reuse that login:
+Preferred path: sign in with the repo-local Codex home that the launcher reuses.
 
 ```bash
-CODEX_HOME="$(pwd)/.codex" codex login --device-auth
-CODEX_HOME="$(pwd)/.codex" codex login status
+PROJECT_ROOT=/path/to/kernel-bench-experiment-agents
+CODEX_HOME="${PROJECT_ROOT}/.codex" codex login --device-auth
+CODEX_HOME="${PROJECT_ROOT}/.codex" codex login status
+```
+
+Alternative: export an API key instead.
+
+```bash
+export OPENAI_API_KEY=...
 ```
 
 ### Claude Code
 
-Export your Anthropic API key in the active shell:
+Preferred path: sign in with your Claude Code subscription first.
+
+```bash
+claude login
+```
+
+The launcher copies project settings from `PROJECT_ROOT/.claude/settings.json` and reuses subscription credentials from your Claude config when they exist.
+
+Alternatives: export API credentials or an OAuth token.
 
 ```bash
 export ANTHROPIC_API_KEY=...
+# or
+export ANTHROPIC_AUTH_TOKEN=...
+# or
+export CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
 ## Most common runs
@@ -54,12 +79,14 @@ export ANTHROPIC_API_KEY=...
 ### Run one problem
 
 ```bash
+PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5-codex \
 TIME_BUDGET_MINUTES=180 \
+PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
 HARDWARE_NAME=H100 \
 ./scripts/run_agent_problem.sh
@@ -68,12 +95,14 @@ HARDWARE_NAME=H100 \
 ### Run one problem with Claude
 
 ```bash
+PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=opus \
 TIME_BUDGET_MINUTES=180 \
+PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
 HARDWARE_NAME=H100 \
 ./scripts/run_agent_problem.sh
@@ -82,6 +111,7 @@ HARDWARE_NAME=H100 \
 ### Run a contiguous range
 
 ```bash
+PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
@@ -89,6 +119,7 @@ START_PROBLEM_ID=1 \
 END_PROBLEM_ID=10 \
 MODEL=gpt-5-codex \
 TIME_BUDGET_MINUTES=180 \
+PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
 HARDWARE_NAME=H100 \
 ./scripts/run_agent_range.sh
@@ -97,12 +128,14 @@ HARDWARE_NAME=H100 \
 ### Run an explicit problem list
 
 ```bash
+PROJECT_ROOT=/path/to/kernel-bench-experiment-agents \
 TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_IDS=1,4,9 \
 MODEL=opus \
 TIME_BUDGET_MINUTES=180 \
+PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
 HARDWARE_NAME=H100 \
 ./scripts/run_agent_range.sh
@@ -112,12 +145,11 @@ HARDWARE_NAME=H100 \
 
 ```bash
 ybatch \
-  --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
+  --export=PROJECT_ROOT=/path/to/kernel-bench-experiment-agents,TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
   ./scripts/run_agent_problem.slurm.sh
 ```
 
 Use `sbatch` instead of `ybatch` on clusters that expose plain Slurm submission.
-
 
 ### Summarize one archived run
 
@@ -131,6 +163,7 @@ This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary
 
 These are the main variables worth changing:
 
+- `PROJECT_ROOT=/path/to/this/repo`
 - `TOOL=codex|claude`
 - `MODEL=...`
 - `RUN_NAME=...`
@@ -139,14 +172,17 @@ These are the main variables worth changing:
 - `START_PROBLEM_ID=...` / `END_PROBLEM_ID=...`
 - `PROBLEM_IDS=1,4,9`
 - `TIME_BUDGET_MINUTES=...`
+- `PRECISION=bf16`
 - `KERNELBENCH_ROOT=/path/to/KernelBench`
 - `HARDWARE_NAME=H100`
 - `KERNELBENCH_TIMINGS_DIR=/path/to/results/timing/<hardware>` when you need a non-default timings location
 - inherited `CUDA_VISIBLE_DEVICES` when you want to pin visible GPUs from the scheduler or shell
 
+The `v3` naming in the example run names assumes the judged path is `bf16`.
+
 ## Launcher exit semantics
 
-`./scripts/run_agent_problem.sh` exits `0` for any valid archived run, even if the solver did **not** beat the baselines. It exits non-zero only for harness or launcher failures such as `harness_failure` or `failed_to_generate`. Use `completion.json`, `goal_status.json`, or `kbharness summarize-run` to judge optimization success.
+`./scripts/run_agent_problem.sh` exits `0` for any valid archived run, even if the solver did **not** beat the baselines. It exits non-zero only for launcher failures such as `harness_failure` or `failed_to_generate`. Use `completion.json`, `goal_status.json`, or `kbharness summarize-run` to judge optimization success.
 
 ## Where to look after a run
 

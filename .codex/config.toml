@@ -8,6 +8,9 @@ web_search = "live"
 project_doc_max_bytes = 65536
 model_auto_compact_token_limit = 240000
 
+[features]
+unified_exec = false
+
 [agents]
 max_threads = 6
 max_depth = 1

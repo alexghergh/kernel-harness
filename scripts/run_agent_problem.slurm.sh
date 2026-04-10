@@ -1,24 +1,16 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=kernelbench-harness
-#YBATCH -r h100_1
-#SBATCH --gres=gpu:1
-#SBATCH --time=13:00:00
-#SBATCH --output=slurm-out/%x-%j.out
-#SBATCH --error=slurm-err/%x-%j.err
-# Thin Slurm wrapper around run_agent_range.sh.
+# Thin Slurm entrypoint that forwards the launcher environment to run_agent_range.sh.
 #
-# Submit from a shell where the intended Python environment is already active,
-# or make sure `python`, `kbharness`, and the chosen agent CLI are on PATH in
-# the batch environment.
-#
-# Example:
-#   ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
-#
-# Replace `ybatch` with `sbatch` on clusters that use plain Slurm submission.
+# Required environment:
+#   PROJECT_ROOT=/abs/path/to/this/repo
+#   KERNELBENCH_ROOT=/path/to/KernelBench
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+  echo "PROJECT_ROOT must point at the harness repository root." >&2
+  exit 1
+fi
+PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
 
 module load cuda || true
 
@@ -48,30 +40,11 @@ TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 HARDWARE_NAME="${HARDWARE_NAME:-H100}"
 KERNELBENCH_ROOT="${KERNELBENCH_ROOT:?KERNELBENCH_ROOT must be set}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
+PRECISION="${PRECISION:-bf16}"
 
 cd "${PROJECT_ROOT}"
 
-if [[ "${TOOL}" == "codex" ]]; then
-  if ! command -v codex >/dev/null 2>&1; then
-    echo "codex CLI is not on PATH on this node." >&2
-    exit 1
-  fi
-  if ! CODEX_HOME="${PROJECT_ROOT}/.codex" codex login status >/dev/null 2>&1; then
-    echo "Codex is not logged in for CODEX_HOME=${PROJECT_ROOT}/.codex." >&2
-    echo "Run once before ybatch/sbatch: CODEX_HOME=\"${PROJECT_ROOT}/.codex\" codex login --device-auth" >&2
-    exit 1
-  fi
-else
-  if ! command -v claude >/dev/null 2>&1; then
-    echo "claude CLI is not on PATH on this node." >&2
-    exit 1
-  fi
-  if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-    echo "ANTHROPIC_API_KEY must be exported before submitting a Claude Code job." >&2
-    exit 1
-  fi
-fi
-
+PROJECT_ROOT="${PROJECT_ROOT}" \
 TOOL="${TOOL}" \
 RUN_NAME="${RUN_NAME}" \
 LEVEL="${LEVEL}" \
@@ -85,4 +58,5 @@ TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES}" \
 HARDWARE_NAME="${HARDWARE_NAME}" \
 KERNELBENCH_ROOT="${KERNELBENCH_ROOT}" \
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR}" \
-"${SCRIPT_DIR}/run_agent_range.sh"
+PRECISION="${PRECISION}" \
+"${PROJECT_ROOT}/scripts/run_agent_range.sh"
