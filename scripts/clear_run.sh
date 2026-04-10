@@ -34,11 +34,11 @@ fi
 rm -rf \
   "${ARCHIVE_ROOT}/${RUN_NAME}" \
   "${STATE_ROOT}/build/${RUN_NAME}" \
-  "${STATE_ROOT}/problem_runtime/${RUN_NAME}" \
   "${STATE_ROOT}/workspaces/${RUN_NAME}"
 
 rm -f \
   "${STATE_ROOT}/locks/solver/${RUN_NAME}"_level_*_problem_*.lock \
-  "${STATE_ROOT}/locks/problem_state/${RUN_NAME}"_level_*_problem_*.lock
+  "${STATE_ROOT}/locks/problem_state/${RUN_NAME}"_level_*_problem_*.lock \
+  "${STATE_ROOT}/locks/live_gpu_wait/${RUN_NAME}"_level_*_problem_*.json
 
 echo "Cleared run state for ${RUN_NAME}"

@@ -1,9 +1,9 @@
 """Track in-flight GPU-lease wait time so live budget accounting can exclude it immediately.
 
-Run and profile wrappers create short-lived marker files here while they are blocked on a GPU slot.
-Once a lease is acquired, the marker is converted into a fixed wait-duration record and kept alive
-until the command persists its normal archive payload, so the budget view never "gives back" the
-queued time in the middle of a long run or profile.
+Run and profile wrappers create short-lived marker files under `state/locks/live_gpu_wait/` while
+waiting for a GPU slot. Once a lease is acquired, the marker is converted into a fixed wait-duration
+record and kept alive until the command persists its normal archive payload, so the budget view never
+"gives back" the queued time in the middle of a long run or profile.
 """
 
 from __future__ import annotations
@@ -12,22 +12,21 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .project import ensure_dir, now_iso, state_dir, validate_run_name, write_json
+from .project import ensure_dir, locks_dir, now_iso, validate_run_name, write_json
 
 
-def _problem_runtime_dir(run_name: str, level: int, problem_id: int) -> Path:
+def live_gpu_wait_dir() -> Path:
+    return ensure_dir(locks_dir() / "live_gpu_wait")
+
+
+
+def _problem_prefix(run_name: str, level: int, problem_id: int) -> str:
     run_name = validate_run_name(run_name)
-    return ensure_dir(
-        state_dir() / "problem_runtime" / run_name / f"level_{level}" / f"problem_{problem_id}"
-    )
+    return f"{run_name}_level_{level}_problem_{problem_id}"
 
-
-def live_gpu_wait_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return ensure_dir(_problem_runtime_dir(run_name, level, problem_id) / "live_gpu_wait")
 
 
 def create_live_gpu_wait_marker(
@@ -40,8 +39,10 @@ def create_live_gpu_wait_marker(
     num_gpu_slots: int,
 ) -> Path:
     """Create one transient marker for an in-flight GPU lease wait."""
-    marker_dir = live_gpu_wait_dir(run_name, level, problem_id)
-    marker_path = marker_dir / f"{operation}_{os.getpid()}_{uuid.uuid4().hex}.json"
+    prefix = _problem_prefix(run_name, level, problem_id)
+    marker_path = (
+        live_gpu_wait_dir() / f"{prefix}_{operation}_{os.getpid()}_{uuid.uuid4().hex}.json"
+    )
     payload = {
         "created_at": now_iso(),
         "started_at": now_iso(),
@@ -58,6 +59,7 @@ def create_live_gpu_wait_marker(
     return marker_path
 
 
+
 def settle_live_gpu_wait_marker(marker_path: Path | None, *, wait_seconds: float) -> None:
     """Freeze the queued wait once a GPU lease is acquired but before payload persistence."""
     if marker_path is None:
@@ -66,6 +68,7 @@ def settle_live_gpu_wait_marker(marker_path: Path | None, *, wait_seconds: float
     payload["settled_at"] = now_iso()
     payload["settled_wait_seconds"] = max(0.0, float(wait_seconds))
     write_json(marker_path, payload)
+
 
 
 def clear_live_gpu_wait_marker(marker_path: Path | None) -> None:
@@ -77,6 +80,7 @@ def clear_live_gpu_wait_marker(marker_path: Path | None) -> None:
         return
 
 
+
 def active_live_gpu_wait_seconds(run_name: str, level: int, problem_id: int) -> float:
     """Return the currently active queued GPU-wait time for one problem.
 
@@ -84,9 +88,9 @@ def active_live_gpu_wait_seconds(run_name: str, level: int, problem_id: int) -> 
     sum marker contributions here so fixed settled waits continue to count during long in-flight
     runs/profiles until their archive payloads are written.
     """
-    marker_dir = live_gpu_wait_dir(run_name, level, problem_id)
     total_seconds = 0.0
-    for marker_path in marker_dir.glob("*.json"):
+    prefix = _problem_prefix(run_name, level, problem_id)
+    for marker_path in live_gpu_wait_dir().glob(f"{prefix}_*.json"):
         payload = _load_json_object(marker_path)
         if payload is None:
             continue
@@ -100,51 +104,56 @@ def active_live_gpu_wait_seconds(run_name: str, level: int, problem_id: int) -> 
             total_seconds += max(0.0, float(settled_wait_seconds))
             continue
 
-        started_epoch = _started_epoch_from_payload(payload)
-        if started_epoch is None:
+        started_epoch_seconds = payload.get("started_epoch_seconds")
+        if isinstance(started_epoch_seconds, (int, float)):
+            total_seconds += max(0.0, time.time() - float(started_epoch_seconds))
             continue
-        total_seconds += max(0.0, time.time() - started_epoch)
+
+        started_at = payload.get("started_at")
+        parsed_seconds = _epoch_seconds_from_any(started_at)
+        if parsed_seconds is not None:
+            total_seconds += max(0.0, time.time() - parsed_seconds)
 
     return total_seconds
 
 
-def _load_started_epoch(marker_path: Path) -> float | None:
-    payload = _load_json_object(marker_path)
-    if payload is None:
-        return None
-    return _started_epoch_from_payload(payload)
-
-
-def _started_epoch_from_payload(payload: dict[str, Any]) -> float | None:
-    started_epoch = payload.get("started_epoch_seconds")
-    if isinstance(started_epoch, (int, float)):
-        return float(started_epoch)
-
-    started_at = payload.get("started_at")
-    if not isinstance(started_at, str) or not started_at.strip():
-        return None
-    try:
-        started = datetime.fromisoformat(started_at)
-    except ValueError:
-        return None
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    return started.astimezone(timezone.utc).timestamp()
-
 
 def _load_json_object(path: Path) -> dict[str, Any] | None:
     try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
 
 
+
+def _epoch_seconds_from_any(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+
+    try:
+        from datetime import datetime
+
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            from datetime import timezone
+
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except ValueError:
+        return None
+
+
+
 def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -152,6 +161,7 @@ def _pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
 
 # Backward-compatible aliases while the wrapper commands settle on the marker naming.
 begin_live_gpu_wait = create_live_gpu_wait_marker
