@@ -1,3 +1,8 @@
+"""Prepare a fresh per-problem workspace plus its matching archived contract bundle.
+
+This is the top-level setup step that problem launchers call before handing control to the solver agent.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +27,7 @@ from .workspace_wrappers import write_default_workspace_wrappers
 
 
 def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
+    """Create the workspace, archived contract, wrappers, and initial goal status for one problem."""
     resolved_kernelbench_root = str(kernelbench_root(args.kernelbench_root))
     try:
         hardware = resolve_hardware_spec(args.hardware_name)
@@ -72,6 +78,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         num_gpus=args.num_gpus,
         model=args.model,
         time_budget_minutes=args.time_budget_minutes,
+        precision=args.precision,
     )
     hardware_payload = build_hardware_payload(hardware)
     provenance_payload = build_archive_provenance(
@@ -112,6 +119,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         problem_id=args.problem_id,
         dataset_src=args.dataset_src,
         num_gpus=args.num_gpus,
+        precision=args.precision,
     )
 
     status_snapshot = write_goal_status_files(

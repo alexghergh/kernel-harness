@@ -1,3 +1,8 @@
+"""Write the generated workspace files and archived contract bundle for one problem.
+
+Workspace preparation calls into this module after metadata resolution so the on-disk workspace and archive stay aligned.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -43,6 +48,7 @@ def build_problem_metadata(
     num_gpus: int,
     model: str,
     time_budget_minutes: int,
+    precision: str,
 ) -> dict[str, Any]:
     return {
         "created_at": now_iso(),
@@ -59,6 +65,7 @@ def build_problem_metadata(
         "num_gpus": num_gpus,
         "model": model,
         "time_budget_minutes": time_budget_minutes,
+        "precision": precision,
     }
 
 
@@ -104,6 +111,7 @@ def write_contract_bundle(
     hardware_payload: dict[str, Any],
     problem_code: str,
 ) -> dict[str, Any]:
+    """Write the generated workspace files and their archived contract mirror."""
     contract = build_workspace_contract(metadata=metadata)
     problem_payload = dict(metadata)
     problem_payload["baseline_runtime_ms"] = {

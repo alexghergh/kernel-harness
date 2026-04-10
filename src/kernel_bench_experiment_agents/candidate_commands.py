@@ -1,3 +1,8 @@
+"""Implement the measured candidate-evaluation command used by the workspace run wrapper.
+
+This module validates the candidate, records archived attempt metadata, leases a GPU slot, and updates goal status after each run.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +12,8 @@ from typing import Any
 
 from .archive_layout import sample_manifest_path
 from .candidate_contract import CANDIDATE_FILENAME
-from .candidate_validation import CandidateValidationError, validate_candidate_source
+from .candidate_snapshot import read_validated_candidate_source, write_run_candidate_snapshot
+from .candidate_validation import CandidateValidationError
 from .common import as_float, emit_json
 from .goal_status import write_goal_status_files
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
@@ -57,6 +63,7 @@ def _ref_runtime_warnings(result: dict[str, Any], workspace: Path | None) -> lis
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
+    """Evaluate one frozen candidate snapshot and persist the measured attempt payload."""
     candidate_path = Path(args.candidate).resolve()
     workspace = workspace_path(args.workspace) if args.workspace else None
     problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
@@ -130,9 +137,14 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "error": None,
             }
 
-            candidate_src = candidate_path.read_text(encoding="utf-8")
-            validate_candidate_source(candidate_src)
-            write_text(kernel_path, candidate_src)
+            candidate_src = read_validated_candidate_source(candidate_path)
+            kernel_path = write_run_candidate_snapshot(
+                run_name=args.run_name,
+                level=args.level,
+                problem_id=args.problem_id,
+                sample_id=sample_id,
+                candidate_src=candidate_src,
+            )
             if workspace is not None:
                 write_workspace_sample_copy(workspace, sample_id, candidate_src)
             write_json(sample_json_path, payload)
@@ -153,7 +165,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "-m",
                 "kernel_bench_experiment_agents.evaluation_runner",
                 "--candidate",
-                str(candidate_path),
+                str(kernel_path),
                 "--output-path",
                 str(runner_output_path),
                 "--level",
