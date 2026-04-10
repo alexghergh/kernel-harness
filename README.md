@@ -18,8 +18,8 @@ Create and activate the Python environment you want to use for both repos. The i
 Example:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+pyenv create <env-name>
+# activate that environment in your shell
 
 cd /path/to/KernelBench
 uv pip install -e .
@@ -177,12 +177,6 @@ These are the main variables worth changing:
 - `HARDWARE_NAME=H100`
 - `KERNELBENCH_TIMINGS_DIR=/path/to/results/timing/<hardware>` when you need a non-default timings location
 - inherited `CUDA_VISIBLE_DEVICES` when you want to pin visible GPUs from the scheduler or shell
-
-The `v3` naming in the example run names assumes the judged path is `bf16`.
-
-## Launcher exit semantics
-
-`./scripts/run_agent_problem.sh` exits `0` for any valid archived run, even if the solver did **not** beat the baselines. It exits non-zero only for launcher failures such as `harness_failure` or `failed_to_generate`. Use `completion.json`, `goal_status.json`, or `kbharness summarize-run` to judge optimization success.
 
 ## Where to look after a run
 
