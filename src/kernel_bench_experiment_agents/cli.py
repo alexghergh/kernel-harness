@@ -36,7 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--problem-id", type=int, required=True)
     prepare.add_argument("--dataset-src", default="local")
     prepare.add_argument("--kernelbench-root", default=None)
-    prepare.add_argument("--workspace-root", default=None)
     prepare.add_argument("--hardware-name", default="")
     prepare.add_argument("--timings-dir", default=None)
     prepare.add_argument("--num-gpus", type=int, default=1)

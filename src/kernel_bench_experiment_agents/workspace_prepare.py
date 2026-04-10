@@ -44,7 +44,6 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         args.run_name,
         args.level,
         args.problem_id,
-        args.workspace_root,
     )
     archive_problem_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
     shutil.rmtree(paths["workspace"], ignore_errors=True)

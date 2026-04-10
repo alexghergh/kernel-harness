@@ -2,18 +2,23 @@
 # Delete one archived run plus its disposable state.
 #
 # Usage:
-#   PROJECT_ROOT=/path/to/repo ./scripts/clear_run.sh <run_name>
+#   ./scripts/clear_run.sh <run_name>
 # or:
-#   PROJECT_ROOT=/path/to/repo RUN_NAME=<run_name> ./scripts/clear_run.sh
+#   RUN_NAME=<run_name> ./scripts/clear_run.sh
+#
+# Run this script from the harness repo root. DATA_ROOT controls which archive/state tree is cleared.
 set -euo pipefail
 
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-  echo "PROJECT_ROOT must point at the harness repository root." >&2
+if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
+  echo "Run scripts/clear_run.sh from the harness repo root." >&2
   exit 1
 fi
-PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
-STATE_ROOT="${PROJECT_ROOT}/state"
-ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
+
+DATA_ROOT="${DATA_ROOT:-.}"
+mkdir -p "${DATA_ROOT}"
+DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
+STATE_ROOT="${DATA_ROOT}/state"
+ARCHIVE_ROOT="${DATA_ROOT}/archive"
 
 RUN_NAME="${RUN_NAME:-${1:-}}"
 

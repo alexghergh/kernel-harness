@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run multiple problems by repeatedly invoking run_agent_problem.sh.
 #
-# Required environment:
-#   PROJECT_ROOT=/abs/path/to/this/repo
+# Run this script from the harness repo root.
 #
 # Select problems with either:
 #   PROBLEM_IDS=1,4,9
@@ -10,11 +9,15 @@
 #   START_PROBLEM_ID=1 END_PROBLEM_ID=10
 set -euo pipefail
 
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-  echo "PROJECT_ROOT must point at the harness repository root." >&2
+if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
+  echo "Run scripts/run_agent_range.sh from the harness repo root." >&2
   exit 1
 fi
-PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
+
+DATA_ROOT="${DATA_ROOT:-.}"
+mkdir -p "${DATA_ROOT}"
+DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
+export DATA_ROOT
 
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
@@ -69,7 +72,7 @@ echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
 
 action_run_one() {
   local pid="$1"
-  PROJECT_ROOT="${PROJECT_ROOT}" \
+  DATA_ROOT="${DATA_ROOT}" \
   TOOL="${TOOL}" \
   RUN_NAME="${RUN_NAME}" \
   LEVEL="${LEVEL}" \
@@ -81,7 +84,7 @@ action_run_one() {
   KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}" \
   KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}" \
   PRECISION="${PRECISION:-bf16}" \
-  "${PROJECT_ROOT}/scripts/run_agent_problem.sh"
+  ./scripts/run_agent_problem.sh
 }
 
 active_jobs=0

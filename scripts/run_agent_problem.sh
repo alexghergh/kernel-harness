@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Run exactly one solver session for one KernelBench problem.
 #
+# Run this script from the harness repo root.
+#
 # Required environment:
-#   PROJECT_ROOT=/abs/path/to/this/repo
 #   TOOL=codex|claude
 #   KERNELBENCH_ROOT=/path/to/KernelBench
 #   HARDWARE_NAME=<timings-subdir name, e.g. H100 or H100_tsubame>
 #
 # Common overrides:
+#   DATA_ROOT=/path/for/archive-and-state   (defaults to ./ from the launch directory)
 #   RUN_NAME=kernelbench-codex-h100-v3
 #   LEVEL=1
 #   PROBLEM_ID=1
@@ -17,71 +19,19 @@
 #   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>
 set -euo pipefail
 
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-  echo "PROJECT_ROOT must point at the harness repository root." >&2
+if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
+  echo "Run scripts/run_agent_problem.sh from the harness repo root." >&2
   exit 1
 fi
-PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
-STATE_ROOT="${PROJECT_ROOT}/state"
-ARCHIVE_ROOT="${PROJECT_ROOT}/archive"
+
+DATA_ROOT="${DATA_ROOT:-.}"
+mkdir -p "${DATA_ROOT}"
+DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
+export DATA_ROOT
+
+STATE_ROOT="${DATA_ROOT}/state"
+ARCHIVE_ROOT="${DATA_ROOT}/archive"
 KBHARNESS_CLI="kbharness"
-CODEX_BASE_HOME="${PROJECT_ROOT}/.codex"
-CLAUDE_PROJECT_DIR="${PROJECT_ROOT}/.claude"
-CLAUDE_BASE_CONFIG_DIR="${CLAUDE_BASE_CONFIG_DIR:-${HOME}/.claude}"
-CLAUDE_HOME_STATE_ROOT="${STATE_ROOT}/claude_home"
-
-# Prepare a per-problem Codex home so sessions do not share mutable state.
-prepare_runtime_codex_home() {
-  local base_home="$1"
-  local runtime_home="$2"
-  local entry
-
-  rm -rf "${runtime_home}"
-  mkdir -p "${runtime_home}"
-
-  for entry in auth.json config.toml; do
-    if [[ -f "${base_home}/${entry}" ]]; then
-      cp -a "${base_home}/${entry}" "${runtime_home}/${entry}"
-    fi
-  done
-}
-
-# Copy only the project-scoped Claude settings into the fresh workspace.
-prepare_runtime_claude_project_config() {
-  local base_dir="$1"
-  local workspace="$2"
-  local target_dir="${workspace}/.claude"
-
-  mkdir -p "${target_dir}"
-  rm -f "${target_dir}/settings.json"
-  if [[ -f "${base_dir}/settings.json" ]]; then
-    cp -a "${base_dir}/settings.json" "${target_dir}/settings.json"
-  fi
-}
-
-# Seed the isolated Claude config dir with subscription credentials when present.
-prepare_runtime_claude_home() {
-  local base_dir="$1"
-  local runtime_dir="$2"
-
-  rm -rf "${runtime_dir}"
-  mkdir -p "${runtime_dir}"
-
-  if [[ -f "${base_dir}/.credentials.json" ]]; then
-    cp -a "${base_dir}/.credentials.json" "${runtime_dir}/.credentials.json"
-  fi
-}
-
-# Regenerate the repo-root runtime configs from the shared policy source.
-refresh_runtime_configs() {
-  PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" python - "${PROJECT_ROOT}" <<'PY'
-from pathlib import Path
-import sys
-from kernel_bench_experiment_agents.runtime_policy import write_repo_runtime_configs
-
-write_repo_runtime_configs(Path(sys.argv[1]))
-PY
-}
 
 # Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
@@ -182,9 +132,7 @@ fi
 require_command python
 require_command flock
 require_command "${KBHARNESS_CLI}"
-refresh_runtime_configs
 
-AGENT_RUNTIME_ROOT="${STATE_ROOT}/agent_home"
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
 SOLVER_LOCK_DIR="${STATE_ROOT}/locks/solver"
@@ -195,15 +143,11 @@ mkdir -p \
   "${ARCHIVE_PROBLEM_DIR}" \
   "${AGENT_ARTIFACT_DIR}" \
   "${STATE_ROOT}" \
-  "${AGENT_RUNTIME_ROOT}" \
-  "${CLAUDE_HOME_STATE_ROOT}" \
   "${SOLVER_LOCK_DIR}" \
   "${PROBLEM_STATE_LOCK_DIR}" \
   "${GPU_LOCK_DIR}"
 
 SOLVER_LOCK_PATH="${SOLVER_LOCK_DIR}/${RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
-AGENT_RUNTIME_HOME="${AGENT_RUNTIME_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
-CLAUDE_RUNTIME_HOME="${CLAUDE_HOME_STATE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 exec 9>"${SOLVER_LOCK_PATH}"
 if ! flock -n 9; then
   echo "Another solver is already active for run=${RUN_NAME} level=${LEVEL} problem=${PROBLEM_ID}." >&2
@@ -215,9 +159,9 @@ if [[ "${TOOL}" == "codex" ]]; then
   require_command codex
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
-  elif ! CODEX_HOME="${CODEX_BASE_HOME}" codex login status >/dev/null 2>&1; then
-    echo "Codex needs either a repo-local ChatGPT login or OPENAI_API_KEY before launch." >&2
-    echo "Preferred: CODEX_HOME=\"${CODEX_BASE_HOME}\" codex login --device-auth" >&2
+  elif ! codex login status >/dev/null 2>&1; then
+    echo "Codex needs either a login or OPENAI_API_KEY before launch." >&2
+    echo "Preferred: codex login --device-auth" >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
@@ -225,11 +169,11 @@ else
   require_command claude
   if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     :
-  elif [[ -f "${CLAUDE_BASE_CONFIG_DIR}/.credentials.json" || -f "${HOME}/.claude.json" ]]; then
+  elif [[ -f "${HOME}/.claude/.credentials.json" || -f "${HOME}/.claude.json" ]]; then
     :
   else
     echo "Claude Code needs a subscription login or exported API credentials before launch." >&2
-    echo "Preferred: run claude login first so ${CLAUDE_BASE_CONFIG_DIR}/.credentials.json exists." >&2
+    echo "Preferred: run claude login first." >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
   fi
@@ -267,17 +211,6 @@ TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
-
-if [[ "${TOOL}" == "codex" ]]; then
-  prepare_runtime_codex_home "${CODEX_BASE_HOME}" "${AGENT_RUNTIME_HOME}"
-  export CODEX_HOME="${AGENT_RUNTIME_HOME}"
-  echo "Launching Codex in ${WORKSPACE} with isolated CODEX_HOME=${CODEX_HOME}" >&2
-else
-  prepare_runtime_claude_project_config "${CLAUDE_PROJECT_DIR}" "${WORKSPACE}"
-  prepare_runtime_claude_home "${CLAUDE_BASE_CONFIG_DIR}" "${CLAUDE_RUNTIME_HOME}"
-  export CLAUDE_CONFIG_DIR="${CLAUDE_RUNTIME_HOME}"
-  echo "Launching Claude Code in ${WORKSPACE} with isolated CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" >&2
-fi
 
 rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 

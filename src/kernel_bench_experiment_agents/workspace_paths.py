@@ -65,9 +65,8 @@ def problem_workspace_paths(
     run_name: str,
     level: int,
     problem_id: int,
-    workspace_root: str | None,
 ) -> dict[str, Path]:
-    workspace = workspace_dir(run_name, level, problem_id, explicit_root=workspace_root)
+    workspace = workspace_dir(run_name, level, problem_id)
     return {
         "workspace": workspace,
         "samples": workspace / "samples",

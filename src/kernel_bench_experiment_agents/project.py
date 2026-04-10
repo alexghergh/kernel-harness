@@ -1,6 +1,8 @@
-"""Provide repository-root path resolution plus the small file and directory helpers used everywhere.
+"""Provide the small path and file helpers that the harness uses everywhere.
 
-Almost every other module imports these helpers to keep path conventions and write behavior consistent.
+The harness code lives in the installed package, but all generated artifacts are rooted under DATA_ROOT
+(`archive/` and `state/`). Callers should treat DATA_ROOT as an artifact root only, never as a way to
+find repository source files.
 """
 
 from __future__ import annotations
@@ -14,21 +16,22 @@ from pathlib import Path
 from typing import Any
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def ensure_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
+def data_root() -> Path:
+    candidate = os.environ.get("DATA_ROOT") or "."
+    return ensure_dir(Path(candidate).expanduser().resolve())
+
+
 def archive_dir() -> Path:
-    return ensure_dir(repo_root() / "archive")
+    return ensure_dir(data_root() / "archive")
 
 
 def state_dir() -> Path:
-    return ensure_dir(repo_root() / "state")
+    return ensure_dir(data_root() / "state")
 
 
 def runtime_dir() -> Path:
@@ -61,10 +64,6 @@ def artifact_lock_dir() -> Path:
 
 def solver_lock_dir() -> Path:
     return ensure_dir(locks_dir() / "solver")
-
-
-def agent_home_root() -> Path:
-    return ensure_dir(state_dir() / "agent_home")
 
 
 def _lock_slug(value: str) -> str:
@@ -109,26 +108,13 @@ def solver_lock_path(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
-def workspace_root(explicit: str | None = None) -> Path:
-    candidate = explicit or os.environ.get("KBE_WORKSPACE_ROOT")
-    if candidate:
-        return ensure_dir(Path(candidate).expanduser().resolve())
+def workspace_root() -> Path:
     return ensure_dir(state_dir() / "workspaces")
 
 
-def workspace_dir(
-    run_name: str,
-    level: int,
-    problem_id: int,
-    explicit_root: str | None = None,
-) -> Path:
+def workspace_dir(run_name: str, level: int, problem_id: int) -> Path:
     run_name = validate_run_name(run_name)
-    return ensure_dir(
-        workspace_root(explicit_root)
-        / run_name
-        / f"level_{level}"
-        / f"problem_{problem_id}"
-    )
+    return ensure_dir(workspace_root() / run_name / f"level_{level}" / f"problem_{problem_id}")
 
 
 def run_dir(run_name: str) -> Path:

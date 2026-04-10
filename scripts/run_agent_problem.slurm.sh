@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Thin Slurm entrypoint that forwards the launcher environment to run_agent_range.sh.
 #
+# Submit this script from the harness repo root.
+#
 # Required environment:
-#   PROJECT_ROOT=/abs/path/to/this/repo
 #   KERNELBENCH_ROOT=/path/to/KernelBench
 set -euo pipefail
 
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-  echo "PROJECT_ROOT must point at the harness repository root." >&2
+if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
+  echo "Submit scripts/run_agent_problem.slurm.sh from the harness repo root." >&2
   exit 1
 fi
-PROJECT_ROOT="$(cd "${PROJECT_ROOT}" && pwd)"
+
+DATA_ROOT="${DATA_ROOT:-.}"
+mkdir -p "${DATA_ROOT}"
+DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
+export DATA_ROOT
 
 module load cuda || true
 
@@ -42,9 +47,7 @@ KERNELBENCH_ROOT="${KERNELBENCH_ROOT:?KERNELBENCH_ROOT must be set}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 PRECISION="${PRECISION:-bf16}"
 
-cd "${PROJECT_ROOT}"
-
-PROJECT_ROOT="${PROJECT_ROOT}" \
+DATA_ROOT="${DATA_ROOT}" \
 TOOL="${TOOL}" \
 RUN_NAME="${RUN_NAME}" \
 LEVEL="${LEVEL}" \
@@ -59,4 +62,4 @@ HARDWARE_NAME="${HARDWARE_NAME}" \
 KERNELBENCH_ROOT="${KERNELBENCH_ROOT}" \
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR}" \
 PRECISION="${PRECISION}" \
-"${PROJECT_ROOT}/scripts/run_agent_range.sh"
+./scripts/run_agent_range.sh
