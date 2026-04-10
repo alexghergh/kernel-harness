@@ -4,7 +4,7 @@ from __future__ import annotations
 
 The parser is intentionally conservative: it keeps the raw event stream in
 `agent/events.jsonl` and produces `agent/trace_ir.json` as a mostly-lossless,
-solver- and operator-friendly view of the same session.
+solver- and user-friendly view of the same session.
 
 Representative raw shapes that this module understands:
 

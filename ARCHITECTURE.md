@@ -21,7 +21,7 @@ The harness is **not** responsible for installing KernelBench itself. KernelBenc
 
 There are two documentation surfaces.
 
-Root docs are for maintainers and operators:
+Root docs are for maintainers and users:
 
 - `README.md`
 - `ARCHITECTURE.md`
@@ -118,7 +118,7 @@ Important files:
 - `goal_status.json` — archived final goal-status snapshot for where the solver ended
 - `final_message.txt` — the last assistant-visible model message, when one is available
 
-`final_message.txt` is intentionally a convenience artifact. It is the last assistant-visible text extracted from the raw CLI event stream (or Codex `--output-last-message` when available), so an operator can quickly inspect how the run ended without reading the full event log.
+`final_message.txt` is intentionally a convenience artifact. It is the last assistant-visible text extracted from the raw CLI event stream (or Codex `--output-last-message` when available), so a user can quickly inspect how the run ended without reading the full event log.
 
 ### `attempts/`
 
@@ -300,6 +300,6 @@ GPU leasing is based on the visible `CUDA_VISIBLE_DEVICES` view. The harness bin
 
 ## Aggregation
 
-`summarize-run` is an operator-facing archive scanner.
+`summarize-run` is an user-facing archive scanner.
 
 Its job is to aggregate archived results for one `run_name` after the fact. It does not participate in solver execution. It exists so the harness has one built-in, archive-only aggregation path instead of pushing every result inspection into ad hoc notebooks.

@@ -4,7 +4,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Current direction
 
-- keep the project small, explicit, and operator-friendly
+- keep the project small, explicit, and user-friendly
 - keep `README.md` high-level and operational
 - keep `ARCHITECTURE.md` as the detailed system contract
 - keep the live solver workspace self-contained and free of outward path leakage

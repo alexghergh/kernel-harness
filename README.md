@@ -127,7 +127,7 @@ kbharness summarize-run --run-name kernelbench-codex-h100-v3
 
 This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`.
 
-## Operator knobs you will actually use
+## User knobs you will actually use
 
 These are the main variables worth changing:
 

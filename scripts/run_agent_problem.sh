@@ -136,7 +136,7 @@ visible_gpu_slot_count() {
   fi
 }
 
-# Resolve operator-facing launcher settings.
+# Resolve user-facing launcher settings.
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
   codex|claude) ;;
