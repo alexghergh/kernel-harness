@@ -1,6 +1,8 @@
-"""Render repo-owned Codex and Claude runtime configs from the shared harness policy.
+"""Render shared Codex and Claude runtime config from the harness policy.
 
-The launcher regenerates these files so vendor-specific settings stay synchronized with the canonical Python policy model.
+The launcher keeps one shared tool-private config home per tool under `state/config/`. Those dirs hold
+runtime config, auth, helper agents, and any tool-managed local state, while the workspace remains free
+of tool auth/config files.
 """
 
 from __future__ import annotations
@@ -8,15 +10,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .agent_specs import write_shared_helper_agent_specs
 from .policy_model import ALLOWED_WEB_DOMAINS
 from .project import ensure_dir, write_text
 
-# Claude and Codex expose different settings surfaces. This module renders the
-# native tool configs from the shared typed harness policy.
+# Claude and Codex expose different native config surfaces. This module renders the
+# tool-specific files directly into the shared tool-private config dirs under state/config/.
 
 
 def render_codex_config() -> str:
-    """Render the repo-owned Codex config that the launcher copies into isolated runtime homes."""
+    """Render the Codex config that lives under the shared CODEX_HOME dir."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
     return (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
@@ -40,8 +43,9 @@ def render_codex_config() -> str:
     )
 
 
+
 def claude_settings_payload() -> dict[str, object]:
-    """Build the project-level Claude settings payload from the shared allowed-domain policy."""
+    """Build the Claude settings payload that lives under the shared CLAUDE_CONFIG_DIR."""
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
         "disableBypassPermissionsMode": "disable",
@@ -105,16 +109,22 @@ def claude_settings_payload() -> dict[str, object]:
     }
 
 
+
 def render_claude_settings() -> str:
     return json.dumps(claude_settings_payload(), indent=2, sort_keys=True) + "\n"
 
 
-def write_repo_runtime_configs(repo_root: Path) -> list[Path]:
-    repo_root = repo_root.expanduser().resolve()
-    codex_dir = ensure_dir(repo_root / ".codex")
-    claude_dir = ensure_dir(repo_root / ".claude")
+
+def write_shared_tool_state(config_root: Path) -> list[Path]:
+    config_root = ensure_dir(config_root.expanduser().resolve())
+    codex_dir = ensure_dir(config_root / "codex")
+    claude_dir = ensure_dir(config_root / "claude")
     codex_path = codex_dir / "config.toml"
     claude_path = claude_dir / "settings.json"
     write_text(codex_path, render_codex_config())
     write_text(claude_path, render_claude_settings())
-    return [codex_path, claude_path]
+    written = [codex_path, claude_path]
+    written.extend(
+        write_shared_helper_agent_specs(codex_home=codex_dir, claude_config_dir=claude_dir)
+    )
+    return written

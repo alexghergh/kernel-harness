@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import shutil
 from pathlib import Path
-from .agent_specs import write_workspace_helper_agent_specs
+from .agent_specs import write_archive_helper_agent_specs
 from .archive_layout import archive_problem_contract_dir, write_archive_problem_manifest
 from .common import emit_json, normalize_tool_name
 from .goal_status import write_goal_status_files
@@ -98,8 +98,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
 
     contract_dir = archive_problem_contract_dir(args.run_name, args.level, args.problem_id)
     archive_manifest_path = write_archive_problem_manifest(args.run_name, args.level, args.problem_id)
-    helper_agent_paths = write_workspace_helper_agent_specs(
-        workspace=paths["workspace"],
+    helper_agent_paths = write_archive_helper_agent_specs(
         archive_contract_dir=contract_dir,
     )
     write_contract_bundle(

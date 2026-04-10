@@ -31,7 +31,20 @@ export DATA_ROOT
 
 STATE_ROOT="${DATA_ROOT}/state"
 ARCHIVE_ROOT="${DATA_ROOT}/archive"
+TOOL_CONFIG_ROOT="${STATE_ROOT}/config"
+CODEX_SHARED_HOME="${TOOL_CONFIG_ROOT}/codex"
+CLAUDE_SHARED_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
 KBHARNESS_CLI="kbharness"
+
+prepare_shared_tool_state() {
+  python - <<'PY'
+from pathlib import Path
+from kernel_bench_experiment_agents.runtime_policy import write_shared_tool_state
+from kernel_bench_experiment_agents.project import state_dir
+
+write_shared_tool_state(state_dir() / "config")
+PY
+}
 
 # Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
@@ -132,6 +145,7 @@ fi
 require_command python
 require_command flock
 require_command "${KBHARNESS_CLI}"
+prepare_shared_tool_state
 
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
@@ -143,6 +157,7 @@ mkdir -p \
   "${ARCHIVE_PROBLEM_DIR}" \
   "${AGENT_ARTIFACT_DIR}" \
   "${STATE_ROOT}" \
+  "${TOOL_CONFIG_ROOT}" \
   "${SOLVER_LOCK_DIR}" \
   "${PROBLEM_STATE_LOCK_DIR}" \
   "${GPU_LOCK_DIR}"
@@ -157,23 +172,25 @@ fi
 # Validate authentication before mutating workspace state.
 if [[ "${TOOL}" == "codex" ]]; then
   require_command codex
+  export CODEX_HOME="${CODEX_SHARED_HOME}"
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
   elif ! codex login status >/dev/null 2>&1; then
-    echo "Codex needs either a login or OPENAI_API_KEY before launch." >&2
-    echo "Preferred: codex login --device-auth" >&2
+    echo "Codex needs either a shared CODEX_HOME login or OPENAI_API_KEY before launch." >&2
+    echo "Preferred: CODEX_HOME=\"${CODEX_SHARED_HOME}\" codex login --device-auth" >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
 else
   require_command claude
+  export CLAUDE_CONFIG_DIR="${CLAUDE_SHARED_CONFIG_DIR}"
   if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     :
-  elif [[ -f "${HOME}/.claude/.credentials.json" || -f "${HOME}/.claude.json" ]]; then
+  elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" || -f "${CLAUDE_SHARED_CONFIG_DIR}/.claude.json" ]]; then
     :
   else
-    echo "Claude Code needs a subscription login or exported API credentials before launch." >&2
-    echo "Preferred: run claude login first." >&2
+    echo "Claude Code needs a shared CLAUDE_CONFIG_DIR login or exported API credentials before launch." >&2
+    echo "Preferred: CLAUDE_CONFIG_DIR=\"${CLAUDE_SHARED_CONFIG_DIR}\" claude login" >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
   fi
@@ -211,6 +228,12 @@ TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
+
+if [[ "${TOOL}" == "codex" ]]; then
+  echo "Launching Codex in ${WORKSPACE} with shared CODEX_HOME=${CODEX_HOME}" >&2
+else
+  echo "Launching Claude Code in ${WORKSPACE} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" >&2
+fi
 
 rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
@@ -292,7 +315,7 @@ else
     --verbose
     --output-format stream-json
     --no-session-persistence
-    --setting-sources project
+    --setting-sources user
     --model "${MODEL}"
   )
   (

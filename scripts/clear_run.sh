@@ -35,8 +35,6 @@ rm -rf \
   "${ARCHIVE_ROOT}/${RUN_NAME}" \
   "${STATE_ROOT}/build/${RUN_NAME}" \
   "${STATE_ROOT}/problem_runtime/${RUN_NAME}" \
-  "${STATE_ROOT}/agent_home/${RUN_NAME}" \
-  "${STATE_ROOT}/claude_home/${RUN_NAME}" \
   "${STATE_ROOT}/workspaces/${RUN_NAME}"
 
 rm -f \

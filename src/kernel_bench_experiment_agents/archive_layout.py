@@ -160,8 +160,6 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             f"{workspace_stub}/GOAL_STATUS.md",
             f"{workspace_stub}/goal_status.json",
             f"{workspace_stub}/completion.json",
-            f"{workspace_stub}/.codex/agents/",
-            f"{workspace_stub}/.claude/agents/",
         ],
     }
 
