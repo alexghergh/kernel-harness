@@ -44,7 +44,7 @@ For one `(run_name, level, problem_id)` tuple, the harness does this:
 1. resolves the problem and baseline information from the KernelBench checkout
 2. prepares a fresh self-contained workspace
 3. renders solver-facing docs and wrapper scripts into that workspace
-4. refreshes the shared tool-private config under `state/config/`
+4. prepares the shared tool-private config under `state/config/` once at the start of a run
 5. launches Codex or Claude with the current working directory set to that workspace
 6. lets the solver iterate through wrapper commands
 7. records attempts, traces, completion state, and optional profiles
@@ -96,6 +96,8 @@ Those shared tool dirs are where the harness writes:
 - generated Claude `settings.json`
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
+
+The harness does not rely on repo-root `.codex/` or `.claude/` config files.
 
 This split is deliberate:
 
