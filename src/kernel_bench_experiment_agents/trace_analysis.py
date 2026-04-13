@@ -9,9 +9,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .candidate_contract import CANDIDATE_FILENAME
 from .common import as_float, normalize_tool_name
-from .policy_model import ALLOWED_WEB_DOMAINS, GPU_WRAPPER_PATHS, WORKSPACE_WRAPPER_TRACE_KEYS
+from .policy_model import (
+    ALLOWED_WEB_DOMAINS,
+    GPU_WRAPPER_PATHS,
+    WORKSPACE_WRAPPER_TRACE_KEYS,
+    workspace_edit_surface,
+    workspace_read_surface,
+)
 
 _ALLOWED_WEB_SEARCH_HOSTS = ALLOWED_WEB_DOMAINS
 _WORKSPACE_WRAPPER_NAMES = WORKSPACE_WRAPPER_TRACE_KEYS
@@ -438,35 +443,16 @@ def web_searches_from_ir(ir_events: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 
-def _allowed_workspace_read_paths(workspace: Path) -> set[Path]:
-    return {
-        (workspace / "AGENTS.md").resolve(),
-        (workspace / "SPEC.md").resolve(),
-        (workspace / "HARDWARE.md").resolve(),
-        (workspace / "GOAL_STATUS.md").resolve(),
-        (workspace / "goal_status.json").resolve(),
-        (workspace / "hardware.json").resolve(),
-        (workspace / "workspace_contract.json").resolve(),
-        (workspace / "problem.json").resolve(),
-        (workspace / "problem_reference.py").resolve(),
-        (workspace / CANDIDATE_FILENAME).resolve(),
-    }
-
-
-
-def _allowed_workspace_read_roots(workspace: Path) -> tuple[Path, ...]:
-    return (
-        (workspace / "samples").resolve(),
-        (workspace / "profiles").resolve(),
-    )
-
-
-
-def _is_allowed_workspace_read(path: Path, workspace: Path) -> bool:
+def _is_allowed_workspace_read(
+    path: Path,
+    *,
+    allowed_read_paths: set[Path],
+    allowed_read_roots: tuple[Path, ...],
+) -> bool:
     resolved = path.resolve()
-    if resolved in _allowed_workspace_read_paths(workspace):
+    if resolved in allowed_read_paths:
         return True
-    return any(_is_relative_to(resolved, root) for root in _allowed_workspace_read_roots(workspace))
+    return any(_is_relative_to(resolved, root) for root in allowed_read_roots)
 
 
 
@@ -478,8 +464,8 @@ def audit_trace(
     tool: str | None = None,
 ) -> dict[str, Any]:
     workspace = workspace.resolve()
-    allowed_edit_paths = {(workspace / CANDIDATE_FILENAME).resolve()}
-    allowed_read_paths = _allowed_workspace_read_paths(workspace)
+    allowed_edit_paths = workspace_edit_surface(workspace)
+    allowed_read_paths, allowed_read_roots = workspace_read_surface(workspace)
     violations: list[dict[str, Any]] = []
     counts = trace_counts(ir_events, raw_events=raw_events, tool=tool)
     web_searches = web_searches_from_ir(ir_events)
@@ -521,7 +507,11 @@ def audit_trace(
                 if not read_path.is_absolute():
                     read_path = workspace / read_path
                 read_path = read_path.resolve()
-                if not (read_path in allowed_read_paths or _is_allowed_workspace_read(read_path, workspace)):
+                if not _is_allowed_workspace_read(
+                    read_path,
+                    allowed_read_paths=allowed_read_paths,
+                    allowed_read_roots=allowed_read_roots,
+                ):
                     violations.append(
                         {
                             "line": line_number,

@@ -13,7 +13,7 @@ from .completion_policy import annotate_completion_outcomes, infer_measured_outc
 from .goal_status import write_goal_status_files
 from .gpu_pool import lease_problem_artifacts
 from .policy_model import SOLVER_TERMINAL_STATES
-from .project import artifact_agent_dir, now_iso, write_json, write_text
+from .project import archive_agent_dir, now_iso, write_json, write_text
 from .run_metrics import best_correct_payload
 from .workspace_paths import (
     validate_workspace_assignment,
@@ -72,7 +72,7 @@ def _write_completion_payload(
         problem_id=args.problem_id,
     )
     tool = normalize_tool_name(metadata.get("tool"))
-    agent_dir = artifact_agent_dir(args.run_name, args.level, args.problem_id)
+    agent_dir = archive_agent_dir(args.run_name, args.level, args.problem_id)
     completion_path = agent_dir / "completion.json"
     if completion_path.exists() and not args.allow_overwrite:
         raise SystemExit(

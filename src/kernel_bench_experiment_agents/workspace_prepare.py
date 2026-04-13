@@ -14,7 +14,7 @@ from .common import emit_json, normalize_tool_name
 from .goal_status import write_goal_status_files
 from .hardware_catalog import resolve_hardware_spec
 from .kernelbench import load_problem
-from .project import artifact_problem_dir, build_problem_root, kernelbench_root, write_json
+from .project import archive_problem_dir, build_problem_root, kernelbench_root, write_json
 from .run_metrics import baseline_file_paths, baseline_payload_for_problem
 from .workspace_materialization import (
     build_archive_provenance,
@@ -45,9 +45,9 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         args.level,
         args.problem_id,
     )
-    archive_problem_dir = artifact_problem_dir(args.run_name, args.level, args.problem_id)
+    problem_archive_dir = archive_problem_dir(args.run_name, args.level, args.problem_id)
     shutil.rmtree(paths["workspace"], ignore_errors=True)
-    shutil.rmtree(archive_problem_dir, ignore_errors=True)
+    shutil.rmtree(problem_archive_dir, ignore_errors=True)
     shutil.rmtree(build_problem_root(args.run_name, args.level, args.problem_id), ignore_errors=True)
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)

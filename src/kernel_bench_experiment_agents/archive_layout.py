@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from .project import (
+    archive_agent_dir,
     archive_attempts_dir,
     archive_contract_dir,
     archive_problem_dir,
     archive_profiles_dir,
-    artifact_agent_dir,
     write_json,
 )
 
@@ -37,11 +37,11 @@ def sample_manifest_path(run_name: str, level: int, problem_id: int, sample_id: 
 
 
 def goal_status_archive_path(run_name: str, level: int, problem_id: int) -> Path:
-    return artifact_agent_dir(run_name, level, problem_id) / "goal_status.json"
+    return archive_agent_dir(run_name, level, problem_id) / "goal_status.json"
 
 
 def trace_events_path(run_name: str, level: int, problem_id: int) -> Path:
-    return artifact_agent_dir(run_name, level, problem_id) / "events.jsonl"
+    return archive_agent_dir(run_name, level, problem_id) / "events.jsonl"
 
 
 def archive_manifest_path(run_name: str, level: int, problem_id: int) -> Path:

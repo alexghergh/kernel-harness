@@ -22,7 +22,7 @@ from .live_gpu_wait import (
 )
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .ncu_summary import summarize_ncu_raw_csv
-from .project import artifact_problem_dir, now_iso, relative_path_within, write_json, write_text
+from .project import archive_problem_dir, now_iso, relative_path_within, write_json, write_text
 from .subprocess_tools import excerpt, run_subprocess_capture, serialize_exception
 from .workspace_paths import (
     latest_workspace_profile_paths,
@@ -99,7 +99,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
 
     candidate_src = read_validated_candidate_source(candidate_path)
     lease_name = f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
-    problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
+    problem_archive_root = archive_problem_dir(args.run_name, args.level, args.problem_id)
     profiles_dir = archive_problem_profiles_dir(args.run_name, args.level, args.problem_id)
 
     profile_index: int | None = None

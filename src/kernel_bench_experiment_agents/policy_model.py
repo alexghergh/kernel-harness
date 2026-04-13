@@ -8,6 +8,7 @@ helper-agent rendering.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .candidate_contract import CANDIDATE_FILENAME
 
@@ -163,3 +164,30 @@ WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
 GPU_WRAPPER_PATHS: tuple[str, ...] = tuple(
     spec.path for spec in WORKSPACE_COMMAND_SPECS if spec.uses_gpu
 )
+
+
+def _resolve_workspace_surface(
+    workspace: Path,
+    relative_paths: tuple[str, ...],
+) -> tuple[set[Path], tuple[Path, ...]]:
+    workspace = workspace.resolve()
+    exact_paths: set[Path] = set()
+    rooted_paths: list[Path] = []
+    for relative_path in relative_paths:
+        resolved = (workspace / relative_path).resolve()
+        if relative_path.endswith("/"):
+            rooted_paths.append(resolved)
+        else:
+            exact_paths.add(resolved)
+    return exact_paths, tuple(rooted_paths)
+
+
+def workspace_read_surface(workspace: Path) -> tuple[set[Path], tuple[Path, ...]]:
+    return _resolve_workspace_surface(workspace, WORKSPACE_READ_PATHS)
+
+
+def workspace_edit_surface(workspace: Path) -> set[Path]:
+    exact_paths, rooted_paths = _resolve_workspace_surface(workspace, WORKSPACE_EDIT_PATHS)
+    if rooted_paths:
+        raise RuntimeError("workspace edit surface must contain only exact file paths")
+    return exact_paths

@@ -34,18 +34,6 @@ def state_dir() -> Path:
     return ensure_dir(data_root() / "state")
 
 
-def runtime_dir() -> Path:
-    return state_dir()
-
-
-def artifacts_dir() -> Path:
-    return archive_dir()
-
-
-def runs_dir() -> Path:
-    return archive_dir()
-
-
 def build_dir() -> Path:
     return ensure_dir(state_dir() / "build")
 
@@ -108,18 +96,11 @@ def solver_lock_path(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
-def workspace_root() -> Path:
-    return ensure_dir(state_dir() / "workspaces")
-
-
 def workspace_dir(run_name: str, level: int, problem_id: int) -> Path:
     run_name = validate_run_name(run_name)
-    return ensure_dir(workspace_root() / run_name / f"level_{level}" / f"problem_{problem_id}")
-
-
-def run_dir(run_name: str) -> Path:
-    run_name = validate_run_name(run_name)
-    return ensure_dir(archive_dir() / run_name)
+    return ensure_dir(
+        state_dir() / "workspaces" / run_name / f"level_{level}" / f"problem_{problem_id}"
+    )
 
 
 def archive_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
@@ -129,20 +110,12 @@ def archive_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
-def artifact_problem_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return archive_problem_dir(run_name, level, problem_id)
-
-
 def archive_contract_dir(run_name: str, level: int, problem_id: int) -> Path:
     return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "contract")
 
 
 def archive_agent_dir(run_name: str, level: int, problem_id: int) -> Path:
     return ensure_dir(archive_problem_dir(run_name, level, problem_id) / "agent")
-
-
-def artifact_agent_dir(run_name: str, level: int, problem_id: int) -> Path:
-    return archive_agent_dir(run_name, level, problem_id)
 
 
 def archive_attempts_dir(run_name: str, level: int, problem_id: int) -> Path:

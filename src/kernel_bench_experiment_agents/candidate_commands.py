@@ -23,7 +23,7 @@ from .live_gpu_wait import (
 )
 from .gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from .project import (
-    artifact_problem_dir,
+    archive_problem_dir,
     build_problem_dir,
     next_sample_id,
     now_iso,
@@ -71,7 +71,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     """Evaluate one frozen candidate snapshot and persist the measured attempt payload."""
     candidate_path = Path(args.candidate).resolve()
     workspace = workspace_path(args.workspace) if args.workspace else None
-    problem_archive_root = artifact_problem_dir(args.run_name, args.level, args.problem_id)
+    problem_archive_root = archive_problem_dir(args.run_name, args.level, args.problem_id)
     lease_name = f"artifacts:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     sample_id: int | None = None
     payload: dict[str, Any] | None = None
