@@ -114,7 +114,7 @@ reap_one_job() {
 
   if [[ -n "${finished_pid}" && -n "${JOB_TO_PROBLEM[${finished_pid}]:-}" ]]; then
     problem="${JOB_TO_PROBLEM[${finished_pid}]}"
-    unset 'JOB_TO_PROBLEM[$finished_pid]'
+    unset "JOB_TO_PROBLEM[$finished_pid]"
   fi
 
   active_jobs=$((active_jobs - 1))
