@@ -19,6 +19,15 @@ mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
 
+prepare_shared_tool_state() {
+  python - <<'PY'
+from kernel_bench_experiment_agents.runtime_policy import write_shared_tool_state
+from kernel_bench_experiment_agents.project import state_dir
+
+write_shared_tool_state(state_dir() / "config")
+PY
+}
+
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
   codex|claude) ;;
@@ -69,6 +78,8 @@ report_elapsed_time() {
 trap report_elapsed_time EXIT
 
 echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
+prepare_shared_tool_state
+export SHARED_TOOL_STATE_PREPARED=1
 
 action_run_one() {
   local pid="$1"
@@ -87,21 +98,53 @@ action_run_one() {
   ./scripts/run_agent_problem.sh
 }
 
+declare -A JOB_TO_PROBLEM=()
+declare -a FAILED_PROBLEMS=()
 active_jobs=0
+
+reap_one_job() {
+  local finished_pid=""
+  local status=0
+  local problem="unknown"
+
+  set +e
+  wait -n -p finished_pid
+  status=$?
+  set -e
+
+  if [[ -n "${finished_pid}" && -n "${JOB_TO_PROBLEM[${finished_pid}]:-}" ]]; then
+    problem="${JOB_TO_PROBLEM[${finished_pid}]}"
+    unset 'JOB_TO_PROBLEM[$finished_pid]'
+  fi
+
+  active_jobs=$((active_jobs - 1))
+  if (( status != 0 )); then
+    FAILED_PROBLEMS+=("problem ${problem} (exit ${status})")
+  fi
+}
+
 for raw_pid in "${PROBLEM_ID_LIST[@]}"; do
   pid="$(trim "${raw_pid}")"
   [[ -n "${pid}" ]] || continue
 
   while (( active_jobs >= MAX_PARALLEL_SOLVERS )); do
-    wait -n
-    active_jobs=$((active_jobs - 1))
+    reap_one_job
   done
 
   action_run_one "${pid}" &
+  job_pid=$!
+  JOB_TO_PROBLEM["${job_pid}"]="${pid}"
   active_jobs=$((active_jobs + 1))
 done
 
 while (( active_jobs > 0 )); do
-  wait -n
-  active_jobs=$((active_jobs - 1))
+  reap_one_job
 done
+
+if (( ${#FAILED_PROBLEMS[@]} > 0 )); then
+  echo "Range run ${RUN_NAME} completed with failing problems:" >&2
+  for failure in "${FAILED_PROBLEMS[@]}"; do
+    echo "  - ${failure}" >&2
+  done
+  exit 1
+fi

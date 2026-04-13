@@ -145,7 +145,10 @@ fi
 require_command python
 require_command flock
 require_command "${KBHARNESS_CLI}"
-prepare_shared_tool_state
+if [[ "${SHARED_TOOL_STATE_PREPARED:-0}" != "1" ]]; then
+  prepare_shared_tool_state
+fi
+export SHARED_TOOL_STATE_PREPARED=1
 
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
