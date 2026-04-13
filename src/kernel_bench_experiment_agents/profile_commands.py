@@ -349,7 +349,6 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 }
             )
     finally:
-        clear_live_gpu_wait_marker(live_gpu_wait_marker)
         if payload is not None and profile_json_path is not None:
             try:
                 with lease_problem_artifacts(
@@ -360,6 +359,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 ) as artifact_lease:
                     payload["artifact_commit_wait_seconds"] = artifact_lease.wait_seconds
                     write_json(profile_json_path, payload)
+                    clear_live_gpu_wait_marker(live_gpu_wait_marker)
+                    live_gpu_wait_marker = None
 
                     if workspace is not None:
                         if (
@@ -409,6 +410,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                         )
             except Exception as exc:
                 persist_failure = exc
+        else:
+            clear_live_gpu_wait_marker(live_gpu_wait_marker)
 
     if persist_failure is not None:
         raise SystemExit(

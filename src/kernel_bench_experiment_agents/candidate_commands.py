@@ -249,7 +249,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["updated_at"] = now_iso()
         payload["error"] = serialize_exception(exc)
     finally:
-        clear_live_gpu_wait_marker(live_gpu_wait_marker)
         if payload is not None and sample_json_path is not None:
             try:
                 with lease_problem_artifacts(
@@ -261,6 +260,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     payload["artifact_commit_wait_seconds"] = artifact_lease.wait_seconds
                     payload["updated_at"] = now_iso()
                     write_json(sample_json_path, payload)
+                    clear_live_gpu_wait_marker(live_gpu_wait_marker)
+                    live_gpu_wait_marker = None
                     if workspace is not None:
                         write_goal_status_files(
                             run_name=args.run_name,
@@ -270,6 +271,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                         )
             except Exception as exc:
                 persist_failure = exc
+        else:
+            clear_live_gpu_wait_marker(live_gpu_wait_marker)
 
     emit_json(payload)
     if failure is not None:
