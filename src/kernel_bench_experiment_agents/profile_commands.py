@@ -168,7 +168,6 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "archive_candidate_path": archive_candidate_path,
             "artifact_reservation_wait_seconds": reservation_wait_seconds,
             "artifact_commit_wait_seconds": None,
-            "precision": args.precision,
             "error": None,
         }
         write_json(profile_json_path, payload)
@@ -326,7 +325,6 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "gpu_wait_seconds": gpu_wait_seconds,
             "artifact_reservation_wait_seconds": reservation_wait_seconds,
             "artifact_commit_wait_seconds": None,
-            "precision": args.precision,
             "error": None,
         }
         emit_payload = dict(payload)
@@ -396,7 +394,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                                 "profile_stdout_path": workspace_relpath(mirror_paths["stdout_path"], workspace),
                                 "profile_stderr_path": workspace_relpath(mirror_paths["stderr_path"], workspace),
                                 "returncode": completed.returncode,
-            "precision": args.precision,
+                                "precision": args.precision,
                                 "details_returncode": details_completed.returncode,
                                 "raw_csv_returncode": raw_csv_completed.returncode,
                                 "gpu_id": gpu_id,

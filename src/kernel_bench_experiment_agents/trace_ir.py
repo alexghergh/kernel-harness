@@ -1,34 +1,15 @@
-"""Define the normalized trace event representation shared across agent backends.
+"""Normalize raw Codex and Claude CLI traces into a shared IR.
 
-Trace commands parse vendor-specific raw events into this common IR before analysis and audit happen.
+This module keeps `agent/events.jsonl` as the source stream and emits
+`agent/trace_ir.json` as a mostly-lossless, solver-friendly view of the same
+session. If a live trace is not captured well by this IR, extend the parser here
+instead of trying to reconstruct structure downstream from summaries.
 """
 
 from __future__ import annotations
 
-"""Normalize raw Codex and Claude CLI traces into a shared IR.
-
-The parser is intentionally conservative: it keeps the raw event stream in
-`agent/events.jsonl` and produces `agent/trace_ir.json` as a mostly-lossless,
-solver- and user-friendly view of the same session.
-
-Representative raw shapes that this module understands:
-
-- Codex (`--json`):
-    {"type": "turn.completed", "usage": {...}}
-    {"type": "item.completed", "turn_id": "...", "item": {"type": "command_execution", ...}}
-    {"type": "item.completed", "item": {"type": "web_search", "query": "...", ...}}
-
-- Claude (`--output-format stream-json`):
-    {"type": "assistant", "message": {"id": "...", "content": [{"type": "text", ...}, ...]}}
-    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", ...}]}}
-    {"type": "result", "usage": {...}}  # handled by trace_analysis.py
-
-If you get a live trace that is not captured well by this IR, keep the raw
-`events.jsonl` and extend the parser here instead of trying to infer structure
-from summaries downstream.
-"""
-
 import json
+import sys
 import re
 from pathlib import Path
 from typing import Any
@@ -43,9 +24,12 @@ from .common import normalize_tool_name
 
 def load_trace_event_entries(
     events_path: Path,
+    *,
+    warn: bool = False,
 ) -> tuple[list[dict[str, Any]], list[tuple[int, dict[str, Any]]]]:
     raw_events: list[dict[str, Any]] = []
     raw_event_entries: list[tuple[int, dict[str, Any]]] = []
+    malformed_lines: list[int] = []
     if not events_path.exists():
         return raw_events, raw_event_entries
 
@@ -58,9 +42,18 @@ def load_trace_event_entries(
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
+            malformed_lines.append(line_number)
             continue
         raw_events.append(payload)
         raw_event_entries.append((line_number, payload))
+
+    if warn and malformed_lines:
+        preview = ", ".join(str(line_number) for line_number in malformed_lines[:8])
+        suffix = "" if len(malformed_lines) <= 8 else ", ..."
+        print(
+            f"warning: ignored {len(malformed_lines)} malformed JSON line(s) in {events_path} at line(s) {preview}{suffix}",
+            file=sys.stderr,
+        )
     return raw_events, raw_event_entries
 
 

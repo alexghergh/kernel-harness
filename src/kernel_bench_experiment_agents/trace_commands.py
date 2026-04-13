@@ -11,7 +11,6 @@ from pathlib import Path
 from .common import emit_json, normalize_tool_name
 from .completion_policy import (
     annotate_completion_outcomes,
-    apply_completion_policy,
     apply_trace_audit_to_completion,
 )
 from .project import now_iso, relative_path_within, write_json, write_text
@@ -52,7 +51,7 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
     tool = normalize_tool_name(args.tool)
     events_path = Path(args.events_path).expanduser().resolve()
     output_path = Path(args.output_path).expanduser().resolve()
-    raw_events, raw_event_entries = load_trace_event_entries(events_path)
+    raw_events, raw_event_entries = load_trace_event_entries(events_path, warn=True)
     ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
 
     token_usage = trace_usage_summary(raw_events, tool=tool)
@@ -103,7 +102,6 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
                     completion_payload,
                     audit,
                 )
-            completion_payload = apply_completion_policy(completion_payload)
             completion_payload = annotate_completion_outcomes(completion_payload)
             write_json(completion_path, completion_payload)
             if args.workspace:

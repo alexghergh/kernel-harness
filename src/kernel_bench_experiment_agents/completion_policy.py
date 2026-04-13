@@ -83,9 +83,3 @@ def annotate_completion_outcomes(
     if completion_payload.get("success") is None:
         completion_payload["success"] = completion_payload["measured_outcome"] == "beats_both"
     return completion_payload
-
-
-def apply_completion_policy(
-    completion_payload: dict[str, Any],
-) -> dict[str, Any]:
-    return completion_payload
