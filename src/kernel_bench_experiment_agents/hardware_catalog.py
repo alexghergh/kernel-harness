@@ -194,7 +194,7 @@ def render_hardware_markdown(spec: HardwareSpec) -> str:
         "How to use this:\n\n"
         f"{guidance_lines}\n"
         "- large micro-searches are allowed here; dozens or hundreds of timing runs are normal when tuning tile sizes or stage counts\n"
-        "- use `./bin/profile_ncu.sh` periodically during that search so the next branch is informed by measured bottlenecks\n"
+        "- use `profile_ncu` periodically during that search so the next branch is informed by measured bottlenecks\n"
         "- if you are unsure about a hardware limit, consult the official NVIDIA docs below rather than guessing\n\n"
         "Official NVIDIA references:\n\n"
         f"{doc_lines}\n"

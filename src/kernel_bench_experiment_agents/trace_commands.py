@@ -13,6 +13,7 @@ from .completion_policy import (
     annotate_completion_outcomes,
     apply_trace_audit_to_completion,
 )
+from .mcp_trace import load_mcp_ir_events
 from .project import now_iso, relative_path_within, write_json, write_text
 from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
@@ -53,6 +54,9 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
     output_path = Path(args.output_path).expanduser().resolve()
     raw_events, raw_event_entries = load_trace_event_entries(events_path, warn=True)
     ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+    if getattr(args, 'mcp_events_path', None):
+        mcp_events_path = Path(args.mcp_events_path).expanduser().resolve()
+        ir_events.extend(load_mcp_ir_events(mcp_events_path, warn=True, starting_line=len(raw_event_entries) + 1_000_000))
 
     token_usage = trace_usage_summary(raw_events, tool=tool)
     cost_usd = trace_cost_usd(raw_events, tool=tool)
@@ -67,11 +71,21 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             tool=tool,
         )
     source_events_path = _trace_source_reference(events_path=events_path, output_path=output_path)
+    mcp_source_events_path = None
+    if getattr(args, 'mcp_events_path', None):
+        try:
+            mcp_source_events_path = _trace_source_reference(
+                events_path=Path(args.mcp_events_path).expanduser().resolve(),
+                output_path=output_path,
+            )
+        except FileNotFoundError:
+            mcp_source_events_path = None
     payload = {
         "tool": tool,
         "source_events_path": source_events_path,
         "generated_at": now_iso(),
         "trace_ir_version": 1,
+        "mcp_source_events_path": mcp_source_events_path,
         "num_raw_events": len(raw_events),
         "num_ir_events": len(ir_events),
         "token_usage": token_usage,

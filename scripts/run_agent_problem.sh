@@ -125,8 +125,7 @@ HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 PRECISION="${PRECISION:-bf16}"
 NUM_GPU_SLOTS="$(visible_gpu_slot_count)"
-CODEX_SANDBOX_MODE="workspace-write"
-CODEX_SANDBOX_NETWORK_ACCESS="false"
+CODEX_SANDBOX_MODE="read-only"
 BUDGET_POLL_SECONDS=30
 
 if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
@@ -189,7 +188,7 @@ else
   export CLAUDE_CONFIG_DIR="${CLAUDE_SHARED_CONFIG_DIR}"
   if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     :
-  elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" || -f "${CLAUDE_SHARED_CONFIG_DIR}/.claude.json" ]]; then
+  elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" ]]; then
     :
   else
     echo "Claude Code needs a shared CLAUDE_CONFIG_DIR login or exported API credentials before launch." >&2
@@ -226,19 +225,34 @@ PY
 
 INITIAL_PROMPT_PATH="${WORKSPACE}/INITIAL_PROMPT.md"
 EVENTS_PATH="${AGENT_ARTIFACT_DIR}/events.jsonl"
+MCP_EVENTS_PATH="${AGENT_ARTIFACT_DIR}/mcp_ir_events.jsonl"
 FINAL_MESSAGE_PATH="${AGENT_ARTIFACT_DIR}/final_message.txt"
 TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
+TOOL_CWD="${STATE_ROOT}/cwd/${TOOL}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+rm -rf "${TOOL_CWD}"
+mkdir -p "${TOOL_CWD}"
+
+export KBH_WORKSPACE="${WORKSPACE}"
+export KBH_RUN_NAME="${RUN_NAME}"
+export KBH_LEVEL="${LEVEL}"
+export KBH_PROBLEM_ID="${PROBLEM_ID}"
+export KBH_DATASET_SRC="${DATASET_SRC}"
+export KBH_KERNELBENCH_ROOT="${KERNELBENCH_ROOT}"
+export KBH_NUM_GPU_SLOTS="${NUM_GPU_SLOTS}"
+export KBH_PRECISION="${PRECISION}"
+export KBH_CLIENT_TOOL="${TOOL}"
+export KBH_MCP_EVENTS_PATH="${MCP_EVENTS_PATH}"
 
 if [[ "${TOOL}" == "codex" ]]; then
-  echo "Launching Codex in ${WORKSPACE} with shared CODEX_HOME=${CODEX_HOME}" >&2
+  echo "Launching Codex from ${TOOL_CWD} with shared CODEX_HOME=${CODEX_HOME} and MCP-backed workspace access" >&2
 else
-  echo "Launching Claude Code in ${WORKSPACE} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" >&2
+  echo "Launching Claude Code from ${TOOL_CWD} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and MCP-backed workspace access" >&2
 fi
 
-rm -f "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
+rm -f "${EVENTS_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
   "${KBHARNESS_CLI}" goal-status \
@@ -299,14 +313,11 @@ if [[ "${TOOL}" == "codex" ]]; then
     -a never
     exec
     --sandbox "${CODEX_SANDBOX_MODE}"
-    --cd "${WORKSPACE}"
+    --cd "${TOOL_CWD}"
     --skip-git-repo-check
     --model "${MODEL}"
     --json
   )
-  if [[ "${CODEX_SANDBOX_MODE}" == "workspace-write" ]]; then
-    CODEX_ARGS+=( -c "sandbox_workspace_write.network_access=${CODEX_SANDBOX_NETWORK_ACCESS}" )
-  fi
   (
     codex "${CODEX_ARGS[@]}" \
       --output-last-message "${FINAL_MESSAGE_PATH}" \
@@ -322,7 +333,7 @@ else
     --model "${MODEL}"
   )
   (
-    cd "${WORKSPACE}" && claude "${CLAUDE_ARGS[@]}" \
+    cd "${TOOL_CWD}" && claude "${CLAUDE_ARGS[@]}" \
       "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
   ) &
 fi
@@ -361,6 +372,7 @@ fi
 if ! "${KBHARNESS_CLI}" materialize-agent-trace \
   --tool "${TOOL}" \
   --events-path "${EVENTS_PATH}" \
+  --mcp-events-path "${MCP_EVENTS_PATH}" \
   --completion-path "${COMPLETION_PATH}" \
   --final-message-path "${FINAL_MESSAGE_PATH}" \
   --output-path "${TRACE_PATH}" \

@@ -12,6 +12,8 @@ from .policy_model import (
     ALLOWED_WEB_DOMAINS,
     HELPER_SPECS,
     LAUNCHER_TERMINAL_STATES,
+    MCP_SERVER_NAME,
+    MCP_TOOL_SPECS,
     SOLVER_TERMINAL_STATES,
     WORKSPACE_COMMAND_SPECS,
     WORKSPACE_EDIT_PATHS,
@@ -37,7 +39,17 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
         },
         "reads": list(WORKSPACE_READ_PATHS),
         "edits": list(WORKSPACE_EDIT_PATHS),
-        "wrapper_commands": [
+        "mcp_tools": [
+            {
+                "name": spec.name,
+                "gpu": spec.uses_gpu,
+                "purpose": spec.purpose,
+                "read_only": spec.read_only,
+                "destructive": spec.destructive,
+            }
+            for spec in MCP_TOOL_SPECS
+        ],
+        "backend_wrapper_commands": [
             {
                 "name": spec.name,
                 "path": spec.path,
@@ -64,7 +76,7 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 # These markdown renderers are the solver-facing contract for a prepared workspace,
-# so they must stay aligned with the wrapper interface and runtime policy.
+# so they must stay aligned with the MCP tool interface and runtime policy.
 def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
     assignment = contract["assignment"]
     behavior = contract.get("behavior") or {}
@@ -83,7 +95,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         f"- dataset source: `{assignment['dataset_src']}`",
         f"- problem name: `{assignment.get('problem_name') or 'unknown'}`",
         f"- reported GPU name: `{assignment.get('gpu_name') or 'not provided'}`",
-        f"- available GPU slots for wrapper execution: `{assignment.get('num_gpus')}`",
+        f"- available GPU slots for measured tool execution: `{assignment.get('num_gpus')}`",
         f"- total solver budget: `{assignment.get('time_budget_minutes')}` minutes",
         f"- judged precision path: `{precision}`",
         "",
@@ -96,34 +108,33 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Scope:",
         "",
-        "- stay inside this workspace-visible surface; do not treat hidden harness storage as part of your usable environment",
-        "- do not read, edit, or execute anything outside this workspace",
-        "- do not inspect repository-maintainer docs or harness internals",
-        "- treat `samples/` and `profiles/` as local mirrors of archived outputs, not as separate sources of truth",
+        "- your local filesystem sandbox is intentionally not the problem workspace",
+        f"- use only the `{MCP_SERVER_NAME}` MCP tools for local reads, candidate writes, measured runs, profiling, and completion",
+        "- do not inspect repository-maintainer docs, hidden harness storage, or tool-private config state",
         "- do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas",
         "- use `problem_reference.py` as the problem reference",
-        f"- edit only `{CANDIDATE_FILENAME}` for the candidate solution, and only inside its marked editable blocks",
+        f"- edit only `{CANDIDATE_FILENAME}` and only through the `write_candidate` MCP tool",
         f"- the judged path is `{precision}`; internal mixed precision is allowed only if the final candidate still passes the `{precision}` correctness checks",
         "",
-        "Allowed wrapper commands:",
+        f"Allowed `{MCP_SERVER_NAME}` MCP tools:",
         "",
         *[
-            f"- `{command['path']}` — {command['purpose']}"
-            for command in contract["wrapper_commands"]
+            f"- `{tool['name']}` — {tool['purpose']}"
+            for tool in contract["mcp_tools"]
         ],
         "",
-        "Wrapper argument policy:",
+        "Tool policy:",
         "",
-        "- treat `./bin/hardware_info.sh`, `./bin/run_candidate.sh`, `./bin/profile_ncu.sh`, `./bin/goal_status.sh`, and `./bin/best_result.sh` as fixed commands with no solver-supplied flags",
-        "- `./bin/complete_problem.sh` is the only wrapper that accepts solver-supplied flags, and only for `--summary`",
-        "- never overlap wrapper calls; start a new `./bin/*.sh` command only after the previous wrapper has returned",
-        "- `./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust them and wait for them to return instead of treating them as hung",
+        "- `complete_problem` is the only harness tool that accepts solver-supplied completion text",
+        "- never overlap harness tool calls; start a new one only after the previous one has returned",
+        "- `run_candidate` and `profile_ncu` may take a while; trust them and wait for them to return instead of treating them as hung",
+        "- read files only through `read_workspace_file` or `list_workspace_dir`; do not try to inspect local tool state",
         "",
-        "Allowed reads:",
+        "Allowed reads via MCP:",
         "",
         *[f"- `{path}`" for path in contract["reads"]],
         "",
-        "Allowed edits:",
+        "Allowed edits via MCP:",
         "",
         *[f"- `{path}`" for path in contract["edits"]],
         "",
@@ -140,10 +151,10 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Completion:",
         "",
-        "- the solver may terminate only through `./bin/complete_problem.sh --summary \"...\"`",
+        "- the solver may terminate only through `complete_problem(summary=...)`",
         "- solver-written completion is always recorded as `done`; the harness infers the measured outcome from actual artifacts",
         "- `budget_exhausted` and `failed_to_generate` are launcher-only states",
-        "- post-hoc harness invalidation is handled by archive policy, not by solver-supplied `--state` flags",
+        "- post-hoc harness invalidation is handled by archive policy, not by solver-supplied terminal states",
         "- do not end with a plain assistant message",
         "",
         "Standing orders:",
@@ -157,15 +168,16 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "Rules:",
         "",
         "- LOOP UNTIL DONE. DO NOT STOP EARLY.",
-        "- every measured attempt must go through `./bin/run_candidate.sh`",
+        "- every measured attempt must go through `run_candidate`",
         "- profiling is a normal tool, not a last resort",
-        "- trust wrapper output; do not monitor wrapper progress with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection",
+        "- trust tool output; do not monitor progress with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection",
         "- `HARDWARE.md` and `hardware.json` are the only supported hardware surface; do not probe the machine yourself",
-        "- do not use ad hoc shell, Python, or benchmarking commands outside the local wrappers",
+        "- do not use ad hoc shell, Python, or benchmarking commands outside the exposed harness tools",
         "- re-read `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` before any major strategy change and before any termination decision",
         "- keep working until both baselines are beaten or a truthful terminal state is reached",
     ]
     return "\n".join(lines) + "\n"
+
 
 
 def render_workspace_spec_md(
@@ -187,7 +199,7 @@ def render_workspace_spec_md(
         f"- eager PyTorch baseline: `{baseline['eager']['runtime_ms']}` ms",
         f"- `torch.compile` baseline: `{baseline['compile']['runtime_ms']}` ms",
         "- the strongest outcome is to beat both baselines with one correct candidate",
-        f"- optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}`",
+        f"- optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}` through `write_candidate`",
         "- the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; vendor-library wrappers, Triton, and ATen compute helpers are forbidden",
         f"- correctness and runtime are evaluated on the harness `{precision}` path",
         "",
@@ -198,39 +210,38 @@ def render_workspace_spec_md(
         "- if one attempt fails, make the next plan yourself and continue",
         "- if stuck, re-read the local docs, use profiling, consult allowed NVIDIA docs, and try another implementation branch",
         "",
+        "## Tool loop",
+        "",
+        f"1. Read the problem docs through `{MCP_SERVER_NAME}` MCP tools.",
+        f"2. Overwrite `{CANDIDATE_FILENAME}` through `write_candidate`.",
+        "3. Run `run_candidate`.",
+        "4. Read `GOAL_STATUS.md` again through `goal_status` or `read_workspace_file`.",
+        "5. If needed, run `profile_ncu` and read `profiles/latest.summary.txt` first.",
+        "6. Repeat until `complete_problem` is justified.",
+        "",
+        "Never overlap harness tool calls. Start a new one only after the previous one has fully returned.",
+        "`run_candidate` and `profile_ncu` may take a while; trust them and wait for the result instead of treating them as hung.",
+        "",
         "## Termination",
         "",
-        "The only valid exit path is `./bin/complete_problem.sh --summary \"...\"`.",
+        "The only valid exit path is `complete_problem(summary=...)`.",
         "",
         "Solver-written completion:",
         "",
-        "- use `./bin/complete_problem.sh --summary \"...\"` when you believe the current search is complete",
+        "- use `complete_problem(summary=...)` when you believe the current search is complete",
         "- the harness records that as `done` and infers whether you beat eager, compile, both, or neither from measured artifacts",
         "",
         "Launcher-only terminal states:",
         "",
         *[f"- `{state}`" for state in LAUNCHER_TERMINAL_STATES],
         "",
-        "## Loop",
-        "",
-        f"1. Edit `{CANDIDATE_FILENAME}`.",
-        "2. Run `./bin/run_candidate.sh`.",
-        "3. Read `GOAL_STATUS.md`.",
-        "4. If needed, run `./bin/profile_ncu.sh` and read `profiles/latest.summary.txt` first.",
-        "5. Repeat until `./bin/complete_problem.sh` is justified.",
-        "",
-        "All wrappers other than `./bin/complete_problem.sh` are fixed commands. Do not pass alternate paths, run ids, or extra control flags to them.",
-        "Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has fully returned.",
-        "`./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust them and wait for the wrapper result instead of treating them as hung.",
-        "",
         "## Budget and status",
         "",
         f"- total budget: `{metadata['time_budget_minutes']}` minutes",
-        "- remaining budget: read `GOAL_STATUS.md` or `goal_status.json`",
+        "- remaining budget: read `GOAL_STATUS.md` or `goal_status.json` through the harness tools",
         "- the budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress",
         "- recorded GPU lock wait time and an active GPU lease wait in progress are excluded from the budget",
         "- failed attempts are normal; they are not a stop signal",
-        "- there is no human confirmation step during the run",
         "",
         "## References",
         "",
@@ -242,6 +253,7 @@ def render_workspace_spec_md(
         "- exact workspace contract: `workspace_contract.json`",
     ]
     return "\n".join(lines) + "\n"
+
 
 
 def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any]) -> str:
@@ -260,13 +272,13 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
         f"- total solver budget: {assignment.get('time_budget_minutes')} minutes",
         f"- judged precision path: {precision}",
         "",
-        "Start by reading `AGENTS.md`, then `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md`.",
-        f"Stay inside this workspace. Only edit `{CANDIDATE_FILENAME}`. Use only the local `./bin/*.sh` wrapper commands. Treat every wrapper except `./bin/complete_problem.sh` as a fixed command with no extra flags.",
+        "Start by using `workspace_overview`, then read `AGENTS.md`, `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` through the harness MCP tools.",
+        f"Stay inside the workspace surface exposed by the `{MCP_SERVER_NAME}` MCP server. Only edit `{CANDIDATE_FILENAME}` through `write_candidate`. Use `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, and `complete_problem` for measured harness actions.",
         "Work independently. There is no user approval step in this run. Do not ask for permission, confirmation, or whether to continue.",
-        "Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has returned.",
+        "Never overlap harness tool calls. Start a new one only after the previous one has returned.",
         "If a strategy fails, re-read the docs, profile when useful, consult allowed NVIDIA docs when needed, and start the next strategy yourself.",
-        "`./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; trust the wrapper output and wait for them to finish.",
-        "Do not stop early. When you are truly finished, terminate only through `./bin/complete_problem.sh --summary \"...\"`.",
+        "`run_candidate` and `profile_ncu` may take a while; trust the tool output and wait for them to finish.",
+        "Do not stop early. When you are truly finished, terminate only through `complete_problem(summary=...)`.",
         "The harness will infer the measured outcome from the recorded runs.",
     ]
     return "\n".join(lines) + "\n"

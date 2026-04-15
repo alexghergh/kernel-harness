@@ -44,6 +44,10 @@ def trace_events_path(run_name: str, level: int, problem_id: int) -> Path:
     return archive_agent_dir(run_name, level, problem_id) / "events.jsonl"
 
 
+def mcp_trace_events_path(run_name: str, level: int, problem_id: int) -> Path:
+    return archive_agent_dir(run_name, level, problem_id) / "mcp_ir_events.jsonl"
+
+
 def archive_manifest_path(run_name: str, level: int, problem_id: int) -> Path:
     return archive_problem_dir(run_name, level, problem_id) / "archive_manifest.json"
 
@@ -141,6 +145,7 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             {"path": "contract/helper_agents/", "purpose": "rendered helper-agent specs for the chosen tool runtime"},
             {"path": "agent/events.jsonl", "purpose": "raw streamed agent trace"},
             {"path": "agent/trace_ir.json", "purpose": "normalized trace IR"},
+            {"path": "agent/mcp_ir_events.jsonl", "purpose": "synthetic MCP tool events merged into trace counts and audit"},
             {"path": "agent/completion.json", "purpose": "final terminal state plus measured outcome"},
             {"path": "agent/final_message.txt", "purpose": "last model message when available"},
             {"path": "agent/goal_status.json", "purpose": "latest archived goal-status snapshot"},

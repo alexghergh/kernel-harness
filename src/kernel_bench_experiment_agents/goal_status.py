@@ -11,12 +11,14 @@ from typing import Any
 
 from .archive_layout import (
     goal_status_archive_path,
+    mcp_trace_events_path,
     profile_manifest_entries,
     sample_manifest_entries,
     trace_events_path,
 )
 from .common import as_float
 from .live_gpu_wait import active_live_gpu_wait_seconds
+from .mcp_trace import load_mcp_ir_events
 from .project import now_iso, write_json, write_text
 from .run_metrics import best_correct_payload, candidate_runtime, sum_numeric_field
 from .trace_analysis import trace_counts, web_searches_from_ir
@@ -52,6 +54,12 @@ def live_trace_counts_for_problem(
         trace_events_path(run_name, level, problem_id)
     )
     ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+    ir_events.extend(
+        load_mcp_ir_events(
+            mcp_trace_events_path(run_name, level, problem_id),
+            starting_line=len(raw_event_entries) + 1_000_000,
+        )
+    )
     return (
         trace_counts(ir_events, raw_events=raw_events, tool=tool),
         web_searches_from_ir(ir_events),
@@ -127,17 +135,17 @@ def goal_status_snapshot(
     recommended_actions = []
     if resolved:
         recommended_actions.append(
-            "Re-check SPEC.md once, then end via ./bin/complete_problem.sh --summary 'both baselines beaten'."
+            "Re-check SPEC.md once, then end via the `complete_problem` MCP tool with a short success summary."
         )
     else:
         recommended_actions.extend(
             [
                 "Keep iterating until both baselines are beaten or another truthful terminal state is justified.",
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
-                "Use ./bin/profile_ncu.sh when stuck; read profiles/latest.summary.txt first.",
-                "Do not end with a plain assistant message. The only valid exit path is ./bin/complete_problem.sh --summary ...",
-                "Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has fully returned.",
-                "./bin/run_candidate.sh and ./bin/profile_ncu.sh may take a while; wait for the wrapper result instead of treating them as hung.",
+                "Use the `profile_ncu` MCP tool when stuck; read `profiles/latest.summary.txt` first.",
+                "Do not end with a plain assistant message. The only valid exit path is the `complete_problem` MCP tool.",
+                "Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
+                "`run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
             ]
         )
 
@@ -213,17 +221,17 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Do NOT ask the user for confirmation, approval, or whether to continue. Choose the next action yourself.",
             "- Re-read `SPEC.md` and `HARDWARE.md` before every major strategy change.",
             "- Timing and profiling are normal tools, not expensive last resorts. Use them even for small constant or layout changes.",
-            "- Never overlap wrapper calls. Start a new `./bin/*.sh` command only after the previous wrapper has fully returned.",
-            "- Wrapper commands are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
-            "- If stuck: run `./bin/profile_ncu.sh`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
-            "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `./bin/complete_problem.sh` before remaining time reaches zero.",
-            "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `./bin/complete_problem.sh --summary ...`.",
-            "- `./bin/run_candidate.sh` and `./bin/profile_ncu.sh` may take a while; wait for the wrapper result instead of treating them as hung.",
+            "- Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
+            "- Harness MCP tools are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
+            "- If stuck: call `profile_ncu`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
+            "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `complete_problem` before remaining time reaches zero.",
+            "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `complete_problem(summary=...)`.",
+            "- `run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
         ]
     else:
         heading = "# Goal Status: RESOLVED — both baselines beaten; complete with success"
         standing_orders = [
-            "- Re-check `SPEC.md` once, then end through `./bin/complete_problem.sh --summary 'both baselines beaten'.",
+            "- Re-check `SPEC.md` once, then end through `complete_problem(summary='both baselines beaten')`.",
         ]
 
     if remaining_minutes is None:
@@ -272,7 +280,7 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         "- local sample mirrors: `samples/`, `samples/best_sample.py`, `samples/best_result.json`",
         "- latest profiler mirrors: `profiles/latest.summary.txt` and `profiles/latest.details.txt`",
         "",
-        "Source of truth: measured run history plus the live solver trace. Refresh via `./bin/goal_status.sh` or `./bin/run_candidate.sh`.",
+        "Source of truth: measured run history plus the live solver trace. Refresh via the `goal_status` or `run_candidate` MCP tools.",
     ]
     return "\n".join(lines) + "\n"
 
