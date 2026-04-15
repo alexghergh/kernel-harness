@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--timings-dir", default=None)
     prepare.add_argument("--num-gpus", type=int, default=1)
     prepare.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
-    prepare.add_argument("--model", default="gpt-5-codex")
+    prepare.add_argument("--model", default="gpt-5.4")
     prepare.add_argument("--time-budget-minutes", type=int, default=720)
     prepare.add_argument("--precision", default="bf16")
 

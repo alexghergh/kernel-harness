@@ -34,19 +34,22 @@ This harness assumes:
 
 - the official KernelBench checkout already exists
 - the KernelBench timing files already exist for your hardware
-- if your timing results live outside the default KernelBench timing tree, you will set `KERNELBENCH_TIMINGS_DIR` when launching runs
+- `KERNELBENCH_TIMINGS_DIR` is optional; set it only when your timing results live outside the default KernelBench timing tree
 
 ## Authenticate the agent tools
 
 Run these commands from the harness repo root.
 
+The harness generates `state/config/` itself on launch. Authenticate once into repo-root tool dirs, and the harness will copy just the auth files into `state/config/` each time it recreates shared tool state.
+
 ### Codex
 
-Preferred path: sign in once using the shared harness Codex home.
+Preferred path: sign in once into repo-root `./.codex/`, using file-backed credentials so the harness can copy `auth.json` into `state/config/codex/` on launch.
 
 ```bash
-DATA_ROOT=. CODEX_HOME="./state/config/codex" codex login --device-auth
-DATA_ROOT=. CODEX_HOME="./state/config/codex" codex login status
+mkdir -p .codex
+CODEX_HOME="./.codex" codex -c cli_auth_credentials_store=file login --device-auth
+CODEX_HOME="./.codex" codex login status
 ```
 
 Alternative: export an API key instead.
@@ -57,10 +60,11 @@ export OPENAI_API_KEY=...
 
 ### Claude Code
 
-Preferred path: sign in once using the shared harness Claude config dir.
+Preferred path: sign in once into repo-root `./.claude/`. The harness copies `./.claude/.credentials.json` into `state/config/claude/` on launch.
 
 ```bash
-DATA_ROOT=. CLAUDE_CONFIG_DIR="./state/config/claude" claude login
+mkdir -p .claude
+CLAUDE_CONFIG_DIR="./.claude" claude login
 ```
 
 Alternatives: export API credentials or an OAuth token.
@@ -84,7 +88,7 @@ TOOL=codex \
 RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
 PROBLEM_ID=1 \
-MODEL=gpt-5-codex \
+MODEL=gpt-5.4 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
@@ -99,7 +103,7 @@ TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_ID=1 \
-MODEL=opus \
+MODEL=opus-4.6 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
@@ -115,7 +119,7 @@ RUN_NAME=kernelbench-codex-h100-v3 \
 LEVEL=1 \
 START_PROBLEM_ID=1 \
 END_PROBLEM_ID=10 \
-MODEL=gpt-5-codex \
+MODEL=gpt-5.4 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
@@ -130,7 +134,7 @@ TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_IDS=1,4,9 \
-MODEL=opus \
+MODEL=opus-4.6 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
@@ -144,7 +148,7 @@ Submit from the harness repo root.
 
 ```bash
 ybatch \
-  --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5-codex,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
+  --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 \
   ./scripts/run_agent_problem.slurm.sh
 ```
 

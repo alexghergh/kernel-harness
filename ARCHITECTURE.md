@@ -101,7 +101,12 @@ Those shared tool dirs are where the harness writes:
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
 
-The harness does not rely on repo-root `.codex/` or `.claude/` config files.
+The harness seeds shared auth from repo-root tool dirs when they exist:
+
+- `./.codex/auth.json` -> `state/config/codex/auth.json`
+- `./.claude/.credentials.json` -> `state/config/claude/.credentials.json`
+
+That keeps `state/config/` disposable while leaving repo-root login state under user control.
 
 This split is deliberate:
 
@@ -131,7 +136,7 @@ Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harne
 - `state/config/claude/agents/*.md`
 
 Claude also launches from an empty per-problem cwd under `state/cwd/claude/...`, with the real workspace reachable only through the `kernelbench` MCP server.
-The shared `state/config/claude/.claude.json` forwards the per-problem `KBH_*` context into that MCP server explicitly, so Claude does not rely on ambient process inheritance for workspace binding.
+The shared `state/config/claude/.claude.json` forwards the minimal per-problem MCP context (`KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into that MCP server explicitly. The rest of the problem assignment comes from workspace metadata and archive provenance, so the launcher does not need to duplicate more environment than that.
 
 The practical result is the same for both tools:
 

@@ -24,3 +24,6 @@ __pycache__/
 
 slurm-out
 slurm-err
+
+.codex/config.toml
+.claude/
