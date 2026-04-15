@@ -24,7 +24,7 @@ from .common import normalize_tool_name
 from .mcp_trace import append_mcp_event
 from .policy_model import workspace_edit_surface, workspace_read_surface
 from .profile_commands import command_profile_ncu
-from .project import write_text
+from .project import archive_contract_dir, write_text
 from .status_commands import (
     command_best_result,
     command_complete_problem,
@@ -37,7 +37,7 @@ from .workspace_paths import (
 )
 
 SERVER_NAME = "kernelbench"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 DEFAULT_PROTOCOL_VERSION = "2025-03-26"
 
 
@@ -158,6 +158,22 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
 )
 
 
+RESOURCE_PATHS: tuple[str, ...] = (
+    "AGENTS.md",
+    "SPEC.md",
+    "HARDWARE.md",
+    "GOAL_STATUS.md",
+    "goal_status.json",
+    "problem.json",
+    "workspace_contract.json",
+    "problem_reference.py",
+    CANDIDATE_FILENAME,
+)
+RESOURCE_URI_PREFIX = "kb://workspace/"
+
+
+
+
 def _env(name: str, *, required: bool = True, default: str | None = None) -> str | None:
     value = os.environ.get(name, default)
     if required and (value is None or str(value).strip() == ""):
@@ -165,26 +181,40 @@ def _env(name: str, *, required: bool = True, default: str | None = None) -> str
     return value
 
 
+def _load_archive_provenance(*, run_name: str, level: int, problem_id: int) -> dict[str, Any]:
+    provenance_path = archive_contract_dir(run_name, level, problem_id) / "provenance.json"
+    if not provenance_path.exists():
+        return {}
+    return json.loads(provenance_path.read_text(encoding="utf-8"))
+
+
+
 def load_context() -> ServerContext:
     workspace = Path(_env("KBH_WORKSPACE") or "").expanduser().resolve()
-    run_name = str(_env("KBH_RUN_NAME") or "")
-    level = int(_env("KBH_LEVEL") or "0")
-    problem_id = int(_env("KBH_PROBLEM_ID") or "0")
+    metadata = load_workspace_metadata(workspace)
+    run_name = str(metadata.get("run_name") or "")
+    level = int(metadata.get("level") or "0")
+    problem_id = int(metadata.get("problem_id") or "0")
     validate_workspace_assignment(
         workspace,
         run_name=run_name,
         level=level,
         problem_id=problem_id,
     )
+    provenance = _load_archive_provenance(run_name=run_name, level=level, problem_id=problem_id)
     return ServerContext(
         workspace=workspace,
         run_name=run_name,
         level=level,
         problem_id=problem_id,
-        dataset_src=str(_env("KBH_DATASET_SRC", required=False, default="local") or "local"),
-        kernelbench_root=_env("KBH_KERNELBENCH_ROOT", required=False),
-        num_gpu_slots=int(_env("KBH_NUM_GPU_SLOTS", required=False, default="1") or "1"),
-        precision=str(_env("KBH_PRECISION", required=False, default="bf16") or "bf16"),
+        dataset_src=str(metadata.get("dataset_src") or "local"),
+        kernelbench_root=(
+            str(provenance.get("kernelbench_root"))
+            if provenance.get("kernelbench_root")
+            else None
+        ),
+        num_gpu_slots=int(metadata.get("num_gpus") or 1),
+        precision=str(metadata.get("precision") or "bf16"),
         client_tool=normalize_tool_name(_env("KBH_CLIENT_TOOL", required=False, default="codex")),
         events_path=Path(_env("KBH_MCP_EVENTS_PATH") or "").expanduser().resolve(),
     )
@@ -525,6 +555,62 @@ TOOL_HANDLERS = {
 }
 
 
+def _workspace_resource_uri(relative_path: str) -> str:
+    return f"{RESOURCE_URI_PREFIX}{relative_path}"
+
+
+
+def _workspace_resource_descriptors(ctx: ServerContext) -> list[dict[str, Any]]:
+    resources: list[dict[str, Any]] = []
+    for relative_path in RESOURCE_PATHS:
+        path = ctx.workspace / relative_path
+        if not path.exists() or not path.is_file():
+            continue
+        resources.append(
+            {
+                "uri": _workspace_resource_uri(relative_path),
+                "name": relative_path,
+                "description": f"Workspace file: {relative_path}",
+                "mimeType": "text/markdown" if relative_path.endswith('.md') else "text/plain",
+            }
+        )
+    return resources
+
+
+
+def _read_workspace_resource(ctx: ServerContext, uri: str) -> dict[str, Any]:
+    if not uri.startswith(RESOURCE_URI_PREFIX):
+        raise RuntimeError(f"unknown resource uri: {uri}")
+    relative_path = uri[len(RESOURCE_URI_PREFIX):]
+    path = _resolve_workspace_path(ctx, relative_path)
+    _assert_allowed_read(ctx, path)
+    if not path.exists() or not path.is_file():
+        raise RuntimeError(f"resource does not exist: {relative_path}")
+    text = path.read_text(encoding="utf-8")
+    _append_trace_event(
+        ctx,
+        kind="file_read",
+        tool_name="read_workspace_resource",
+        path=_safe_relative(path, ctx.workspace),
+        metadata={"bytes": len(text.encode('utf-8'))},
+    )
+    mime_type = "text/markdown" if path.suffix == ".md" else "text/plain"
+    return {
+        "contents": [
+            {
+                "uri": uri,
+                "mimeType": mime_type,
+                "text": text,
+            }
+        ]
+    }
+
+
+
+def _list_workspace_resource_templates() -> dict[str, Any]:
+    return {"resourceTemplates": []}
+
+
 def _read_message() -> dict[str, Any] | None:
     headers: dict[str, str] = {}
     while True:
@@ -584,13 +670,28 @@ def main() -> None:
                 request_id,
                 {
                     "protocolVersion": protocol_version,
-                    "capabilities": {"tools": {}},
+                    "capabilities": {"tools": {}, "resources": {}},
                     "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
                 },
             )
             continue
         if method == "ping":
             _write_response(request_id, {})
+            continue
+        if method == "resources/list":
+            _write_response(request_id, {"resources": _workspace_resource_descriptors(ctx)})
+            continue
+        if method == "resources/templates/list":
+            _write_response(request_id, _list_workspace_resource_templates())
+            continue
+        if method == "resources/read":
+            params = request.get("params") or {}
+            try:
+                result = _read_workspace_resource(ctx, str(params.get("uri") or ""))
+            except Exception as exc:  # pragma: no cover - best effort server error surface
+                _write_error(request_id, -32602, f"resource read failed: {exc}")
+            else:
+                _write_response(request_id, result)
             continue
         if method == "tools/list":
             _write_response(request_id, {"tools": [_tool_descriptor(spec) for spec in TOOL_SPECS]})
@@ -624,4 +725,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # pragma: no cover - startup failures should be visible in stderr logs
+        print(
+            f"kernelbench MCP server failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise

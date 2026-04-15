@@ -13,10 +13,10 @@
 #   RUN_NAME=kernelbench-codex-h100-v3
 #   LEVEL=1
 #   PROBLEM_ID=1
-#   MODEL=gpt-5-codex|opus
+#   MODEL=gpt-5.4|opus-4.6
 #   TIME_BUDGET_MINUTES=180
 #   PRECISION=bf16
-#   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>
+#   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>  # optional override
 set -euo pipefail
 
 if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
@@ -110,9 +110,9 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_MODEL="gpt-5-codex"
+DEFAULT_MODEL="gpt-5.4"
 if [[ "${TOOL}" == "claude" ]]; then
-  DEFAULT_MODEL="opus"
+  DEFAULT_MODEL="opus-4.6"
 fi
 
 RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
@@ -178,8 +178,9 @@ if [[ "${TOOL}" == "codex" ]]; then
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
   elif ! codex login status >/dev/null 2>&1; then
-    echo "Codex needs either a shared CODEX_HOME login or OPENAI_API_KEY before launch." >&2
-    echo "Preferred: CODEX_HOME=\"${CODEX_SHARED_HOME}\" codex login --device-auth" >&2
+    echo "Codex needs either repo-root .codex login state or OPENAI_API_KEY before launch." >&2
+    echo "Preferred: CODEX_HOME=\"./.codex\" codex -c cli_auth_credentials_store=file login --device-auth" >&2
+    echo "The harness copies ./.codex/auth.json into ${CODEX_SHARED_HOME} on launch." >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
@@ -191,8 +192,9 @@ else
   elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" ]]; then
     :
   else
-    echo "Claude Code needs a shared CLAUDE_CONFIG_DIR login or exported API credentials before launch." >&2
-    echo "Preferred: CLAUDE_CONFIG_DIR=\"${CLAUDE_SHARED_CONFIG_DIR}\" claude login" >&2
+    echo "Claude Code needs either repo-root .claude login state or exported API credentials before launch." >&2
+    echo "Preferred: CLAUDE_CONFIG_DIR=\"./.claude\" claude login" >&2
+    echo "The harness copies ./.claude/.credentials.json into ${CLAUDE_SHARED_CONFIG_DIR} on launch." >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
   fi
@@ -236,13 +238,6 @@ rm -rf "${TOOL_CWD}"
 mkdir -p "${TOOL_CWD}"
 
 export KBH_WORKSPACE="${WORKSPACE}"
-export KBH_RUN_NAME="${RUN_NAME}"
-export KBH_LEVEL="${LEVEL}"
-export KBH_PROBLEM_ID="${PROBLEM_ID}"
-export KBH_DATASET_SRC="${DATASET_SRC}"
-export KBH_KERNELBENCH_ROOT="${KERNELBENCH_ROOT}"
-export KBH_NUM_GPU_SLOTS="${NUM_GPU_SLOTS}"
-export KBH_PRECISION="${PRECISION}"
 export KBH_CLIENT_TOOL="${TOOL}"
 export KBH_MCP_EVENTS_PATH="${MCP_EVENTS_PATH}"
 
@@ -311,6 +306,7 @@ set +e
 if [[ "${TOOL}" == "codex" ]]; then
   CODEX_ARGS=(
     -a never
+    --disable shell_tool
     exec
     --sandbox "${CODEX_SANDBOX_MODE}"
     --cd "${TOOL_CWD}"
