@@ -5,12 +5,13 @@ This repository runs autonomous coding agents on KernelBench optimization proble
 At a high level:
 
 - the harness prepares a fresh per-problem workspace
-- the agent works only inside that workspace
-- local wrapper commands handle timing, profiling, status refresh, and completion
+- the model does **not** use direct local file or shell tools for problem work
+- local problem interaction goes through a shared MCP server that exposes the harness tool surface
+- hosted web search stays tool-native and domain-restricted
 - the durable record lives under `archive/`
 - disposable live state lives under `state/`
 
-For the detailed system contract, archive layout, workspace layout, and runtime boundary notes, read `ARCHITECTURE.md`.
+For the detailed system contract, archive layout, workspace layout, MCP/config split, and runtime boundary notes, read `ARCHITECTURE.md`.
 
 ## Install KernelBench and this harness into the same environment
 
@@ -184,7 +185,7 @@ The only durable copy-out root is:
 archive/<run_name>/
 ```
 
-Live workspaces, locks, shared tool config, and build products live under `state/` and are disposable once no run is active.
+Live workspaces, locks, shared tool config, per-problem scratch directories, and build products live under `state/` and are disposable once no run is active.
 
 ## CLI surface
 
@@ -194,7 +195,7 @@ Installing this repo exposes the harness CLI:
 kbharness --help
 ```
 
-The launcher scripts are the normal entrypoints. The CLI exists mainly so those scripts and generated workspace wrappers can call the harness internals in a stable way.
+The launcher scripts are the normal entrypoints. The CLI exists mainly so those scripts, workspace wrappers, and the MCP server can call the harness internals in a stable way.
 
 ## Need more detail?
 
@@ -203,5 +204,5 @@ Read `ARCHITECTURE.md` for:
 - archive contents and file meanings
 - workspace contents and solver boundaries
 - shared Codex / Claude config layout under `state/config/`
+- the MCP-only local tool surface
 - how profiling, attempts, traces, and summaries are recorded
-- what parts of the runtime policy are hard enforcement vs documented intent

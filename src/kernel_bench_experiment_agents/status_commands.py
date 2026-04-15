@@ -1,6 +1,6 @@
 """Implement status, best-result, and completion commands for one problem workspace.
 
-These commands are the bridge between solver-visible wrappers and the durable completion artifacts written into the archive.
+These commands are the bridge between solver-visible MCP tools / wrappers and the durable completion artifacts written into the archive.
 """
 
 from __future__ import annotations
