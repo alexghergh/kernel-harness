@@ -1,8 +1,7 @@
 """Canonical typed policy for solver-visible harness behavior and runtime config.
 
-This module is the single source of truth for the small set of policy objects that
-must stay aligned across runtime config rendering, workspace docs, trace audit, and
-helper-agent rendering.
+This module is the single source of truth for the policy objects that must stay aligned across
+runtime config rendering, workspace docs, trace audit, and helper-agent rendering.
 """
 
 from __future__ import annotations
@@ -12,10 +11,12 @@ from pathlib import Path
 
 from .candidate_contract import CANDIDATE_FILENAME
 
+MCP_SERVER_NAME = "kernelbench"
+
 
 @dataclass(frozen=True)
 class WrapperCommandSpec:
-    """Describes one solver-visible wrapper command in the per-problem workspace."""
+    """Describes one backend wrapper command that the harness still records in traces."""
 
     name: str
     path: str
@@ -24,12 +25,23 @@ class WrapperCommandSpec:
 
 
 @dataclass(frozen=True)
+class McpToolSpec:
+    """Describes one solver-visible MCP tool."""
+
+    name: str
+    purpose: str
+    uses_gpu: bool = False
+    read_only: bool = False
+    destructive: bool = False
+
+
+@dataclass(frozen=True)
 class HelperAgentSpec:
     """Captures the shared intent for rendered Codex and Claude helper agents."""
 
     name: str
     description: str
-    shell_commands: tuple[str, ...]
+    mcp_tools: tuple[str, ...]
     read_paths: tuple[str, ...]
     summary_focus: str
 
@@ -41,6 +53,8 @@ LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
     "failed_to_generate",
 )
 
+# These wrapper paths remain the backend command surface used by the harness itself. Synthetic MCP
+# trace events refer to them so the existing counting/audit logic can stay stable.
 WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="hardware_info",
@@ -76,25 +90,74 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     ),
 )
 
+MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
+    McpToolSpec(
+        name="workspace_overview",
+        purpose="return the assigned problem metadata, key files, and available harness tools",
+        read_only=True,
+    ),
+    McpToolSpec(
+        name="list_workspace_dir",
+        purpose="list a safe workspace directory such as '.', 'samples', or 'profiles'",
+        read_only=True,
+    ),
+    McpToolSpec(
+        name="read_workspace_file",
+        purpose="read one allowed workspace file as text",
+        read_only=True,
+    ),
+    McpToolSpec(
+        name="write_candidate",
+        purpose=f"overwrite {CANDIDATE_FILENAME} with new source text",
+        destructive=True,
+    ),
+    McpToolSpec(
+        name="run_candidate",
+        purpose="evaluate correctness and runtime for the current candidate",
+        uses_gpu=True,
+    ),
+    McpToolSpec(
+        name="profile_ncu",
+        purpose="profile the current candidate with Nsight Compute",
+        uses_gpu=True,
+    ),
+    McpToolSpec(
+        name="goal_status",
+        purpose="refresh and return the live goal-status snapshot",
+        read_only=True,
+    ),
+    McpToolSpec(
+        name="best_result",
+        purpose="return the best measured correct result so far",
+        read_only=True,
+    ),
+    McpToolSpec(
+        name="complete_problem",
+        purpose="record a terminal completion summary",
+        destructive=True,
+    ),
+)
+
 WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
-    "Do not end with a plain assistant message. The only valid exit is ./bin/complete_problem.sh.",
-    "Never start a second wrapper call while another wrapper is still running.",
-    "After every measured run or profile, re-read GOAL_STATUS.md and keep iterating if it still says UNRESOLVED.",
+    "Do not end with a plain assistant message. The only valid exit is the `complete_problem` MCP tool.",
+    "Never start a second harness MCP call while another one is still running.",
+    "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
-    "Never overlap wrapper calls. Start a new ./bin/*.sh command only after the previous wrapper has fully returned.",
+    "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
-    "Run ./bin/profile_ncu.sh if you do not already have profiling for the current idea.",
+    "Call `profile_ncu` if you do not already have profiling for the current idea.",
     "Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed.",
     "Use hosted web search only for docs.nvidia.com when you need CUDA or hardware guidance.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
 WORKSPACE_READ_PATHS: tuple[str, ...] = (
+    ".",
     "AGENTS.md",
     "SPEC.md",
     "HARDWARE.md",
@@ -116,9 +179,9 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="runner",
         description=(
             "Execution-focused helper for one assigned optimization problem. "
-            "Use proactively to run ./bin/run_candidate.sh and summarize results without polluting the main context."
+            "Use proactively to run measured evaluations and summarize results without polluting the main context."
         ),
-        shell_commands=("./bin/run_candidate.sh", "./bin/goal_status.sh"),
+        mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -138,9 +201,9 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="profiler",
         description=(
             "Profiling helper for one assigned optimization problem. "
-            "Use proactively to run ./bin/profile_ncu.sh and summarize bottlenecks and likely next steps."
+            "Use proactively to run Nsight Compute profiling and summarize bottlenecks and likely next steps."
         ),
-        shell_commands=("./bin/profile_ncu.sh", "./bin/goal_status.sh"),
+        mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -164,6 +227,14 @@ WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
 GPU_WRAPPER_PATHS: tuple[str, ...] = tuple(
     spec.path for spec in WORKSPACE_COMMAND_SPECS if spec.uses_gpu
 )
+
+
+def mcp_tool_names() -> tuple[str, ...]:
+    return tuple(spec.name for spec in MCP_TOOL_SPECS)
+
+
+def claude_mcp_tool_names() -> tuple[str, ...]:
+    return tuple(f"mcp__{MCP_SERVER_NAME}__{name}" for name in mcp_tool_names())
 
 
 def _resolve_workspace_surface(

@@ -9,29 +9,28 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from .policy_model import HELPER_SPECS, HelperAgentSpec
+from .policy_model import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
 from .project import write_text
 
 
 def _codex_agent_toml(spec: HelperAgentSpec) -> str:
-    shell_list = " or ".join(f"`{command}`" for command in spec.shell_commands)
+    tool_list = ", ".join(f"`{name}`" for name in spec.mcp_tools)
     read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
     return dedent(
         f'''
         name = "{spec.name}"
         description = "{spec.description}"
-        sandbox_mode = "workspace-write"
+        sandbox_mode = "read-only"
         developer_instructions = """
         You are a narrow helper for one assigned optimization problem.
 
-        Read `AGENTS.md` first, then `SPEC.md`, `HARDWARE.md`, and any directly relevant local files.
-        Use shell only for {shell_list}.
-        Use normal file reads only for {read_list}.
-        Do not inspect unrelated files or wander outside the current workspace.
-        Do not use ad hoc shell commands to inspect directories or parse files.
-        If one of the allowed wrappers is slow, wait for it to finish instead of trying to inspect processes or the GPU.
-        Never start a second wrapper call while another wrapper is still running.
-        Do not edit any files.
+        Use only the `{MCP_SERVER_NAME}` MCP tools: {tool_list}.
+        Read local problem files only through `read_workspace_file`, and only for {read_list}.
+        Do not inspect unrelated files, local config, or hidden harness state.
+        Do not use ad hoc shell commands, Python snippets, or local file tools.
+        If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.
+        Never start a second harness MCP call while another one is still running.
+        Do not edit any files unless the main agent explicitly delegated candidate writing to you.
         Work independently: do not ask the user or the main agent for permission to proceed once assigned.
         When finished, return only a concise actionable summary; do not ask follow-up questions.
         {spec.summary_focus}
@@ -42,33 +41,30 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
 
 
 def _claude_agent_md(spec: HelperAgentSpec) -> str:
-    shell_list = " or ".join(f"`{command}`" for command in spec.shell_commands)
+    tool_list = ", ".join(f"`{name}`" for name in spec.mcp_tools)
     read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
-    return dedent(
-        f"""
-        ---
-        name: {spec.name}
-        description: {spec.description}
-        tools:
-          - Read
-          - Bash
-        ---
-
-        You are a narrow helper for one assigned optimization problem.
-
-        Read `AGENTS.md` first, then `SPEC.md`, `HARDWARE.md`, and any directly relevant local files.
-        Use `Bash` only for {shell_list}.
-        Use `Read` only for {read_list}.
-        Do not inspect unrelated files or wander outside the current workspace.
-        Do not use shell commands or Python snippets to inspect profiler outputs or parse files.
-        If one of the allowed wrappers is slow, wait for it to finish instead of trying to inspect processes or the GPU.
-        Never start a second wrapper call while another wrapper is still running.
-        Do not edit any files.
-        Work independently: do not ask the user or the main agent for permission to proceed once assigned.
-        When finished, return only a concise actionable summary; do not ask follow-up questions.
-        {spec.summary_focus}
-        """
-    ).strip() + "\n"
+    yaml_tools = "\n".join(
+        f"  - mcp__{MCP_SERVER_NAME}__{tool_name}" for tool_name in spec.mcp_tools
+    )
+    return (
+        "---\n"
+        f"name: {spec.name}\n"
+        f"description: {spec.description}\n"
+        "tools:\n"
+        f"{yaml_tools}\n"
+        "---\n\n"
+        "You are a narrow helper for one assigned optimization problem.\n\n"
+        f"Use only the `{MCP_SERVER_NAME}` MCP tools: {tool_list}.\n"
+        f"Read local problem files only through `read_workspace_file`, and only for {read_list}.\n"
+        "Do not inspect unrelated files, local config, or hidden harness state.\n"
+        "Do not use shell commands or Python snippets to inspect profiler outputs or parse files.\n"
+        "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
+        "Never start a second harness MCP call while another one is still running.\n"
+        "Do not edit any files unless the main agent explicitly delegated candidate writing to you.\n"
+        "Work independently: do not ask the user or the main agent for permission to proceed once assigned.\n"
+        "When finished, return only a concise actionable summary; do not ask follow-up questions.\n"
+        f"{spec.summary_focus}\n"
+    )
 
 
 
