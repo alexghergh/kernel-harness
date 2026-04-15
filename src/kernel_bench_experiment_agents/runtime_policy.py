@@ -133,7 +133,7 @@ def claude_user_config_payload() -> dict[str, object]:
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": _python_command(),
-                "args": ["-m", "kernel_bench_experiment_agents.mcp_server"],
+                "args": ["-m", "kernel_bench_experiment_agents.mcp"],
                 "env": {name: f"${{{name}:-}}" for name in KBH_MCP_ENV_VARS},
             }
         }
