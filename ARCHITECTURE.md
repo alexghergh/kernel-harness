@@ -97,6 +97,7 @@ Those shared tool dirs are where the harness writes:
 - generated Codex `config.toml`
 - generated Claude `settings.json`
 - generated Claude `.claude.json` for MCP server registration
+- Claude keeps bash sandboxing disabled on this cluster-oriented setup; the active client-side guardrail is the Claude permissions allow/deny list plus MCP-only workspace access
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
 
@@ -130,6 +131,7 @@ Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harne
 - `state/config/claude/agents/*.md`
 
 Claude also launches from an empty per-problem cwd under `state/cwd/claude/...`, with the real workspace reachable only through the `kernelbench` MCP server.
+The shared `state/config/claude/.claude.json` forwards the per-problem `KBH_*` context into that MCP server explicitly, so Claude does not rely on ambient process inheritance for workspace binding.
 
 The practical result is the same for both tools:
 

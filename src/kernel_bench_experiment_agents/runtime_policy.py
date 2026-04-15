@@ -19,24 +19,24 @@ from .policy_model import (
 from .project import ensure_dir, write_text
 
 
+KBH_MCP_ENV_VARS: tuple[str, ...] = (
+    "KBH_WORKSPACE",
+    "KBH_RUN_NAME",
+    "KBH_LEVEL",
+    "KBH_PROBLEM_ID",
+    "KBH_DATASET_SRC",
+    "KBH_KERNELBENCH_ROOT",
+    "KBH_NUM_GPU_SLOTS",
+    "KBH_PRECISION",
+    "KBH_CLIENT_TOOL",
+    "KBH_MCP_EVENTS_PATH",
+)
+
+
 def render_codex_config() -> str:
     """Render the shared Codex config that lives under CODEX_HOME."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
-    env_vars = ", ".join(
-        f'"{name}"'
-        for name in (
-            "KBH_WORKSPACE",
-            "KBH_RUN_NAME",
-            "KBH_LEVEL",
-            "KBH_PROBLEM_ID",
-            "KBH_DATASET_SRC",
-            "KBH_KERNELBENCH_ROOT",
-            "KBH_NUM_GPU_SLOTS",
-            "KBH_PRECISION",
-            "KBH_CLIENT_TOOL",
-            "KBH_MCP_EVENTS_PATH",
-        )
-    )
+    env_vars = ", ".join(f'"{name}"' for name in KBH_MCP_ENV_VARS)
     return (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
         'personality = "pragmatic"\n'
@@ -85,43 +85,7 @@ def claude_settings_payload() -> dict[str, object]:
             ],
         },
         "sandbox": {
-            "enabled": True,
-            "failIfUnavailable": True,
-            "autoAllowBashIfSandboxed": False,
-            "allowUnsandboxedCommands": False,
-            "filesystem": {
-                "allowRead": ["./"],
-                "allowWrite": ["./"],
-                "denyRead": [
-                    "~/",
-                    "/etc",
-                    "/proc",
-                    "/sys",
-                    "/var",
-                    "/usr",
-                    "/bin",
-                    "/sbin",
-                    "/opt",
-                    "/root",
-                    "/tmp",
-                ],
-                "denyWrite": [
-                    "~/",
-                    "/etc",
-                    "/proc",
-                    "/sys",
-                    "/var",
-                    "/usr",
-                    "/bin",
-                    "/sbin",
-                    "/opt",
-                    "/root",
-                    "/tmp",
-                ],
-            },
-            "network": {
-                "allowedDomains": list(ALLOWED_WEB_DOMAINS),
-            },
+            "enabled": False,
         },
     }
 
@@ -135,6 +99,7 @@ def claude_user_config_payload() -> dict[str, object]:
                 "type": "stdio",
                 "command": "python",
                 "args": ["-m", "kernel_bench_experiment_agents.mcp_server"],
+                "env": {name: f"${{{name}:-}}" for name in KBH_MCP_ENV_VARS},
             }
         }
     }
