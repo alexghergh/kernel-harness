@@ -13,11 +13,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .project import append_jsonl
+from ..project import append_jsonl
+
 
 
 def append_mcp_event(events_path: Path, payload: dict[str, Any]) -> None:
     append_jsonl(events_path, payload)
+
 
 
 def load_mcp_ir_events(

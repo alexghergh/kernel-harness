@@ -18,7 +18,7 @@ from .archive_layout import (
 )
 from .common import as_float
 from .live_gpu_wait import active_live_gpu_wait_seconds
-from .mcp_trace import load_mcp_ir_events
+from .mcp.trace import load_mcp_ir_events
 from .project import now_iso, write_json, write_text
 from .run_metrics import best_correct_payload, candidate_runtime, sum_numeric_field
 from .trace_analysis import trace_counts, web_searches_from_ir

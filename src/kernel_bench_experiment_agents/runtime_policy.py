@@ -89,7 +89,7 @@ def render_codex_config() -> str:
         'max_depth = 1\n\n'
         f'[mcp_servers.{MCP_SERVER_NAME}]\n'
         f'command = {python_command}\n'
-        'args = ["-m", "kernel_bench_experiment_agents.mcp_server"]\n'
+        'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
         f'env_vars = [{env_vars}]\n'
         'required = true\n'
         'startup_timeout_sec = 20\n\n'

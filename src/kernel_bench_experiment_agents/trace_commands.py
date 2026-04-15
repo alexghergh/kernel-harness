@@ -13,7 +13,7 @@ from .completion_policy import (
     annotate_completion_outcomes,
     apply_trace_audit_to_completion,
 )
-from .mcp_trace import load_mcp_ir_events
+from .mcp.trace import load_mcp_ir_events
 from .project import now_iso, relative_path_within, write_json, write_text
 from .trace_analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from .trace_ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
