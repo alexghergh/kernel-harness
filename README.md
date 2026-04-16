@@ -109,7 +109,7 @@ HARDWARE_NAME=H100 \
 ./scripts/test_harness_mcp.sh
 ```
 
-That is the supported smoke path for the actual harness server. The Codex launcher then uses the same server, but injects the per-problem MCP environment explicitly at launch time with `codex -c mcp_servers.kernelbench.env.*=...` overrides so the shared `state/config/codex/config.toml` can stay problem-agnostic.
+That is the supported smoke path for the actual harness server. The Codex launcher then uses the same server, but materializes a tiny per-problem `CODEX_HOME` that reuses shared auth/helper-agent state while writing a launch-local `config.toml` containing the explicit MCP environment table that Codex needs at startup.
 
 ## Most common runs
 

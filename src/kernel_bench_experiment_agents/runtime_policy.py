@@ -68,29 +68,16 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
 
 
 
-def codex_mcp_env_overrides(env: Mapping[str, str | None]) -> list[str]:
-    """Build per-launch Codex MCP env overrides.
+def render_codex_config(*, mcp_env: Mapping[str, str] | None = None) -> str:
+    """Render a Codex config.toml.
 
-    The shared CODEX_HOME config stays problem-agnostic. Per-problem MCP context is injected at
-    launch time with Codex `-c key=value` overrides instead of rewriting the shared config or
-    relying on forwarded parent env.
+    Shared state stores the stable defaults, auth cache, and helper agents. The actual launch uses a
+    per-problem CODEX_HOME so the MCP server can receive an explicit static `[mcp_servers.*.env]`
+    table before Codex starts required MCP servers.
     """
-    overrides: list[str] = []
-    for name in MCP_SERVER_ENV_VARS:
-        value = env.get(name)
-        if value is None:
-            continue
-        overrides.append(
-            f"mcp_servers.{MCP_SERVER_NAME}.env.{name}={json.dumps(str(value))}"
-        )
-    return overrides
-
-
-def render_codex_config() -> str:
-    """Render the shared Codex config that lives under CODEX_HOME."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
     python_command = json.dumps(_python_command())
-    return (
+    payload = (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
         'personality = "pragmatic"\n'
         'approval_policy = "never"\n'
@@ -111,9 +98,20 @@ def render_codex_config() -> str:
         'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
         'required = true\n'
         'startup_timeout_sec = 20\n\n'
+    )
+    if mcp_env:
+        payload += f'[mcp_servers.{MCP_SERVER_NAME}.env]\n'
+        for name in MCP_SERVER_ENV_VARS:
+            value = mcp_env.get(name)
+            if value is None:
+                continue
+            payload += f'{name} = {json.dumps(str(value))}\n'
+        payload += '\n'
+    payload += (
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )
+    return payload
 
 
 
@@ -166,6 +164,50 @@ def render_claude_settings() -> str:
 
 def render_claude_user_config() -> str:
     return json.dumps(claude_user_config_payload(), indent=2, sort_keys=True) + "\n"
+
+
+def prepare_codex_session_home(
+    *,
+    shared_codex_home: Path,
+    target_home: Path,
+    mcp_env: Mapping[str, str],
+) -> list[Path]:
+    """Create a per-launch CODEX_HOME with explicit MCP env and shared auth/agents.
+
+    Codex reliably starts the required MCP server when the env table lives in config.toml before
+    startup. We therefore keep auth and helper agents under the shared Codex home, but materialize
+    a tiny per-problem CODEX_HOME that points at the same auth/agents and owns only local mutable
+    Codex state (history, logs, caches).
+    """
+    shared_codex_home = shared_codex_home.expanduser().resolve()
+    target_home = ensure_dir(target_home.expanduser().resolve())
+
+    written: list[Path] = []
+    config_path = target_home / 'config.toml'
+    write_text(config_path, render_codex_config(mcp_env=mcp_env))
+    written.append(config_path)
+
+    for name in ('auth.json',):
+        source = shared_codex_home / name
+        target = target_home / name
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        if source.exists():
+            target.symlink_to(source)
+            written.append(target)
+
+    source_agents = shared_codex_home / 'agents'
+    target_agents = target_home / 'agents'
+    if target_agents.exists() or target_agents.is_symlink():
+        if target_agents.is_symlink() or target_agents.is_file():
+            target_agents.unlink()
+        else:
+            shutil.rmtree(target_agents)
+    if source_agents.exists():
+        target_agents.symlink_to(source_agents, target_is_directory=True)
+        written.append(target_agents)
+
+    return written
 
 
 

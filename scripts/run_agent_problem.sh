@@ -46,16 +46,6 @@ write_shared_tool_state(state_dir() / "config")
 PY
 }
 
-codex_mcp_config_overrides() {
-  python - <<'PY'
-import os
-from kernel_bench_experiment_agents.runtime_policy import codex_mcp_env_overrides
-
-for override in codex_mcp_env_overrides(os.environ):
-    print(override)
-PY
-}
-
 # Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
   local parent_pid="$1"
@@ -252,7 +242,27 @@ export KBH_CLIENT_TOOL="${TOOL}"
 export KBH_MCP_EVENTS_PATH="${MCP_EVENTS_PATH}"
 
 if [[ "${TOOL}" == "codex" ]]; then
-  echo "Launching Codex from ${TOOL_CWD} with shared CODEX_HOME=${CODEX_HOME} and MCP-backed workspace access" >&2
+  export CODEX_SESSION_HOME="${STATE_ROOT}/config_runs/codex/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+  rm -rf "${CODEX_SESSION_HOME}"
+  mkdir -p "${CODEX_SESSION_HOME}"
+  python - <<'PY'
+import os
+from pathlib import Path
+from kernel_bench_experiment_agents.runtime_policy import prepare_codex_session_home
+
+prepare_codex_session_home(
+    shared_codex_home=Path(os.environ["CODEX_HOME"]),
+    target_home=Path(os.environ["CODEX_SESSION_HOME"]),
+    mcp_env={
+        "DATA_ROOT": os.environ["DATA_ROOT"],
+        "KBH_WORKSPACE": os.environ["KBH_WORKSPACE"],
+        "KBH_CLIENT_TOOL": os.environ["KBH_CLIENT_TOOL"],
+        "KBH_MCP_EVENTS_PATH": os.environ["KBH_MCP_EVENTS_PATH"],
+    },
+)
+PY
+  export CODEX_HOME="${CODEX_SESSION_HOME}"
+  echo "Launching Codex from ${TOOL_CWD} with per-problem CODEX_HOME=${CODEX_HOME} (auth/helpers shared from ${CODEX_SHARED_HOME}) and MCP-backed workspace access" >&2
 else
   echo "Launching Claude Code from ${TOOL_CWD} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and MCP-backed workspace access" >&2
 fi
@@ -314,14 +324,10 @@ PY
 
 set +e
 if [[ "${TOOL}" == "codex" ]]; then
-  readarray -t CODEX_MCP_OVERRIDES < <(codex_mcp_config_overrides)
   CODEX_ARGS=(
     -a never
     --disable shell_tool
   )
-  for override in "${CODEX_MCP_OVERRIDES[@]}"; do
-    CODEX_ARGS+=( -c "${override}" )
-  done
   CODEX_ARGS+=(
     exec
     --sandbox "${CODEX_SANDBOX_MODE}"

@@ -89,7 +89,7 @@ It is safe to delete `state/` only when no run is active.
 
 The workspace is solver-visible. Tool-private config and auth live outside it.
 
-- Codex uses `CODEX_HOME=state/config/codex/`
+- Codex authenticates from shared `state/config/codex/`, but actual problem launches use a tiny per-problem `CODEX_HOME` seeded from that shared home
 - Claude uses `CLAUDE_CONFIG_DIR=state/config/claude/`
 
 Those shared tool dirs are where the harness writes:
@@ -125,7 +125,7 @@ Codex keeps its shared user/runtime config under `CODEX_HOME`. The harness gener
 - `state/config/codex/config.toml`
 - `state/config/codex/agents/*.toml`
 
-Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The shared `state/config/codex/config.toml` stays problem-agnostic; the launcher injects the per-problem MCP environment (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) explicitly at startup with `codex -c mcp_servers.kernelbench.env.*=...` overrides.
+Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The launcher builds a tiny per-problem `CODEX_HOME` whose `config.toml` includes an explicit `[mcp_servers.kernelbench.env]` table for `DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, and `KBH_MCP_EVENTS_PATH`, while `auth.json` and helper agents are shared from `state/config/codex/`.
 
 ### Claude
 
