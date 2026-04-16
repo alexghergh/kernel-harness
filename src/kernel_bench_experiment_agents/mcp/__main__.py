@@ -1,7 +1,7 @@
-"""Allow `python -m kernel_bench_experiment_agents.mcp` to start the stdio MCP server."""
+"""Run the KernelBench MCP server over stdio."""
 
-from .server import main
+from .app import run
 
 
 if __name__ == "__main__":
-    main()
+    run()

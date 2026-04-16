@@ -144,7 +144,7 @@ The practical result is the same for both tools:
 - no direct local problem reads/writes through the client’s normal file tools
 - shared web-search policy and helper-agent definitions
 
-Implementation note: the MCP transport, context loading, filesystem policy, resources, trace sidecar, registry, and tool handlers live under `src/kernel_bench_experiment_agents/mcp/`.
+Implementation note: the official Python MCP SDK owns transport, protocol, and initialization. The harness-specific MCP layer under `src/kernel_bench_experiment_agents/mcp/` now only covers context loading, filesystem policy, resources, tool handlers, and the synthetic trace sidecar.
 
 ## Archive contents
 
