@@ -17,7 +17,8 @@ from .policy_model import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_
 from .project import ensure_dir, write_text
 
 
-KBH_MCP_ENV_VARS: tuple[str, ...] = (
+MCP_SERVER_ENV_VARS: tuple[str, ...] = (
+    "DATA_ROOT",
     "KBH_WORKSPACE",
     "KBH_CLIENT_TOOL",
     "KBH_MCP_EVENTS_PATH",
@@ -69,7 +70,7 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
 def render_codex_config() -> str:
     """Render the shared Codex config that lives under CODEX_HOME."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
-    env_vars = ", ".join(f'"{name}"' for name in KBH_MCP_ENV_VARS)
+    env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
     python_command = json.dumps(_python_command())
     return (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
@@ -134,7 +135,7 @@ def claude_user_config_payload() -> dict[str, object]:
                 "type": "stdio",
                 "command": _python_command(),
                 "args": ["-m", "kernel_bench_experiment_agents.mcp"],
-                "env": {name: f"${{{name}:-}}" for name in KBH_MCP_ENV_VARS},
+                "env": {name: f"${{{name}:-}}" for name in MCP_SERVER_ENV_VARS},
             }
         }
     }
