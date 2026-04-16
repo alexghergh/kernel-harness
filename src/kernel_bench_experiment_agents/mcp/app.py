@@ -105,21 +105,14 @@ def read_workspace_resource(path: str) -> str:
     return str(content[0].get("text") or "")
 
 
-def register_static_resource(relative_path: str) -> None:
-    path = (server_context().workspace / relative_path).resolve()
-    if not path.exists() or not path.is_file():
-        return
-    mime_type = "text/markdown" if relative_path.endswith(".md") else "text/plain"
+def listed_workspace_resources() -> list[str]:
+    """Return the canonical solver-visible workspace files without touching live workspace state.
 
-    def _reader() -> str:
-        return read_workspace_resource(relative_path)
-
-    mcp.resource(
-        workspace_resource_uri(relative_path),
-        name=relative_path,
-        description=f"Workspace file: {relative_path}",
-        mime_type=mime_type,
-    )(_reader)
+    Codex probes MCP servers with initialize/resources discovery before the agent can do any useful
+    work. Keep that startup path lazy: resource templates and tool schemas should not require the
+    per-problem workspace env or filesystem until an actual resource/tool call arrives.
+    """
+    return list(RESOURCE_PATHS)
 
 
 @mcp.tool(
@@ -213,8 +206,14 @@ def workspace_file(path: str) -> str:
     return read_workspace_resource(path)
 
 
-for _relative_path in RESOURCE_PATHS:
-    register_static_resource(_relative_path)
+@mcp.resource(
+    "kb://workspace/files",
+    name="workspace_files",
+    description="Canonical solver-visible workspace files.",
+    mime_type="application/json",
+)
+def workspace_files() -> str:
+    return json.dumps(listed_workspace_resources(), indent=2)
 
 
 # Expose the safe directory-listing roots in one small note resource so clients can discover the
