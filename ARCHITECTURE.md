@@ -125,7 +125,7 @@ Codex keeps its shared user/runtime config under `CODEX_HOME`. The harness gener
 - `state/config/codex/config.toml`
 - `state/config/codex/agents/*.toml`
 
-Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server.
+Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The shared `state/config/codex/config.toml` stays problem-agnostic; the launcher injects the per-problem MCP environment (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) explicitly at startup with `codex -c mcp_servers.kernelbench.env.*=...` overrides.
 
 ### Claude
 
