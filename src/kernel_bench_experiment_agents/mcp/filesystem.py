@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..policy_model import workspace_edit_surface, workspace_read_surface
+from ..policy_model import WORKSPACE_BROWSE_DIRS, workspace_edit_surface, workspace_read_surface
 from .context import ServerContext
 
 
-RESOURCE_LIST_DIRS: tuple[str, ...] = (".", "samples", "profiles")
+RESOURCE_LIST_DIRS: tuple[str, ...] = tuple(entry.rstrip("/") for entry in WORKSPACE_BROWSE_DIRS)
 
 
 

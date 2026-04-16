@@ -10,7 +10,7 @@ from typing import Any
 
 from ..candidate_commands import command_run_candidate
 from ..candidate_contract import CANDIDATE_FILENAME
-from ..policy_model import MCP_TOOL_SPECS
+from ..policy_model import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
 from ..profile_commands import command_profile_ncu
 from ..project import write_text
 from ..status_commands import command_best_result, command_complete_problem, command_goal_status
@@ -95,31 +95,22 @@ def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> 
             "gpu_name": metadata.get("gpu_name"),
             "model": metadata.get("model"),
         },
-        "key_files": [
-            "AGENTS.md",
-            "SPEC.md",
-            "HARDWARE.md",
-            "GOAL_STATUS.md",
-            "goal_status.json",
-            "problem.json",
-            "workspace_contract.json",
-            "problem_reference.py",
-            CANDIDATE_FILENAME,
-            *[f"{directory}/" for directory in RESOURCE_LIST_DIRS if directory != "."],
-        ],
+        "resources": list(FIXED_WORKSPACE_RESOURCE_PATHS),
+        "history_dirs": [f"{directory}/" for directory in RESOURCE_LIST_DIRS],
         "mcp_tools": [spec.name for spec in MCP_TOOL_SPECS if spec.name != "workspace_overview"],
     }
     text = (
         f"Problem {ctx.level}/{ctx.problem_id} ({overview['assignment']['problem_name'] or 'unknown'}). "
-        f"Read AGENTS.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md first. "
-        "Use only the kernelbench MCP tools for local reads, candidate edits, measured runs, profiling, status refreshes, and completion."
+        "Read the fixed workspace resources first: AGENTS.md, INITIAL_PROMPT.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md. "
+        "For past attempts or profiler outputs, use `list_workspace_dir` only on `samples` or `profiles`, then `read_workspace_file` on those listed files. "
+        "Use only the kernelbench MCP tools for candidate edits, measured runs, profiling, status refreshes, best-result lookup, and completion."
     )
     return text_result(text, structured=overview)
 
 
 
 def handle_list_workspace_dir(ctx: ServerContext, arguments: dict[str, Any]) -> dict[str, Any]:
-    raw_path = str(arguments.get("path") or ".")
+    raw_path = str(arguments.get("path") or "samples")
     path = resolve_workspace_path(ctx, raw_path)
     if not allowed_directory(path, ctx.workspace):
         allowed = ", ".join(repr(entry) for entry in RESOURCE_LIST_DIRS)

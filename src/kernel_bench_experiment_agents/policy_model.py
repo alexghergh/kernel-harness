@@ -98,12 +98,12 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     ),
     McpToolSpec(
         name="list_workspace_dir",
-        purpose="list a safe workspace directory such as '.', 'samples', or 'profiles'",
+        purpose="list one safe history directory inside the workspace (`samples` or `profiles`)",
         read_only=True,
     ),
     McpToolSpec(
         name="read_workspace_file",
-        purpose="read one allowed workspace file as text",
+        purpose="read one allowed workspace file or one text file under `samples/` or `profiles/`",
         read_only=True,
     ),
     McpToolSpec(
@@ -156,20 +156,24 @@ WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
-WORKSPACE_READ_PATHS: tuple[str, ...] = (
-    ".",
+FIXED_WORKSPACE_RESOURCE_PATHS: tuple[str, ...] = (
     "AGENTS.md",
+    "INITIAL_PROMPT.md",
     "SPEC.md",
     "HARDWARE.md",
     "GOAL_STATUS.md",
-    "goal_status.json",
-    "hardware.json",
-    "workspace_contract.json",
-    "problem.json",
     "problem_reference.py",
     CANDIDATE_FILENAME,
+)
+
+WORKSPACE_BROWSE_DIRS: tuple[str, ...] = (
     "samples/",
     "profiles/",
+)
+
+WORKSPACE_READ_PATHS: tuple[str, ...] = (
+    *FIXED_WORKSPACE_RESOURCE_PATHS,
+    *WORKSPACE_BROWSE_DIRS,
 )
 
 WORKSPACE_EDIT_PATHS: tuple[str, ...] = (CANDIDATE_FILENAME,)
@@ -187,7 +191,6 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "SPEC.md",
             "HARDWARE.md",
             "GOAL_STATUS.md",
-            "goal_status.json",
             "problem_reference.py",
             CANDIDATE_FILENAME,
             "samples/",
