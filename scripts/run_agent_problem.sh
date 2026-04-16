@@ -46,6 +46,16 @@ write_shared_tool_state(state_dir() / "config")
 PY
 }
 
+codex_mcp_config_overrides() {
+  python - <<'PY'
+import os
+from kernel_bench_experiment_agents.runtime_policy import codex_mcp_env_overrides
+
+for override in codex_mcp_env_overrides(os.environ):
+    print(override)
+PY
+}
+
 # Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
   local parent_pid="$1"
@@ -304,9 +314,15 @@ PY
 
 set +e
 if [[ "${TOOL}" == "codex" ]]; then
+  readarray -t CODEX_MCP_OVERRIDES < <(codex_mcp_config_overrides)
   CODEX_ARGS=(
     -a never
     --disable shell_tool
+  )
+  for override in "${CODEX_MCP_OVERRIDES[@]}"; do
+    CODEX_ARGS+=( -c "${override}" )
+  done
+  CODEX_ARGS+=(
     exec
     --sandbox "${CODEX_SANDBOX_MODE}"
     --cd "${TOOL_CWD}"

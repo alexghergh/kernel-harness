@@ -11,6 +11,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from typing import Mapping
 
 from .agent_specs import write_shared_helper_agent_specs
 from .policy_model import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
@@ -67,10 +68,27 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
 
 
 
+def codex_mcp_env_overrides(env: Mapping[str, str | None]) -> list[str]:
+    """Build per-launch Codex MCP env overrides.
+
+    The shared CODEX_HOME config stays problem-agnostic. Per-problem MCP context is injected at
+    launch time with Codex `-c key=value` overrides instead of rewriting the shared config or
+    relying on forwarded parent env.
+    """
+    overrides: list[str] = []
+    for name in MCP_SERVER_ENV_VARS:
+        value = env.get(name)
+        if value is None:
+            continue
+        overrides.append(
+            f"mcp_servers.{MCP_SERVER_NAME}.env.{name}={json.dumps(str(value))}"
+        )
+    return overrides
+
+
 def render_codex_config() -> str:
     """Render the shared Codex config that lives under CODEX_HOME."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
-    env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
     python_command = json.dumps(_python_command())
     return (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
@@ -91,7 +109,6 @@ def render_codex_config() -> str:
         f'[mcp_servers.{MCP_SERVER_NAME}]\n'
         f'command = {python_command}\n'
         'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
-        f'env_vars = [{env_vars}]\n'
         'required = true\n'
         'startup_timeout_sec = 20\n\n'
         '[tools]\n'
