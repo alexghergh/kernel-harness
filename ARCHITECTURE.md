@@ -213,21 +213,20 @@ The harness keeps text-first profiler outputs. It does not archive `.ncu-rep` fi
 
 Each solver workspace is fresh, self-contained, and intentionally small.
 
-Solver-visible files:
+Solver-visible problem files and history mirrors:
 
-- `AGENTS.md`
-- `SPEC.md`
-- `HARDWARE.md`
-- `GOAL_STATUS.md`
-- `goal_status.json`
-- `hardware.json`
-- `workspace_contract.json`
-- `problem.json`
-- `problem_reference.py`
-- `candidate_model_new.py`
-- `samples/`
-- `profiles/`
-- `bin/*.sh`
+- read-only MCP resources:
+  - `AGENTS.md`
+  - `INITIAL_PROMPT.md`
+  - `SPEC.md`
+  - `HARDWARE.md`
+  - `GOAL_STATUS.md`
+  - `problem_reference.py`
+  - `candidate_model_new.py`
+- history directories reachable only through MCP read/list tools:
+  - `samples/`
+  - `profiles/`
+- `bin/*.sh` still exist for humans and archived trace accounting, but the model is not supposed to call them directly
 
 Workspace-local `samples/` and `profiles/` are mirrors for solver convenience. They are not the durable source of truth.
 
@@ -260,12 +259,15 @@ The solver-visible MCP surface is:
 
 Semantics:
 
+- fixed docs/code are exposed as read-only MCP resources; there is no generic `read any path` resource template
+- `list_workspace_dir` is limited to `samples/` and `profiles/`
+- `read_workspace_file` can read the fixed files above plus files under `samples/` and `profiles/`
+- `write_candidate` is the only supported local edit path
 - `run_candidate` is the only supported measured-evaluation path
 - `profile_ncu` is the only supported profiling path
 - `goal_status` refreshes live status explicitly
+- `best_result` returns the best measured correct result so far
 - `complete_problem` is the only valid solver termination path
-- `read_workspace_file` and `list_workspace_dir` are the only supported local problem-read paths
-- `write_candidate` is the only supported local edit path
 
 The compatibility `bin/*.sh` wrappers still exist in the workspace for humans and archived trace accounting, but the model is not supposed to call them directly.
 
