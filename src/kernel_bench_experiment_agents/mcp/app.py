@@ -172,21 +172,28 @@ def register_fixed_workspace_resource(relative_path: str):
     Resources are for the tiny canonical read surface only. History browsing under `samples/` and
     `profiles/` stays on explicit MCP tools so the agent can read useful artifacts without learning
     that there is a generic local-file resource API.
+
+    FastMCP validates that function parameters match URI template parameters. These fixed resources
+    have literal URIs, so the registered reader must take no arguments at all.
     """
     uri = workspace_resource_uri(relative_path)
     name = workspace_resource_name(relative_path)
 
-    def _read(relative_path: str = relative_path) -> str:
-        return read_workspace_resource(relative_path)
+    def _make_reader(path: str):
+        def _read() -> str:
+            return read_workspace_resource(path)
 
-    _read.__name__ = f"resource_{name}"
-    _read.__qualname__ = _read.__name__
+        return _read
+
+    reader = _make_reader(relative_path)
+    reader.__name__ = f"resource_{name}"
+    reader.__qualname__ = reader.__name__
     return mcp.resource(
         uri,
         name=name,
         description=f"Read the workspace file `{relative_path}`.",
         mime_type="text/plain",
-    )(_read)
+    )(reader)
 
 
 _REGISTERED_FIXED_RESOURCES = tuple(
