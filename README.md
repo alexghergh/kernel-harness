@@ -77,6 +77,36 @@ export ANTHROPIC_AUTH_TOKEN=...
 export CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
+## Standalone MCP smoke test with Codex
+
+If you want to debug Codex+MCP outside the full harness first, use the tiny smoke server:
+
+```bash
+mkdir -p /tmp/kernelbench-mcp-smoke
+CODEX_HOME=./.codex-smoke codex mcp add kernelbench-smoke \
+  --env MCP_SMOKE_ROOT=/tmp/kernelbench-mcp-smoke \
+  -- "$(which python)" -m kernel_bench_experiment_agents.mcp.smoke
+
+CODEX_HOME=./.codex-smoke codex exec --skip-git-repo-check --json \
+  --model gpt-5.4 \
+  "Use the kernelbench-smoke MCP tools only. Write hello.txt containing exactly hello from MCP. Then read it back and report the contents."
+```
+
+That path does not touch any KernelBench workspace or harness state. It only verifies that Codex can initialize the MCP server and call simple read/write tools rooted under `MCP_SMOKE_ROOT`.
+
+If you want to launch the real harness MCP server by hand, prepare a problem workspace first, then export:
+
+- `DATA_ROOT`
+- `KBH_WORKSPACE`
+- `KBH_CLIENT_TOOL`
+- `KBH_MCP_EVENTS_PATH`
+
+and run:
+
+```bash
+python -m kernel_bench_experiment_agents.mcp
+```
+
 ## Most common runs
 
 Run these scripts from the harness repo root.
@@ -198,6 +228,38 @@ kbharness --help
 ```
 
 The launcher scripts are the normal entrypoints. The CLI exists mainly so those scripts, workspace wrappers, and the MCP server can call the harness internals in a stable way.
+
+## Manual MCP smoke test
+
+If you want to debug Codex↔MCP wiring outside the harness, use the tiny standalone dev server:
+
+```bash
+export MCP_DEV_ROOT=/tmp/kernelbench-mcp-smoke
+mkdir -p "$MCP_DEV_ROOT"
+mkdir -p /tmp/kernelbench-codex-home
+
+cat > /tmp/kernelbench-codex-home/config.toml <<'EOF'
+approval_policy = "never"
+sandbox_mode = "read-only"
+project_root_markers = []
+
+[features]
+shell_tool = false
+
+[mcp_servers.kernelbench_dev]
+command = "$(python -c 'import sys; print(sys.executable)')"
+args = ["-m", "kernel_bench_experiment_agents.mcp.dev_server"]
+env = { MCP_DEV_ROOT = "/tmp/kernelbench-mcp-smoke" }
+required = true
+startup_timeout_sec = 20
+EOF
+
+CODEX_HOME=/tmp/kernelbench-codex-home \
+  codex -a never --sandbox read-only --skip-git-repo-check --cd /tmp/kernelbench-mcp-smoke \
+  "Use only the kernelbench_dev MCP tools. Write hello.txt with the exact text hello from codex, then read it back."
+```
+
+Codex supports stdio MCP servers in `config.toml`, including explicit `env` for the server, and the MCP Inspector is also a good first-step debugger for local stdio servers. See the official Codex MCP docs and MCP Inspector docs for the reference behavior.
 
 ## Need more detail?
 
