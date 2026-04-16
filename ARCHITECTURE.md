@@ -138,11 +138,17 @@ Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harne
 Claude also launches from an empty per-problem cwd under `state/cwd/claude/...`, with the real workspace reachable only through the `kernelbench` MCP server.
 The shared `state/config/claude/.claude.json` forwards the minimal per-problem MCP context (`KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into that MCP server explicitly. The rest of the problem assignment comes from workspace metadata and archive provenance, so the launcher does not need to duplicate more environment than that.
 
-The practical result is the same for both tools:
+The practical result is the same for both tools **with respect to the actual problem environment**:
 
 - no tool auth/config files in the workspace
-- no direct local problem reads/writes through the client’s normal file tools
+- the real workspace is meant to be reachable only through the `kernelbench` MCP server
+- hosted web access stays native to each client and is restricted separately from MCP
 - shared web-search policy and helper-agent definitions
+
+The enforcement mechanism differs:
+
+- **Codex** does not expose a Claude-style deny list for its built-in local browsing surface. The harness therefore launches Codex in an empty scratch cwd, disables the default shell tool, disables parent project-doc discovery, and keeps the real workspace behind MCP. Codex may still inspect the scratch cwd, but that scratch dir intentionally does not contain the problem environment.
+- **Claude** uses explicit permission denies for its built-in local file/shell tools, so local problem reads/writes/executes are blocked directly and the same real workspace is reachable only through MCP.
 
 Implementation note: the official Python MCP SDK owns transport, protocol, and initialization. The harness-specific MCP layer under `src/kernel_bench_experiment_agents/mcp/` now only covers context loading, filesystem policy, resources, tool handlers, and the synthetic trace sidecar.
 
@@ -265,9 +271,16 @@ Semantics:
 - `write_candidate` is the only supported local edit path
 - `run_candidate` is the only supported measured-evaluation path
 - `profile_ncu` is the only supported profiling path
-- `goal_status` refreshes live status explicitly
-- `best_result` returns the best measured correct result so far
+- `goal_status` is **not** just a cached file read: it refreshes `GOAL_STATUS.md` under the artifact lock and returns the live structured snapshot, including remaining budget, baseline status, and current best-run summary
+- `best_result` returns the best measured correct attempt manifest so far, including at least the `sample_id`, the measured result payload, and archive-relative artifact paths such as the archived kernel snapshot
 - `complete_problem` is the only valid solver termination path
+
+In other words, the solver surface is intentionally split into:
+
+- **native web**: tool-specific hosted search/fetch, restricted to `docs.nvidia.com`
+- **MCP resources**: the small fixed read-only problem contract
+- **MCP read tools**: bounded history browsing under `samples/` and `profiles/`
+- **MCP action tools**: candidate overwrite, measured run, profiling, live status refresh, best-result query, and completion
 
 The compatibility `bin/*.sh` wrappers still exist in the workspace for humans and archived trace accounting, but the model is not supposed to call them directly.
 

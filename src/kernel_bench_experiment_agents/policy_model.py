@@ -123,12 +123,12 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     ),
     McpToolSpec(
         name="goal_status",
-        purpose="refresh and return the live goal-status snapshot",
+        purpose="refresh GOAL_STATUS.md under the artifact lock and return the live status snapshot, including remaining budget and baseline progress",
         read_only=True,
     ),
     McpToolSpec(
         name="best_result",
-        purpose="return the best measured correct result so far",
+        purpose="return the best measured correct attempt so far, including sample_id and archive-relative artifact paths",
         read_only=True,
     ),
     McpToolSpec(
