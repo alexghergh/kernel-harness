@@ -27,12 +27,13 @@ MCP_SERVER_ENV_VARS: tuple[str, ...] = (
 
 
 def _python_command() -> str:
-    """Return the exact Python executable that launched the harness.
+    """Return the exact Python executable path that launched the harness.
 
-    The MCP server must start under the same environment that has the harness installed. Hard-coding
-    `python` is fragile when Codex or Claude launch from outside the activated environment.
+    Do not resolve symlinks here. Virtualenv/pyenv interpreters are often shim or symlink paths into
+    a base interpreter; resolving them can bypass the environment that actually has the harness and
+    MCP SDK installed.
     """
-    return str(Path(sys.executable).expanduser().resolve())
+    return str(Path(sys.executable).expanduser())
 
 
 def _copy_if_exists(source: Path, target: Path) -> Path | None:
@@ -41,6 +42,14 @@ def _copy_if_exists(source: Path, target: Path) -> Path | None:
     ensure_dir(target.parent)
     shutil.copy2(source, target)
     return target
+
+
+def _copy_first_existing(sources: list[Path], target: Path) -> Path | None:
+    for source in sources:
+        copied = _copy_if_exists(source, target)
+        if copied is not None:
+            return copied
+    return None
 
 
 def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path | None = None) -> list[Path]:
@@ -53,12 +62,15 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
     config_root = ensure_dir(config_root.expanduser().resolve())
     written: list[Path] = []
 
-    copied = _copy_if_exists(repo_root / ".codex" / "auth.json", config_root / "codex" / "auth.json")
+    copied = _copy_first_existing(
+        [repo_root / ".codex" / "auth.json", Path.home() / ".codex" / "auth.json"],
+        config_root / "codex" / "auth.json",
+    )
     if copied is not None:
         written.append(copied)
 
-    copied = _copy_if_exists(
-        repo_root / ".claude" / ".credentials.json",
+    copied = _copy_first_existing(
+        [repo_root / ".claude" / ".credentials.json", Path.home() / ".claude" / ".credentials.json"],
         config_root / "claude" / ".credentials.json",
     )
     if copied is not None:
