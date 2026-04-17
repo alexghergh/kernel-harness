@@ -138,10 +138,19 @@ def baseline_payload_for_problem(
     }
 
 
+def payload_counts_toward_progress(payload: dict[str, Any]) -> bool:
+    value = payload.get("counts_toward_progress")
+    if value is None:
+        return True
+    return bool(value)
+
+
 def best_correct_payload(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
     best_payload: dict[str, Any] | None = None
     best_runtime: float | None = None
     for payload in entries:
+        if not payload_counts_toward_progress(payload):
+            continue
         result = payload.get("result")
         if not isinstance(result, dict):
             continue

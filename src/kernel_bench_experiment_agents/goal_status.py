@@ -20,7 +20,12 @@ from .common import as_float
 from .live_gpu_wait import active_live_gpu_wait_seconds
 from .mcp.trace import load_mcp_ir_events
 from .project import now_iso, write_json, write_text
-from .run_metrics import best_correct_payload, candidate_runtime, sum_numeric_field
+from .run_metrics import (
+    best_correct_payload,
+    candidate_runtime,
+    payload_counts_toward_progress,
+    sum_numeric_field,
+)
 from .trace_analysis import trace_counts, web_searches_from_ir
 from .trace_ir import load_trace_event_entries, materialize_trace_ir
 from .workspace_paths import (
@@ -98,7 +103,9 @@ def goal_status_snapshot(
     baseline = load_workspace_baseline(workspace)
     entries = sample_manifest_entries(run_name, level, problem_id)
     profiles = profile_manifest_entries(run_name, level, problem_id)
-    best_payload = best_correct_payload(entries)
+    progress_entries = [payload for payload in entries if payload_counts_toward_progress(payload)]
+    blocked_entries = [payload for payload in entries if not payload_counts_toward_progress(payload)]
+    best_payload = best_correct_payload(progress_entries)
     best_runtime_ms = None
     best_sample_id = None
     if best_payload is not None:
@@ -114,21 +121,22 @@ def goal_status_snapshot(
     beats_eager = best_runtime_ms is not None and eager_ms is not None and best_runtime_ms < eager_ms
     beats_compile = best_runtime_ms is not None and compile_ms is not None and best_runtime_ms < compile_ms
 
-    num_attempts = len(entries)
+    num_attempts = len(progress_entries)
+    num_blocked_attempts = len(blocked_entries)
     num_correct_attempts = sum(
         1
-        for payload in entries
+        for payload in progress_entries
         if isinstance(payload.get("result"), dict)
         and bool(payload["result"].get("correctness"))
     )
     num_incorrect_attempts = sum(
         1
-        for payload in entries
+        for payload in progress_entries
         if isinstance(payload.get("result"), dict)
         and payload["result"].get("correctness") is False
     )
     num_execution_failed_attempts = sum(
-        1 for payload in entries if payload.get("status") == "failed"
+        1 for payload in progress_entries if payload.get("status") == "failed"
     )
     num_other_attempts = max(
         0,
@@ -136,7 +144,7 @@ def goal_status_snapshot(
     )
     timing_runs = sum(
         1
-        for payload in entries
+        for payload in progress_entries
         if isinstance(payload.get("result"), dict)
         and candidate_runtime(payload["result"]) is not None
     )
@@ -179,8 +187,11 @@ def goal_status_snapshot(
         recommended_actions.extend(
             [
                 "Keep iterating until both baselines are beaten or another truthful terminal state is justified.",
+                "Act as the planner-manager. Keep the main context focused on strategy and delegate measured evaluation to `runner` and Nsight profiling to `profiler` whenever those helper agents are available.",
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
-                "Use the `profile_ncu` MCP tool when stuck; read `profiles/latest.summary.txt` first.",
+                "WHEN you are stuck or a candidate is slower than expected, use `profile_ncu`; read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
+                "WHEN the next optimization idea depends on NVIDIA-specific behavior, use hosted web search on docs.nvidia.com for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits.",
+                "WHEN you are choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
                 "Do not end with a plain assistant message. The only valid exit path is the `complete_problem` MCP tool.",
                 "Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
                 "`run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
@@ -210,6 +221,7 @@ def goal_status_snapshot(
         "num_execution_failed_attempts": num_execution_failed_attempts,
         "num_other_attempts": num_other_attempts,
         "num_timing_runs": timing_runs,
+        "num_blocked_attempts": num_blocked_attempts,
         "num_profile_runs": len(profiles),
         "best_correct_sample_id": best_sample_id,
         "best_correct_runtime_ms": best_runtime_ms,
@@ -302,6 +314,7 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
     )
     if snapshot.get("num_other_attempts"):
         attempt_breakdown += f", {snapshot['num_other_attempts']} other"
+    blocked_attempts = snapshot.get("num_blocked_attempts") or 0
     lines = [
         heading,
         "",
@@ -317,7 +330,8 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
         f"- beats both: {snapshot['beats_both']}",
         f"- best result flagged suspicious: {snapshot.get('best_result_suspicious', False)}",
-        f"- attempts: {snapshot['num_attempts']} ({attempt_breakdown})",
+        f"- attempts counted toward progress: {snapshot['num_attempts']} ({attempt_breakdown})",
+        f"- blocked attempts not counted toward progress: {blocked_attempts}",
         f"- timing calls: {snapshot['num_timing_runs']}",
         f"- profiler calls: {profiler_line}",
         f"- best correct sample: {snapshot.get('best_correct_sample_id')}",

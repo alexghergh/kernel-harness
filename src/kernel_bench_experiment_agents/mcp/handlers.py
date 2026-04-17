@@ -232,7 +232,13 @@ def handle_run_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dict[
         command="./bin/run_candidate.sh",
         metadata={"status": payload.get("status"), "sample_id": payload.get("sample_id")},
     )
-    return text_result(json.dumps(payload, indent=2, sort_keys=True), structured=payload)
+    notice = None
+    if not payload.get("counts_toward_progress", True):
+        notice = payload.get("progress_blocked_reason") or "this run is not counted toward progress"
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    if notice:
+        text = f"This run is not counted toward progress: {notice}.\n\n{text}"
+    return text_result(text, structured=payload)
 
 
 
