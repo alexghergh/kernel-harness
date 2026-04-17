@@ -38,7 +38,11 @@ FORBIDDEN_CALL_NAMES = {
     "compile",
     "eval",
     "exec",
+    "globals",
+    "locals",
     "open",
+    "setattr",
+    "vars",
     "torch.compile",
     "torch.set_float32_matmul_precision",
     "torch.mm",
@@ -63,6 +67,11 @@ REQUIRED_LOADER_NAMES = {
 
 FORBIDDEN_STRING_MARKERS = {
     "TORCH_EXTENSIONS_DIR",
+}
+
+FORBIDDEN_REBIND_NAMES = {
+    "load",
+    "load_inline",
 }
 
 FORBIDDEN_VENDOR_MARKERS = {
@@ -248,6 +257,10 @@ class _CandidateValidator(ast.NodeVisitor):
             name = _node_name(target)
             if name is None:
                 continue
+            if name in FORBIDDEN_REBIND_NAMES:
+                raise CandidateValidationError(
+                    f"Rebinding {name!r} is forbidden in candidate_model_new.py. Keep the extension loader itself untouched."
+                )
             if name.startswith("os.environ"):
                 raise CandidateValidationError(
                     "Environment-variable mutation is forbidden in candidate_model_new.py."
