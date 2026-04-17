@@ -83,6 +83,12 @@ def invoke_command(handler: Any, namespace: argparse.Namespace) -> dict[str, Any
 
 def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> dict[str, Any]:
     metadata = load_workspace_metadata(ctx.workspace)
+    append_trace_event(
+        ctx,
+        kind="tool_query",
+        tool_name="workspace_overview",
+        metadata={"problem_id": ctx.problem_id, "level": ctx.level},
+    )
     overview = {
         "assignment": {
             "run_name": ctx.run_name,

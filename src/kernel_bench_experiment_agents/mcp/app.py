@@ -16,8 +16,8 @@ from mcp.server.fastmcp import FastMCP
 from ..policy_model import MCP_TOOL_SPECS, McpToolSpec
 from . import SERVER_NAME
 from .context import ServerContext, load_context
-from .filesystem import assert_allowed_read, resolve_workspace_path
-from .handlers import TOOL_HANDLERS
+from .filesystem import assert_allowed_read, resolve_workspace_path, safe_relative
+from .handlers import TOOL_HANDLERS, append_trace_event
 from .resources import RESOURCE_PATHS, workspace_resource_name, workspace_resource_uri
 
 
@@ -87,11 +87,15 @@ def read_workspace_resource(path: str) -> str:
     assert_allowed_read(ctx, resolved)
     if not resolved.exists() or not resolved.is_file():
         raise RuntimeError(f"resource does not exist: {path}")
-    payload = TOOL_HANDLERS["read_workspace_file"](ctx, {"path": path})
-    content = payload.get("content") or []
-    if not content:
-        return ""
-    return str(content[0].get("text") or "")
+    text = resolved.read_text(encoding="utf-8")
+    append_trace_event(
+        ctx,
+        kind="file_read",
+        tool_name="read_workspace_resource",
+        path=safe_relative(resolved, ctx.workspace),
+        metadata={"bytes": len(text.encode("utf-8")), "source": "resource"},
+    )
+    return text
 
 
 @mcp.tool(
