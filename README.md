@@ -1,21 +1,41 @@
 # KernelBench agent harness
 
-Run Codex or Claude on one KernelBench problem at a time through a narrow MCP tool surface, archive every attempt/profile/trace, and compare the final result against eager and `torch.compile` baselines.
+A reproducible agent harness for running Codex or Claude on **one KernelBench problem at a time** through a narrow MCP boundary.
 
-At a high level:
+It does four things:
 
-- the harness prepares a fresh per-problem workspace
-- the model does **not** use direct local file or shell tools for problem work
-- local problem interaction goes through a shared MCP server that exposes the harness tool surface
-- hosted web search stays tool-native and domain-restricted
-- the durable record lives under `archive/`
-- disposable live state lives under `state/`
+- prepares a fresh per-problem workspace and solver contract
+- exposes the problem only through fixed MCP resources plus a small action surface
+- archives every attempt, profile, trace, and completion record under `archive/`
+- scores the final result against eager and `torch.compile` baselines
 
-For the detailed system contract, archive layout, workspace layout, MCP/config split, and runtime boundary notes, read `ARCHITECTURE.md`.
+The disposable live state is under `state/`. The durable record is under `archive/`.
+
+If you only read one more file after this README, read `ARCHITECTURE.md`.
+
+
+## What the model is actually told
+
+The solver policy is not hidden in one giant prompt. It is split across a few generated files and resources that the model re-reads during the run:
+
+- `AGENTS.md` — the durable top-level solver contract
+- `INITIAL_PROMPT.md` — the opening run-specific instructions
+- `GOAL_STATUS.md` — the live progress/status file the solver should re-read after measured actions
+- `workspace_overview()` — the first structured MCP overview call
+- helper-agent specs for `runner` and `profiler` — narrow delegated roles when the client runtime supports sub-agents
+
+The intended behavior is:
+
+- the main agent acts as the **planner-manager**
+- `runner` handles measured evaluation by default
+- `profiler` handles Nsight Compute work by default
+- direct `run_candidate` / `profile_ncu` from the main agent are fallback paths when helper spawning is unavailable
 
 ## Actual solver surface
 
 For **both** Codex and Claude, the real problem environment is exposed only through the `kernelbench` MCP server. Hosted web access stays separate and tool-native.
+
+The exact live model trace is saved as `archive/.../agent/events.jsonl`. `trace_ir.json` is the normalized merged view used for counts and summaries.
 
 - fixed read-only MCP resources: `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, `GOAL_STATUS.md`, `problem_reference.py`, `candidate_model_new.py`
 - bounded read tools: `list_workspace_dir` for `samples/` and `profiles/`, plus `read_workspace_file` for those history files and the fixed resources above
@@ -45,6 +65,13 @@ uv pip install -e .
 
 cd /path/to/kernel-bench-experiment-agents
 uv pip install -e .
+```
+
+Before local or batch runs on cluster nodes, activate the intended Python environment and load CUDA if your cluster requires it.
+
+```bash
+pyenv activate <env-name>
+module load cuda
 ```
 
 This harness assumes:

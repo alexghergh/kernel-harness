@@ -37,6 +37,24 @@ Generated workspace docs are for the solver agent:
 
 The same filename does not imply the same audience.
 
+## Solver policy surfaces
+
+The solver is nudged through several small surfaces rather than one giant prompt:
+
+- generated workspace `AGENTS.md` — durable top-level contract
+- generated `INITIAL_PROMPT.md` — opening run-specific instructions
+- generated `GOAL_STATUS.md` — live status file re-read after measured actions
+- MCP `workspace_overview()` — the first structured overview call
+- helper-agent specs for `runner` and `profiler` — narrow delegated roles when the client runtime supports helper spawning
+
+The intended behavior is:
+
+- the main agent acts as the planner-manager
+- `runner` handles measured evaluation by default
+- `profiler` handles Nsight Compute work by default
+- direct `run_candidate` / `profile_ncu` from the main agent are fallback paths when helper spawning is unavailable
+- hosted web remains separate from MCP and should be used only for NVIDIA docs when the next optimization branch depends on hardware-specific behavior
+
 ## High-level flow
 
 For one `(run_name, level, problem_id)` tuple, the harness does this:
@@ -113,6 +131,7 @@ This split is deliberate:
 - the workspace should contain only problem files the solver is meant to read or edit
 - tool auth/config should not sit inside the solver-visible workspace
 - traces are **not** recovered from shared tool history files; each problem captures its own streamed `agent/events.jsonl` directly from the launcher and its own `agent/mcp_ir_events.jsonl` from the MCP server
+- `agent/events.jsonl` is the exact client stream you watch live; `agent/trace_ir.json` is the normalized merged view used for counts, audit, and summaries
 
 ## Codex vs Claude local-surface split
 

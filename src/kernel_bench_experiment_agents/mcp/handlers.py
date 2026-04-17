@@ -120,10 +120,10 @@ def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> 
     }
     text = (
         f"Problem {ctx.level}/{ctx.problem_id} ({overview['assignment']['problem_name'] or 'unknown'}). "
-        "Read the fixed workspace resources first: AGENTS.md, INITIAL_PROMPT.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md. "
+        "Act as the planner-manager for this problem. Read the fixed workspace resources first: AGENTS.md, INITIAL_PROMPT.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md. "
         "For past attempts or profiler outputs, use `list_workspace_dir` only on `samples` or `profiles`, then `read_workspace_file` on those listed files. "
         "Use only the kernelbench MCP tools for candidate edits, measured runs, profiling, status refreshes, best-result lookup, and completion. "
-        "If your runtime exposes helper agents `runner` and `profiler`, delegate measured evaluations to `runner` and Nsight Compute work to `profiler` by default."
+        "WHEN you want a measured evaluation, spawn `runner` if available; WHEN you want Nsight Compute work, spawn `profiler` if available. Use direct MCP run/profile calls yourself only when helper spawning is unavailable."
     )
     return text_result(text, structured=overview)
 

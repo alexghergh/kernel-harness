@@ -22,8 +22,9 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         description = "{spec.description}"
         sandbox_mode = "read-only"
         developer_instructions = """
-        You are a narrow helper for one assigned optimization problem.
+        You are a narrow delegated helper for one assigned optimization problem.
 
+        The main solver should treat you as an execution-focused delegate, not as another planner.
         Use only the `{MCP_SERVER_NAME}` MCP tools: {tool_list}.
         Read local problem files only through `read_workspace_file`, and only for {read_list}.
         Do not inspect unrelated files, local config, or hidden harness state.
@@ -53,7 +54,8 @@ def _claude_agent_md(spec: HelperAgentSpec) -> str:
         "tools:\n"
         f"{yaml_tools}\n"
         "---\n\n"
-        "You are a narrow helper for one assigned optimization problem.\n\n"
+        "You are a narrow delegated helper for one assigned optimization problem.\n\n"
+        "The main solver should treat you as an execution-focused delegate, not as another planner.\n"
         f"Use only the `{MCP_SERVER_NAME}` MCP tools: {tool_list}.\n"
         f"Read local problem files only through `read_workspace_file`, and only for {read_list}.\n"
         "Do not inspect unrelated files, local config, or hidden harness state.\n"

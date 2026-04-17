@@ -4,8 +4,8 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Current stable baseline
 
-- MCP-backed problem access is now the intended default for both Codex and Claude.
-- The real solver surface is intentionally narrow:
+- MCP-backed problem access is the intended default for both Codex and Claude.
+- The solver-visible surface is intentionally narrow:
   - fixed read-only resources: `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, `GOAL_STATUS.md`, `problem_reference.py`, `candidate_model_new.py`
   - bounded history reads through `list_workspace_dir(samples|profiles)` and `read_workspace_file(...)`
   - actions through `write_candidate`, `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`
@@ -17,27 +17,28 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Fixed in the current pass
 
-- goal-status attempt counts now distinguish `correct`, `incorrect`, and `execution-failed`, so the displayed breakdown sums to total attempts
-- Codex config moved back toward the shared static MCP shape rather than per-problem generated homes
-- auth mirroring now follows repo-root files only and removes stale mirrored auth when the repo-root source is absent
-- tool descriptions were tightened so the MCP surface is clearer about arguments and outputs
+- strengthened the planner/manager wording so the main agent is told WHEN to use `runner`, WHEN to use `profiler`, WHEN to inspect old `samples/` / `profiles/`, and WHEN to use hosted NVIDIA docs
+- suspicious or validation-blocked `run_candidate` results now carry explicit `counts_toward_progress=false` plus a plain-English `progress_blocked_reason`
+- suspicious/blocked runs no longer refresh GOAL_STATUS automatically and no longer count as progress when goal status or best-result helpers are recomputed
+- the Slurm wrapper no longer redefines the full variable set that `run_agent_range.sh` already owns
+- README/ARCHITECTURE now explain where the solver policy lives and that `agent/events.jsonl` is the exact live client trace while `trace_ir.json` is the normalized merged view
 
 ## Still on the radar
 
-- verify the shared static Codex `env_vars` path on a real cluster run after the current edits land
-- confirm Claude MCP registration/auth behavior stays stable with repo-root `./.claude/.credentials.json` only
-- keep reviewing real traces for any client-side surface drift (especially unexpected non-MCP tools)
+- verify that real live runs now actually spawn `runner` / `profiler` instead of keeping everything in the main context
+- review whether `best_result` is still worth keeping as a separate MCP tool once the graph/history pass lands
+- trace IR ordering across raw client events and the synthetic MCP sidecar is still approximate rather than perfectly chronological
 - destructive workspace preparation ordering and process-group kill semantics are still known cleanup targets
 
 ## Review reminders
 
 - after live runs, inspect `archive/.../agent/events.jsonl`, `mcp_ir_events.jsonl`, and `trace_ir.json` together
-- manually inspect final kernels for forbidden escapes (vendor libraries, ATen compute helpers, Triton, etc.)
-- if Codex or Claude behavior drifts, prefer narrowing the advertised surface and docs before adding more policy layers
+- manually inspect final kernels for forbidden escapes (vendor libraries, ATen compute helpers, Triton, dynamic loader monkeypatches, etc.)
+- if Codex or Claude behavior drifts, prefer narrowing the advertised surface and sharpening the docs before adding more enforcement layers
 
 ## Current behavior review notes
 
-- Helper agents are loaded for both clients, but the main prompt only weakly encouraged delegation; this pass strengthens the prompt so measured evaluation defaults to `runner` and profiling defaults to `profiler`.
-- `run_candidate` and `profile_ncu` now preserve their structured JSON payloads even when the backend exits through `SystemExit`, so validation failures and suspicious-result warnings can reach the model mid-run.
-- Suspicious KernelBench speedup warnings should keep `GOAL_STATUS.md` unresolved instead of silently letting the solver stop on a likely reward-hacked result.
-- Codex raw traces still need the raw `mcp_tool_call` tool names preserved; this pass fills those in.
+- helper agents are correctly loaded for both clients and have narrow MCP scopes, but the old wording was too weak; this pass makes helper use a default behavior rather than an optional suggestion
+- suspicious KernelBench warnings and static validation failures should now feed back to the model as “not counted toward progress” instead of silently letting the model think the run advanced the goal
+- the exact raw model trace is `agent/events.jsonl`; use that first when you want to understand what the model actually did, and use `trace_ir.json` mainly for counts, audit, and compact summaries
+- next likely maintainer step after another live run: rebase onto `main`, then move `v3` once the current head is verified in-cluster

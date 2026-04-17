@@ -139,21 +139,24 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
 )
 
 WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
+    "Act as the planner-manager for this problem. Keep the main context focused on strategy, debugging, and choosing the next branch.",
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
     "Do not end with a plain assistant message. The only valid exit is the `complete_problem` MCP tool.",
     "Never start a second harness MCP call while another one is still running.",
+    "WHEN you want a measured evaluation, spawn the `runner` helper if available; use direct `run_candidate` yourself only when helper spawning is unavailable.",
+    "WHEN you want Nsight Compute output or profile interpretation, spawn the `profiler` helper if available; use direct `profile_ncu` yourself only when helper spawning is unavailable.",
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
-    "If your runtime exposes helper agents `runner` and `profiler`, delegate measured evaluation to `runner` and Nsight Compute work to `profiler` by default so the main context stays focused on design decisions.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
-    "Call `profile_ncu` if you do not already have profiling for the current idea.",
-    "Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed.",
-    "Use hosted web search only for docs.nvidia.com when you need CUDA or hardware guidance.",
+    "WHEN you do not already have profiling for the current idea, call `profile_ncu`.",
+    "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
+    "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits.",
+    "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
@@ -184,7 +187,7 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="runner",
         description=(
             "Execution-focused helper for one assigned optimization problem. "
-            "Use proactively to run measured evaluations and summarize results without polluting the main context."
+            "The main solver should delegate measured evaluations to this helper by default so the main context stays focused on planning."
         ),
         mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
         read_paths=(
@@ -205,7 +208,7 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="profiler",
         description=(
             "Profiling helper for one assigned optimization problem. "
-            "Use proactively to run Nsight Compute profiling and summarize bottlenecks and likely next steps."
+            "The main solver should delegate Nsight Compute work to this helper by default so the main context stays focused on planning."
         ),
         mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
         read_paths=(
