@@ -1,6 +1,6 @@
-# KernelBench harness
+# KernelBench agent harness
 
-This repository runs autonomous coding agents on KernelBench optimization problems, one problem at a time, and records the durable results under `archive/`.
+Run Codex or Claude on one KernelBench problem at a time through a narrow MCP tool surface, archive every attempt/profile/trace, and compare the final result against eager and `torch.compile` baselines.
 
 At a high level:
 
@@ -38,7 +38,7 @@ Example:
 
 ```bash
 pyenv create <env-name>
-# activate that environment in your shell
+pyenv activate <env-name>
 
 cd /path/to/KernelBench
 uv pip install -e .
@@ -112,6 +112,8 @@ HARDWARE_NAME=H100 \
 ```
 
 That is the supported smoke path for the actual harness server. The real launcher uses the same shared `state/config/codex/config.toml` and forwards the per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into the stdio MCP server through Codex `env_vars`.
+
+The shared helper agents `runner` and `profiler` are also loaded from `state/config/` when the client runtime supports them.
 
 ## Most common runs
 

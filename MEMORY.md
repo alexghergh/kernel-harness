@@ -34,3 +34,10 @@ Short rolling maintainer handoff for the KernelBench harness.
 - after live runs, inspect `archive/.../agent/events.jsonl`, `mcp_ir_events.jsonl`, and `trace_ir.json` together
 - manually inspect final kernels for forbidden escapes (vendor libraries, ATen compute helpers, Triton, etc.)
 - if Codex or Claude behavior drifts, prefer narrowing the advertised surface and docs before adding more policy layers
+
+## Current behavior review notes
+
+- Helper agents are loaded for both clients, but the main prompt only weakly encouraged delegation; this pass strengthens the prompt so measured evaluation defaults to `runner` and profiling defaults to `profiler`.
+- `run_candidate` and `profile_ncu` now preserve their structured JSON payloads even when the backend exits through `SystemExit`, so validation failures and suspicious-result warnings can reach the model mid-run.
+- Suspicious KernelBench speedup warnings should keep `GOAL_STATUS.md` unresolved instead of silently letting the solver stop on a likely reward-hacked result.
+- Codex raw traces still need the raw `mcp_tool_call` tool names preserved; this pass fills those in.
