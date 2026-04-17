@@ -13,7 +13,7 @@
 #   RUN_NAME=kernelbench-codex-h100-v3
 #   LEVEL=1
 #   PROBLEM_ID=1
-#   MODEL=gpt-5.4|opus-4.6
+#   MODEL=gpt-5.4|claude-opus-4-7
 #   TIME_BUDGET_MINUTES=180
 #   PRECISION=bf16
 #   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>  # optional override
@@ -112,7 +112,7 @@ esac
 
 DEFAULT_MODEL="gpt-5.4"
 if [[ "${TOOL}" == "claude" ]]; then
-  DEFAULT_MODEL="opus-4.6"
+  DEFAULT_MODEL="claude-opus-4-7"
 fi
 
 RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
@@ -178,9 +178,10 @@ if [[ "${TOOL}" == "codex" ]]; then
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
   elif ! codex login status >/dev/null 2>&1; then
-    echo "Codex needs either repo-root .codex login state or OPENAI_API_KEY before launch." >&2
+    echo "Codex needs either repo-root .codex/auth.json or OPENAI_API_KEY before launch." >&2
     echo "Preferred: CODEX_HOME=\"./.codex\" codex -c cli_auth_credentials_store=file login --device-auth" >&2
-    echo "The harness copies ./.codex/auth.json into ${CODEX_SHARED_HOME} on launch." >&2
+    echo "The harness copies only ./.codex/auth.json into ${CODEX_SHARED_HOME} on launch." >&2
+    echo "If regular codex works but the harness does not, refresh repo-root ./.codex/auth.json; the harness intentionally ignores ~/.codex." >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
@@ -192,9 +193,10 @@ else
   elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" ]]; then
     :
   else
-    echo "Claude Code needs either repo-root .claude login state or exported API credentials before launch." >&2
+    echo "Claude Code needs either repo-root .claude/.credentials.json or exported API credentials before launch." >&2
     echo "Preferred: CLAUDE_CONFIG_DIR=\"./.claude\" claude login" >&2
-    echo "The harness copies ./.claude/.credentials.json into ${CLAUDE_SHARED_CONFIG_DIR} on launch." >&2
+    echo "The harness copies only ./.claude/.credentials.json into ${CLAUDE_SHARED_CONFIG_DIR} on launch." >&2
+    echo "If regular claude works but the harness does not, refresh repo-root ./.claude/.credentials.json; the harness intentionally ignores ~/.claude." >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
   fi
@@ -242,27 +244,7 @@ export KBH_CLIENT_TOOL="${TOOL}"
 export KBH_MCP_EVENTS_PATH="${MCP_EVENTS_PATH}"
 
 if [[ "${TOOL}" == "codex" ]]; then
-  export CODEX_SESSION_HOME="${STATE_ROOT}/config_runs/codex/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
-  rm -rf "${CODEX_SESSION_HOME}"
-  mkdir -p "${CODEX_SESSION_HOME}"
-  python - <<'PY'
-import os
-from pathlib import Path
-from kernel_bench_experiment_agents.runtime_policy import prepare_codex_session_home
-
-prepare_codex_session_home(
-    shared_codex_home=Path(os.environ["CODEX_HOME"]),
-    target_home=Path(os.environ["CODEX_SESSION_HOME"]),
-    mcp_env={
-        "DATA_ROOT": os.environ["DATA_ROOT"],
-        "KBH_WORKSPACE": os.environ["KBH_WORKSPACE"],
-        "KBH_CLIENT_TOOL": os.environ["KBH_CLIENT_TOOL"],
-        "KBH_MCP_EVENTS_PATH": os.environ["KBH_MCP_EVENTS_PATH"],
-    },
-)
-PY
-  export CODEX_HOME="${CODEX_SESSION_HOME}"
-  echo "Launching Codex from ${TOOL_CWD} with per-problem CODEX_HOME=${CODEX_HOME} (auth/helpers shared from ${CODEX_SHARED_HOME}) and MCP-backed workspace access" >&2
+  echo "Launching Codex from ${TOOL_CWD} with shared CODEX_HOME=${CODEX_HOME} and MCP-backed workspace access" >&2
 else
   echo "Launching Claude Code from ${TOOL_CWD} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and MCP-backed workspace access" >&2
 fi

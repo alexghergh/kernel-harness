@@ -11,7 +11,6 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Mapping
 
 from .agent_specs import write_shared_helper_agent_specs
 from .policy_model import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
@@ -36,19 +35,13 @@ def _python_command() -> str:
     return str(Path(sys.executable).expanduser())
 
 
-def _copy_if_exists(source: Path, target: Path) -> Path | None:
-    if not source.exists() or not source.is_file():
-        return None
-    ensure_dir(target.parent)
-    shutil.copy2(source, target)
-    return target
-
-
-def _copy_first_existing(sources: list[Path], target: Path) -> Path | None:
-    for source in sources:
-        copied = _copy_if_exists(source, target)
-        if copied is not None:
-            return copied
+def _mirror_optional_file(source: Path, target: Path) -> Path | None:
+    if source.exists() and source.is_file():
+        ensure_dir(target.parent)
+        shutil.copy2(source, target)
+        return target
+    if target.exists() or target.is_symlink():
+        target.unlink()
     return None
 
 
@@ -62,15 +55,15 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
     config_root = ensure_dir(config_root.expanduser().resolve())
     written: list[Path] = []
 
-    copied = _copy_first_existing(
-        [repo_root / ".codex" / "auth.json", Path.home() / ".codex" / "auth.json"],
+    copied = _mirror_optional_file(
+        repo_root / ".codex" / "auth.json",
         config_root / "codex" / "auth.json",
     )
     if copied is not None:
         written.append(copied)
 
-    copied = _copy_first_existing(
-        [repo_root / ".claude" / ".credentials.json", Path.home() / ".claude" / ".credentials.json"],
+    copied = _mirror_optional_file(
+        repo_root / ".claude" / ".credentials.json",
         config_root / "claude" / ".credentials.json",
     )
     if copied is not None:
@@ -80,14 +73,16 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
 
 
 
-def render_codex_config(*, mcp_env: Mapping[str, str] | None = None) -> str:
-    """Render a Codex config.toml.
+def render_codex_config() -> str:
+    """Render the shared Codex config.toml.
 
-    Shared state stores the stable defaults, auth cache, and helper agents. The actual launch uses a
-    per-problem CODEX_HOME so the MCP server can receive an explicit static `[mcp_servers.*.env]`
-    table before Codex starts required MCP servers.
+    The Codex home is shared across problems. The MCP server registration stays static here, while
+    the launcher exports the small per-problem context (`DATA_ROOT`, `KBH_WORKSPACE`,
+    `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) and Codex forwards only those names into the stdio
+    server via `env_vars`.
     """
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
+    env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
     python_command = json.dumps(_python_command())
     payload = (
         '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
@@ -108,23 +103,13 @@ def render_codex_config(*, mcp_env: Mapping[str, str] | None = None) -> str:
         f'[mcp_servers.{MCP_SERVER_NAME}]\n'
         f'command = {python_command}\n'
         'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
+        f'env_vars = [{env_vars}]\n'
         'required = true\n'
         'startup_timeout_sec = 20\n\n'
-    )
-    if mcp_env:
-        payload += f'[mcp_servers.{MCP_SERVER_NAME}.env]\n'
-        for name in MCP_SERVER_ENV_VARS:
-            value = mcp_env.get(name)
-            if value is None:
-                continue
-            payload += f'{name} = {json.dumps(str(value))}\n'
-        payload += '\n'
-    payload += (
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )
     return payload
-
 
 
 def claude_settings_payload() -> dict[str, object]:
@@ -176,51 +161,6 @@ def render_claude_settings() -> str:
 
 def render_claude_user_config() -> str:
     return json.dumps(claude_user_config_payload(), indent=2, sort_keys=True) + "\n"
-
-
-def prepare_codex_session_home(
-    *,
-    shared_codex_home: Path,
-    target_home: Path,
-    mcp_env: Mapping[str, str],
-) -> list[Path]:
-    """Create a per-launch CODEX_HOME with explicit MCP env and shared auth/agents.
-
-    Codex reliably starts the required MCP server when the env table lives in config.toml before
-    startup. We therefore keep auth and helper agents under the shared Codex home, but materialize
-    a tiny per-problem CODEX_HOME that points at the same auth/agents and owns only local mutable
-    Codex state (history, logs, caches).
-    """
-    shared_codex_home = shared_codex_home.expanduser().resolve()
-    target_home = ensure_dir(target_home.expanduser().resolve())
-
-    written: list[Path] = []
-    config_path = target_home / 'config.toml'
-    write_text(config_path, render_codex_config(mcp_env=mcp_env))
-    written.append(config_path)
-
-    for name in ('auth.json',):
-        source = shared_codex_home / name
-        target = target_home / name
-        if target.exists() or target.is_symlink():
-            target.unlink()
-        if source.exists():
-            target.symlink_to(source)
-            written.append(target)
-
-    source_agents = shared_codex_home / 'agents'
-    target_agents = target_home / 'agents'
-    if target_agents.exists() or target_agents.is_symlink():
-        if target_agents.is_symlink() or target_agents.is_file():
-            target_agents.unlink()
-        else:
-            shutil.rmtree(target_agents)
-    if source_agents.exists():
-        target_agents.symlink_to(source_agents, target_is_directory=True)
-        written.append(target_agents)
-
-    return written
-
 
 
 def write_shared_tool_state(config_root: Path, *, repo_root: Path | None = None) -> list[Path]:
