@@ -43,6 +43,26 @@ def _elapsed_minutes_since(started_at: Any) -> float | None:
     return max(0.0, (now - started.astimezone(timezone.utc)).total_seconds() / 60.0)
 
 
+def _attempt_warnings(payload: dict[str, Any] | None) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("warnings")
+    if isinstance(raw, list):
+        return [str(value) for value in raw if value]
+    return []
+
+
+def _attempt_flagged_suspicious(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    if metadata.get("excessive_speedup"):
+        return True
+    joined = "\n".join(_attempt_warnings(payload)).lower()
+    return "reward hack" in joined or "suspicious" in joined or "excessive speedup" in joined
+
+
 def live_trace_counts_for_problem(
     run_name: str,
     level: int,
@@ -89,6 +109,8 @@ def goal_status_snapshot(
 
     eager_ms = as_float(baseline.get("eager", {}).get("runtime_ms"))
     compile_ms = as_float(baseline.get("compile", {}).get("runtime_ms"))
+    best_result_suspicious = _attempt_flagged_suspicious(best_payload)
+    best_result_warnings = _attempt_warnings(best_payload)
     beats_eager = best_runtime_ms is not None and eager_ms is not None and best_runtime_ms < eager_ms
     beats_compile = best_runtime_ms is not None and compile_ms is not None and best_runtime_ms < compile_ms
 
@@ -143,8 +165,12 @@ def goal_status_snapshot(
         problem_id,
         tool=tool,
     )
-    resolved = beats_eager and beats_compile
+    resolved = beats_eager and beats_compile and not best_result_suspicious
     recommended_actions = []
+    if best_result_suspicious:
+        recommended_actions.append(
+            "The current best result is flagged as suspicious by KernelBench (possible reward hacking). Do not stop yet; inspect the candidate, remove the suspicious behavior, and produce a non-suspicious measured win."
+        )
     if resolved:
         recommended_actions.append(
             "Re-check SPEC.md once, then end via the `complete_problem` MCP tool with a short success summary."
@@ -192,6 +218,8 @@ def goal_status_snapshot(
         "beats_eager": beats_eager,
         "beats_compile": beats_compile,
         "beats_both": resolved,
+        "best_result_suspicious": best_result_suspicious,
+        "best_result_warnings": best_result_warnings,
         "has_correct_solution": best_payload is not None,
         "trace_counts": live_trace_counts,
         "web_searches": live_web_searches,
@@ -230,6 +258,8 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
     unresolved = not snapshot["beats_both"]
     if unresolved:
         heading = "# Goal Status: UNRESOLVED — keep working"
+        if snapshot.get("best_result_suspicious"):
+            heading = "# Goal Status: UNRESOLVED — current best result is suspicious; keep working"
         standing_orders = [
             "- You MUST NOT stop, summarize, or hand back control. Keep working.",
             "- Do NOT ask the user for confirmation, approval, or whether to continue. Choose the next action yourself.",
@@ -286,10 +316,12 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- beats eager ({eager_baseline} ms): {snapshot['beats_eager']}",
         f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
         f"- beats both: {snapshot['beats_both']}",
+        f"- best result flagged suspicious: {snapshot.get('best_result_suspicious', False)}",
         f"- attempts: {snapshot['num_attempts']} ({attempt_breakdown})",
         f"- timing calls: {snapshot['num_timing_runs']}",
         f"- profiler calls: {profiler_line}",
         f"- best correct sample: {snapshot.get('best_correct_sample_id')}",
+        f"- best result warnings: {snapshot.get('best_result_warnings') or []}",
         f"- wall-clock minutes since workspace creation: {wall_clock_elapsed_minutes}",
         f"- completed gpu wait minutes excluded from budget: {recorded_gpu_wait_minutes}",
         f"- currently active gpu queue-wait minutes excluded from budget: {live_gpu_wait_minutes}",

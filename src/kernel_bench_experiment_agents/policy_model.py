@@ -146,6 +146,7 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
+    "If your runtime exposes helper agents `runner` and `profiler`, delegate measured evaluation to `runner` and Nsight Compute work to `profiler` by default so the main context stays focused on design decisions.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (

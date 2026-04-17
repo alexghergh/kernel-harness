@@ -49,22 +49,37 @@ def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None)
     return candidate_path.name
 
 
-def _ref_runtime_warnings(result: dict[str, Any], workspace: Path | None) -> list[str]:
+def _result_warnings(
+    result: dict[str, Any],
+    workspace: Path | None,
+    *,
+    stdout_text: str = "",
+) -> list[str]:
+    warnings: list[str] = []
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    if metadata.get("excessive_speedup"):
+        warnings.append(
+            "KernelBench flagged this run as suspicious because the measured speedup is excessively large. Treat the candidate as potentially reward hacked and continue iterating until you have a non-suspicious result."
+        )
+    for line in stdout_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[WARNING]"):
+            warnings.append(stripped)
     if workspace is None:
-        return []
+        return warnings
     metadata = load_workspace_metadata(workspace)
     baseline_runtime_ms = metadata.get("baseline_runtime_ms") if isinstance(metadata, dict) else None
     baseline_runtime_ms = baseline_runtime_ms if isinstance(baseline_runtime_ms, dict) else {}
     eager_baseline = as_float(baseline_runtime_ms.get("eager"))
     ref_runtime = as_float(result.get("ref_runtime"))
     if eager_baseline is None or ref_runtime is None or eager_baseline <= 0:
-        return []
+        return warnings
     relative_delta = abs(ref_runtime - eager_baseline) / eager_baseline
-    if relative_delta <= 0.15:
-        return []
-    return [
-        f"KernelBench reported ref_runtime={ref_runtime} ms but the archived eager baseline is {eager_baseline} ms; relative delta {relative_delta:.1%}. Review this problem manually before trusting the baseline comparison."
-    ]
+    if relative_delta > 0.15:
+        warnings.append(
+            f"KernelBench reported ref_runtime={ref_runtime} ms but the archived eager baseline is {eager_baseline} ms; relative delta {relative_delta:.1%}. Review this problem manually before trusting the baseline comparison."
+        )
+    return warnings
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
@@ -240,7 +255,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["status"] = "succeeded"
         payload["updated_at"] = now_iso()
         payload["result"] = result
-        payload["warnings"] = _ref_runtime_warnings(result, workspace)
+        payload["warnings"] = _result_warnings(result, workspace, stdout_text=completed.stdout)
     except Exception as exc:
         failure = exc
         if payload is None or sample_id is None or sample_json_path is None:

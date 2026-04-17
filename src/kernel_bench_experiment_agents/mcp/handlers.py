@@ -71,9 +71,21 @@ def append_trace_event(
 
 
 def invoke_command(handler: Any, namespace: argparse.Namespace) -> dict[str, Any]:
+    """Run a CLI-style handler and recover its JSON payload even on SystemExit.
+
+    The run/profile/status handlers emit their JSON payload first and then may raise SystemExit to
+    signal failure. Preserve that payload so the MCP client still sees structured failure details
+    instead of only a generic exception string.
+    """
     buffer = io.StringIO()
-    with redirect_stdout(buffer):
-        handler(namespace)
+    try:
+        with redirect_stdout(buffer):
+            handler(namespace)
+    except SystemExit:
+        output = buffer.getvalue().strip()
+        if output:
+            return json.loads(output)
+        raise
     output = buffer.getvalue().strip()
     if not output:
         return {}
@@ -104,12 +116,14 @@ def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> 
         "resources": list(FIXED_WORKSPACE_RESOURCE_PATHS),
         "history_dirs": [f"{directory}/" for directory in RESOURCE_LIST_DIRS],
         "mcp_tools": [spec.name for spec in MCP_TOOL_SPECS if spec.name != "workspace_overview"],
+        "helper_agents": ["runner", "profiler"],
     }
     text = (
         f"Problem {ctx.level}/{ctx.problem_id} ({overview['assignment']['problem_name'] or 'unknown'}). "
         "Read the fixed workspace resources first: AGENTS.md, INITIAL_PROMPT.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md. "
         "For past attempts or profiler outputs, use `list_workspace_dir` only on `samples` or `profiles`, then `read_workspace_file` on those listed files. "
-        "Use only the kernelbench MCP tools for candidate edits, measured runs, profiling, status refreshes, best-result lookup, and completion."
+        "Use only the kernelbench MCP tools for candidate edits, measured runs, profiling, status refreshes, best-result lookup, and completion. "
+        "If your runtime exposes helper agents `runner` and `profiler`, delegate measured evaluations to `runner` and Nsight Compute work to `profiler` by default."
     )
     return text_result(text, structured=overview)
 
