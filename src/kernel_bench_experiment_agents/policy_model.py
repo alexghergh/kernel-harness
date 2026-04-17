@@ -64,13 +64,13 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="run_candidate",
         path="./bin/run_candidate.sh",
-        purpose="evaluate correctness and runtime for the current candidate",
+        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
         uses_gpu=True,
     ),
     WrapperCommandSpec(
         name="profile_ncu",
         path="./bin/profile_ncu.sh",
-        purpose="profile the current candidate with Nsight Compute",
+        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
         uses_gpu=True,
     ),
     WrapperCommandSpec(
@@ -86,54 +86,54 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="complete_problem",
         path="./bin/complete_problem.sh",
-        purpose="record a terminal completion summary",
+        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
     ),
 )
 
 MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     McpToolSpec(
         name="workspace_overview",
-        purpose="return the assigned problem metadata, key files, and available harness tools",
+        purpose="workspace_overview() -> JSON overview of the assigned problem, the fixed read-only resources, the allowed history directories, and the available MCP action tools",
         read_only=True,
     ),
     McpToolSpec(
         name="list_workspace_dir",
-        purpose="list one safe history directory inside the workspace (`samples` or `profiles`)",
+        purpose="list_workspace_dir(path='samples'|'profiles') -> JSON directory listing for one allowed history directory only",
         read_only=True,
     ),
     McpToolSpec(
         name="read_workspace_file",
-        purpose="read one allowed workspace file or one text file under `samples/` or `profiles/`",
+        purpose="read_workspace_file(path) -> file text for one fixed resource or one listed text artifact under `samples/` or `profiles/`",
         read_only=True,
     ),
     McpToolSpec(
         name="write_candidate",
-        purpose=f"overwrite {CANDIDATE_FILENAME} with new source text",
+        purpose=f"write_candidate(content) -> overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
         destructive=True,
     ),
     McpToolSpec(
         name="run_candidate",
-        purpose="evaluate correctness and runtime for the current candidate",
+        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
         uses_gpu=True,
     ),
     McpToolSpec(
         name="profile_ncu",
-        purpose="profile the current candidate with Nsight Compute",
+        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
         uses_gpu=True,
     ),
     McpToolSpec(
         name="goal_status",
-        purpose="refresh GOAL_STATUS.md under the artifact lock and return the live status snapshot, including remaining budget and baseline progress",
+        purpose="goal_status() -> live JSON status snapshot (remaining budget, attempt counts, baseline progress, best sample); takes no arguments",
         read_only=True,
     ),
     McpToolSpec(
         name="best_result",
-        purpose="return the best measured correct attempt so far, including sample_id and archive-relative artifact paths",
+        purpose="best_result() -> JSON for the best measured correct attempt so far, including sample_id and archive-relative artifact paths; takes no arguments",
         read_only=True,
     ),
     McpToolSpec(
         name="complete_problem",
-        purpose="record a terminal completion summary",
+        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
         destructive=True,
     ),
 )

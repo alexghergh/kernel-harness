@@ -40,7 +40,7 @@ esac
 
 DEFAULT_MODEL="gpt-5.4"
 if [[ "${TOOL}" == "claude" ]]; then
-  DEFAULT_MODEL="opus-4.6"
+  DEFAULT_MODEL="claude-opus-4-7"
 fi
 
 RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"

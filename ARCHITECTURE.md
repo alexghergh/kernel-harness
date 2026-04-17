@@ -89,7 +89,7 @@ It is safe to delete `state/` only when no run is active.
 
 The workspace is solver-visible. Tool-private config and auth live outside it.
 
-- Codex authenticates from shared `state/config/codex/`, but actual problem launches use a tiny per-problem `CODEX_HOME` seeded from that shared home
+- Codex authenticates from shared `state/config/codex/` and launches with that same shared `CODEX_HOME`
 - Claude uses `CLAUDE_CONFIG_DIR=state/config/claude/`
 
 Those shared tool dirs are where the harness writes:
@@ -101,12 +101,12 @@ Those shared tool dirs are where the harness writes:
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
 
-The harness seeds shared auth from repo-root tool dirs when they exist:
+The harness mirrors shared auth only from repo-root tool dirs:
 
 - `./.codex/auth.json` -> `state/config/codex/auth.json`
 - `./.claude/.credentials.json` -> `state/config/claude/.credentials.json`
 
-That keeps `state/config/` disposable while leaving repo-root login state under user control.
+That keeps `state/config/` disposable while leaving repo-root login state under user control. The harness intentionally does not read `~/.codex` or `~/.claude`.
 
 This split is deliberate:
 
@@ -125,7 +125,7 @@ Codex keeps its shared user/runtime config under `CODEX_HOME`. The harness gener
 - `state/config/codex/config.toml`
 - `state/config/codex/agents/*.toml`
 
-Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The launcher builds a tiny per-problem `CODEX_HOME` whose `config.toml` includes an explicit `[mcp_servers.kernelbench.env]` table for `DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, and `KBH_MCP_EVENTS_PATH`, while `auth.json` and helper agents are shared from `state/config/codex/`.
+Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The shared `state/config/codex/config.toml` registers that MCP server once and forwards only `DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, and `KBH_MCP_EVENTS_PATH` via Codex `env_vars`; the launcher exports those four values per problem before each run.
 
 ### Claude
 
@@ -136,7 +136,7 @@ Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harne
 - `state/config/claude/agents/*.md`
 
 Claude also launches from an empty per-problem cwd under `state/cwd/claude/...`, with the real workspace reachable only through the `kernelbench` MCP server.
-The shared `state/config/claude/.claude.json` forwards the minimal per-problem MCP context (`KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into that MCP server explicitly. The rest of the problem assignment comes from workspace metadata and archive provenance, so the launcher does not need to duplicate more environment than that.
+The shared `state/config/claude/.claude.json` forwards the minimal per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into that MCP server explicitly. The rest of the problem assignment comes from workspace metadata and archive provenance, so the launcher does not need to duplicate more environment than that.
 
 The practical result is the same for both tools **with respect to the actual problem environment**:
 
@@ -144,6 +144,8 @@ The practical result is the same for both tools **with respect to the actual pro
 - the real workspace is meant to be reachable only through the `kernelbench` MCP server
 - hosted web access stays native to each client and is restricted separately from MCP
 - shared web-search policy and helper-agent definitions
+- `goal_status` is the live structured status query (remaining budget, attempt counts, best sample, baseline progress)
+- `best_result` is the narrow structured query for the current best measured correct attempt
 
 The enforcement mechanism differs:
 

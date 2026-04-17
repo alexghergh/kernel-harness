@@ -20,6 +20,8 @@ For **both** Codex and Claude, the real problem environment is exposed only thro
 - fixed read-only MCP resources: `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, `GOAL_STATUS.md`, `problem_reference.py`, `candidate_model_new.py`
 - bounded read tools: `list_workspace_dir` for `samples/` and `profiles/`, plus `read_workspace_file` for those history files and the fixed resources above
 - write/action tools: `write_candidate`, `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`
+- `goal_status` returns the live JSON status snapshot (remaining budget, attempt counts, best sample, baseline progress)
+- `best_result` returns the current best measured correct attempt, including `sample_id` and archive-relative artifact paths
 - native web stays separate from MCP and is limited to `docs.nvidia.com`
 
 The client-specific enforcement differs slightly:
@@ -55,7 +57,7 @@ This harness assumes:
 
 Run these commands from the harness repo root.
 
-The harness generates `state/config/` itself on launch. Authenticate once into repo-root tool dirs, and the harness will copy just the auth files into `state/config/` each time it recreates shared tool state.
+The harness generates `state/config/` itself on launch. Authenticate once into repo-root tool dirs, and the harness will mirror only those repo-root auth files into `state/config/` each time it recreates shared tool state. It intentionally does not read `~/.codex` or `~/.claude`.
 
 ### Codex
 
@@ -75,7 +77,7 @@ export OPENAI_API_KEY=...
 
 ### Claude Code
 
-Preferred path: sign in once into repo-root `./.claude/`. The harness copies `./.claude/.credentials.json` into `state/config/claude/` on launch.
+Preferred path: sign in once into repo-root `./.claude/`. The harness copies only `./.claude/.credentials.json` into `state/config/claude/` on launch. If a fresh `claude login` works in your normal shell but the harness does not, refresh the repo-root `./.claude/.credentials.json` file; the harness intentionally ignores `~/.claude`.
 
 ```bash
 mkdir -p .claude
@@ -109,7 +111,7 @@ HARDWARE_NAME=H100 \
 ./scripts/test_harness_mcp.sh
 ```
 
-That is the supported smoke path for the actual harness server. The Codex launcher then uses the same server, but materializes a tiny per-problem `CODEX_HOME` that reuses shared auth/helper-agent state while writing a launch-local `config.toml` containing the explicit MCP environment table that Codex needs at startup.
+That is the supported smoke path for the actual harness server. The real launcher uses the same shared `state/config/codex/config.toml` and forwards the per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into the stdio MCP server through Codex `env_vars`.
 
 ## Most common runs
 
@@ -137,7 +139,7 @@ TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_ID=1 \
-MODEL=opus-4.6 \
+MODEL=claude-opus-4-7 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
@@ -168,7 +170,7 @@ TOOL=claude \
 RUN_NAME=kernelbench-claude-h100-v3 \
 LEVEL=1 \
 PROBLEM_IDS=1,4,9 \
-MODEL=opus-4.6 \
+MODEL=claude-opus-4-7 \
 TIME_BUDGET_MINUTES=180 \
 PRECISION=bf16 \
 KERNELBENCH_ROOT=/path/to/KernelBench \
