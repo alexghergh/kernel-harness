@@ -67,8 +67,11 @@ FORBIDDEN_STRING_MARKERS = {
 
 FORBIDDEN_VENDOR_MARKERS = {
     "aten/cuda/cudablas",
+    "aten/cuda/cudacontext.h",
     "aten/native",
     "at::cuda::blas",
+    "at::cuda::getcurrentcudastream",
+    "at::cuda::getdefaultcudastream",
     "at::matmul",
     "at::native",
     "at::_ops::",

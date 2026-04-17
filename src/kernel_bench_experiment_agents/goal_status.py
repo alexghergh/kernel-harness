@@ -99,7 +99,19 @@ def goal_status_snapshot(
         if isinstance(payload.get("result"), dict)
         and bool(payload["result"].get("correctness"))
     )
-    num_failed_attempts = sum(1 for payload in entries if payload.get("status") == "failed")
+    num_incorrect_attempts = sum(
+        1
+        for payload in entries
+        if isinstance(payload.get("result"), dict)
+        and payload["result"].get("correctness") is False
+    )
+    num_execution_failed_attempts = sum(
+        1 for payload in entries if payload.get("status") == "failed"
+    )
+    num_other_attempts = max(
+        0,
+        num_attempts - num_correct_attempts - num_incorrect_attempts - num_execution_failed_attempts,
+    )
     timing_runs = sum(
         1
         for payload in entries
@@ -168,7 +180,9 @@ def goal_status_snapshot(
         "solver_should_continue": not resolved,
         "num_attempts": num_attempts,
         "num_correct_attempts": num_correct_attempts,
-        "num_failed_attempts": num_failed_attempts,
+        "num_incorrect_attempts": num_incorrect_attempts,
+        "num_execution_failed_attempts": num_execution_failed_attempts,
+        "num_other_attempts": num_other_attempts,
         "num_timing_runs": timing_runs,
         "num_profile_runs": len(profiles),
         "best_correct_sample_id": best_sample_id,
@@ -251,6 +265,13 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         )
 
     profiler_line = str(snapshot["num_profile_runs"])
+    attempt_breakdown = (
+        f"{snapshot['num_correct_attempts']} correct, "
+        f"{snapshot['num_incorrect_attempts']} incorrect, "
+        f"{snapshot['num_execution_failed_attempts']} execution-failed"
+    )
+    if snapshot.get("num_other_attempts"):
+        attempt_breakdown += f", {snapshot['num_other_attempts']} other"
     lines = [
         heading,
         "",
@@ -265,7 +286,7 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- beats eager ({eager_baseline} ms): {snapshot['beats_eager']}",
         f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
         f"- beats both: {snapshot['beats_both']}",
-        f"- attempts: {snapshot['num_attempts']} ({snapshot['num_correct_attempts']} correct, {snapshot['num_failed_attempts']} failed)",
+        f"- attempts: {snapshot['num_attempts']} ({attempt_breakdown})",
         f"- timing calls: {snapshot['num_timing_runs']}",
         f"- profiler calls: {profiler_line}",
         f"- best correct sample: {snapshot.get('best_correct_sample_id')}",
