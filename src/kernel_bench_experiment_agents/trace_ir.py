@@ -455,6 +455,18 @@ def _codex_ir_events(
                     metadata["domains"] = _domains_from_payload(item)
                 else:
                     kind = "tool_call"
+            elif item_type == "mcp_tool_call":
+                server_name = str(item.get("server") or "").strip() or None
+                raw_tool_name = str(item.get("tool") or "").strip() or None
+                tool_name = raw_tool_name
+                if server_name and raw_tool_name:
+                    tool_name = f"mcp__{server_name}__{raw_tool_name}"
+                kind = "mcp_tool_call"
+                arguments = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
+                metadata["server"] = server_name
+                metadata["arguments"] = arguments
+                if isinstance(arguments.get("path"), str):
+                    path = str(arguments["path"])
             else:
                 kind = item_type
             return [
