@@ -13,6 +13,7 @@ from ..candidate_contract import CANDIDATE_FILENAME
 from ..policy_model import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
 from ..profile_commands import command_profile_ncu
 from ..project import write_text
+from ..run_metrics import blocked_run_reason
 from ..status_commands import command_best_result, command_complete_problem, command_goal_status
 from ..workspace_paths import load_workspace_metadata, workspace_candidate_path
 from . import SERVER_NAME
