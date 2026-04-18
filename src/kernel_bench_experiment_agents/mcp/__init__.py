@@ -5,4 +5,4 @@ logging. Transport, protocol lifecycle, and initialization now come from the off
 """
 
 SERVER_NAME = "kernelbench"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
