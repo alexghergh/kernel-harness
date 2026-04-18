@@ -138,11 +138,31 @@ def baseline_payload_for_problem(
     }
 
 
+def blocked_run_reason(payload: dict[str, Any]) -> str | None:
+    """Return a human-readable reason when a run should not count toward progress.
+
+    This is derived from the archived payload instead of being stored as extra state so suspicious
+    or validation-rejected runs can be excluded consistently without growing the persisted schema.
+    """
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else None
+    if isinstance(error, dict) and error.get("type") == "CandidateValidationError":
+        message = str(error.get("message") or "candidate rejected by harness validation")
+        return f"candidate rejected by harness validation: {message}"
+
+    warnings = [str(value) for value in payload.get("warnings") or [] if value]
+    for warning in warnings:
+        lowered = warning.lower()
+        if (
+            "reward hack" in lowered
+            or "suspicious" in lowered
+            or "excessive speedup" in lowered
+        ):
+            return warning
+    return None
+
+
 def payload_counts_toward_progress(payload: dict[str, Any]) -> bool:
-    value = payload.get("counts_toward_progress")
-    if value is None:
-        return True
-    return bool(value)
+    return blocked_run_reason(payload) is None
 
 
 def best_correct_payload(entries: list[dict[str, Any]]) -> dict[str, Any] | None:

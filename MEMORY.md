@@ -18,8 +18,8 @@ Short rolling maintainer handoff for the KernelBench harness.
 ## Fixed in the current pass
 
 - strengthened the planner/manager wording so the main agent is told WHEN to use `runner`, WHEN to use `profiler`, WHEN to inspect old `samples/` / `profiles/`, and WHEN to use hosted NVIDIA docs
-- suspicious or validation-blocked `run_candidate` results now carry explicit `counts_toward_progress=false` plus a plain-English `progress_blocked_reason`
-- suspicious/blocked runs no longer refresh GOAL_STATUS automatically and no longer count as progress when goal status or best-result helpers are recomputed
+- suspicious or validation-blocked `run_candidate` results are now excluded from progress by derived rules, and the MCP response tells the solver plainly why the run does not count
+- suspicious/blocked runs leave GOAL_STATUS on the previous counted result and no longer count as progress when goal status or best-result helpers are recomputed
 - the Slurm wrapper no longer redefines the full variable set that `run_agent_range.sh` already owns
 - README/ARCHITECTURE now explain where the solver policy lives and that `agent/events.jsonl` is the exact live client trace while `trace_ir.json` is the normalized merged view
 

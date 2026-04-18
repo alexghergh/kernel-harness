@@ -104,7 +104,6 @@ def goal_status_snapshot(
     entries = sample_manifest_entries(run_name, level, problem_id)
     profiles = profile_manifest_entries(run_name, level, problem_id)
     progress_entries = [payload for payload in entries if payload_counts_toward_progress(payload)]
-    blocked_entries = [payload for payload in entries if not payload_counts_toward_progress(payload)]
     best_payload = best_correct_payload(progress_entries)
     best_runtime_ms = None
     best_sample_id = None
@@ -122,7 +121,6 @@ def goal_status_snapshot(
     beats_compile = best_runtime_ms is not None and compile_ms is not None and best_runtime_ms < compile_ms
 
     num_attempts = len(progress_entries)
-    num_blocked_attempts = len(blocked_entries)
     num_correct_attempts = sum(
         1
         for payload in progress_entries
@@ -221,7 +219,6 @@ def goal_status_snapshot(
         "num_execution_failed_attempts": num_execution_failed_attempts,
         "num_other_attempts": num_other_attempts,
         "num_timing_runs": timing_runs,
-        "num_blocked_attempts": num_blocked_attempts,
         "num_profile_runs": len(profiles),
         "best_correct_sample_id": best_sample_id,
         "best_correct_runtime_ms": best_runtime_ms,
@@ -314,7 +311,6 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
     )
     if snapshot.get("num_other_attempts"):
         attempt_breakdown += f", {snapshot['num_other_attempts']} other"
-    blocked_attempts = snapshot.get("num_blocked_attempts") or 0
     lines = [
         heading,
         "",
@@ -331,7 +327,6 @@ def goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- beats both: {snapshot['beats_both']}",
         f"- best result flagged suspicious: {snapshot.get('best_result_suspicious', False)}",
         f"- attempts counted toward progress: {snapshot['num_attempts']} ({attempt_breakdown})",
-        f"- blocked attempts not counted toward progress: {blocked_attempts}",
         f"- timing calls: {snapshot['num_timing_runs']}",
         f"- profiler calls: {profiler_line}",
         f"- best correct sample: {snapshot.get('best_correct_sample_id')}",

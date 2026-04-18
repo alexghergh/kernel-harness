@@ -16,6 +16,7 @@ from .candidate_snapshot import read_validated_candidate_source, write_run_candi
 from .candidate_validation import CandidateValidationError
 from .common import as_float, emit_json
 from .goal_status import write_goal_status_files
+from .run_metrics import payload_counts_toward_progress
 from .live_gpu_wait import (
     clear_live_gpu_wait_marker,
     create_live_gpu_wait_marker,
@@ -81,23 +82,6 @@ def _result_warnings(
         )
     return warnings
 
-
-def _progress_blocked_reason(payload: dict[str, Any]) -> str | None:
-    error = payload.get("error") if isinstance(payload.get("error"), dict) else None
-    if isinstance(error, dict) and error.get("type") == "CandidateValidationError":
-        message = str(error.get("message") or "candidate rejected by harness validation")
-        return f"candidate rejected by harness validation: {message}"
-
-    warnings = [str(value) for value in payload.get("warnings") or [] if value]
-    for warning in warnings:
-        lowered = warning.lower()
-        if (
-            "reward hack" in lowered
-            or "suspicious" in lowered
-            or "excessive speedup" in lowered
-        ):
-            return f"run rejected for progress tracking: {warning}"
-    return None
 
 
 def command_run_candidate(args: argparse.Namespace) -> None:
@@ -173,8 +157,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "gpu_wait_seconds": None,
                 "result": {},
                 "warnings": [],
-                "counts_toward_progress": True,
-                "progress_blocked_reason": None,
                 "error": None,
             }
 
@@ -276,8 +258,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["updated_at"] = now_iso()
         payload["result"] = result
         payload["warnings"] = _result_warnings(result, workspace, stdout_text=completed.stdout)
-        payload["progress_blocked_reason"] = _progress_blocked_reason(payload)
-        payload["counts_toward_progress"] = payload["progress_blocked_reason"] is None
     except Exception as exc:
         failure = exc
         if payload is None or sample_id is None or sample_json_path is None:
@@ -285,8 +265,6 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         payload["status"] = "failed"
         payload["updated_at"] = now_iso()
         payload["error"] = serialize_exception(exc)
-        payload["progress_blocked_reason"] = _progress_blocked_reason(payload)
-        payload["counts_toward_progress"] = payload["progress_blocked_reason"] is None
     finally:
         if payload is not None and sample_json_path is not None:
             try:
@@ -301,7 +279,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     write_json(sample_json_path, payload)
                     clear_live_gpu_wait_marker(live_gpu_wait_marker)
                     live_gpu_wait_marker = None
-                    if workspace is not None and payload.get("counts_toward_progress", True):
+                    if workspace is not None and payload_counts_toward_progress(payload):
                         write_goal_status_files(
                             run_name=args.run_name,
                             level=args.level,
