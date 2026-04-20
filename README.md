@@ -127,7 +127,7 @@ Use the real harness MCP server, not a separate dev server. This prepares one re
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v3 \
+RUN_NAME=kernelbench-codex-h100-v4 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5.4 \
@@ -150,7 +150,7 @@ Run these scripts from the harness repo root.
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v3 \
+RUN_NAME=kernelbench-codex-h100-v4 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5.4 \
@@ -165,7 +165,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v3 \
+RUN_NAME=kernelbench-claude-h100-v4 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=claude-opus-4-7 \
@@ -180,7 +180,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v3 \
+RUN_NAME=kernelbench-codex-h100-v4 \
 LEVEL=1 \
 START_PROBLEM_ID=1 \
 END_PROBLEM_ID=10 \
@@ -196,7 +196,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v3 \
+RUN_NAME=kernelbench-claude-h100-v4 \
 LEVEL=1 \
 PROBLEM_IDS=1,4,9 \
 MODEL=claude-opus-4-7 \
@@ -212,7 +212,7 @@ HARDWARE_NAME=H100 \
 Submit from the harness repo root. The script itself carries the default `#SBATCH` / `#YBATCH` header block for the common H100 path, so the usual launch is still:
 
 ```bash
-ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v4,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
 ```
 
 Override those scheduler defaults in the script header or on the submit command when your cluster needs something different. Use `sbatch` instead of `ybatch` on clusters that expose plain Slurm submission.
@@ -220,7 +220,7 @@ Override those scheduler defaults in the script header or on the submit command 
 ### Summarize one archived run
 
 ```bash
-kbharness summarize-run --run-name kernelbench-codex-h100-v3
+kbharness summarize-run --run-name kernelbench-codex-h100-v4
 ```
 
 This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`.

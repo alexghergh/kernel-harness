@@ -10,7 +10,7 @@
 #
 # Common overrides:
 #   DATA_ROOT=/path/for/archive-and-state   (defaults to ./ from the launch directory)
-#   RUN_NAME=kernelbench-codex-h100-v3
+#   RUN_NAME=kernelbench-codex-h100-v4
 #   LEVEL=1
 #   PROBLEM_ID=1
 #   MODEL=gpt-5.4|claude-opus-4-7
@@ -115,7 +115,7 @@ if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="claude-opus-4-7"
 fi
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v3}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v4}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"

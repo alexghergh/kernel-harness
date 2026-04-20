@@ -12,7 +12,7 @@
 # chosen agent CLI are on PATH in the batch environment.
 #
 # Example:
-#   ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v3,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+#   ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v4,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
 #
 # Replace `ybatch` with `sbatch` on clusters that use plain Slurm submission.
 set -euo pipefail
