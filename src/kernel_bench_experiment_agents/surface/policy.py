@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 
 MCP_SERVER_NAME = "kernelbench"
 

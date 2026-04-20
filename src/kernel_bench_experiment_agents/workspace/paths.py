@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, workspace_dir, write_json, write_text
 
 

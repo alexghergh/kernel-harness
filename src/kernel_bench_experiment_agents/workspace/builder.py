@@ -5,7 +5,7 @@ Scripts import this name so the CLI surface can stay stable even if workspace pr
 
 from __future__ import annotations
 
-from kernel_bench_experiment_agents.workspace.workspace_prepare import command_prepare_problem_workspace
+from kernel_bench_experiment_agents.workspace.prepare import command_prepare_problem_workspace
 
 __all__ = [
     "command_prepare_problem_workspace",

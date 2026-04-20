@@ -9,21 +9,21 @@ import argparse
 import shutil
 from pathlib import Path
 from kernel_bench_experiment_agents.surface.agent_specs import write_archive_helper_agent_specs
-from kernel_bench_experiment_agents.workspace.archive_layout import archive_problem_contract_dir, write_archive_problem_manifest
+from kernel_bench_experiment_agents.workspace.archive import archive_problem_contract_dir, write_archive_problem_manifest
 from kernel_bench_experiment_agents.runtime.common import emit_json, normalize_tool_name
 from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
-from kernel_bench_experiment_agents.surface.hardware_catalog import resolve_hardware_spec
-from kernel_bench_experiment_agents.kernelbench.kernelbench import load_problem
+from kernel_bench_experiment_agents.surface.hardware import resolve_hardware_spec
+from kernel_bench_experiment_agents.kernelbench.problems import load_problem
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, build_problem_root, kernelbench_root, write_json
-from kernel_bench_experiment_agents.kernelbench.run_metrics import baseline_file_paths, baseline_payload_for_problem
-from kernel_bench_experiment_agents.workspace.workspace_materialization import (
+from kernel_bench_experiment_agents.kernelbench.metrics import baseline_file_paths, baseline_payload_for_problem
+from kernel_bench_experiment_agents.workspace.materialization import (
     build_archive_provenance,
     build_hardware_payload,
     build_problem_metadata,
     write_contract_bundle,
 )
-from kernel_bench_experiment_agents.workspace.workspace_paths import problem_workspace_paths, workspace_candidate_path
-from kernel_bench_experiment_agents.workspace.workspace_wrappers import write_default_workspace_wrappers
+from kernel_bench_experiment_agents.workspace.paths import problem_workspace_paths, workspace_candidate_path
+from kernel_bench_experiment_agents.workspace.wrappers import write_default_workspace_wrappers
 
 
 def command_prepare_problem_workspace(args: argparse.Namespace) -> None:

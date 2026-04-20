@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.workspace.archive_layout import archive_problem_profiles_dir, next_archive_profile_index
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.kernelbench.candidate_snapshot import read_validated_candidate_source, write_profile_candidate_snapshot
+from kernel_bench_experiment_agents.workspace.archive import archive_problem_profiles_dir, next_archive_profile_index
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_profile_candidate_snapshot
 from kernel_bench_experiment_agents.runtime.common import emit_json
 from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
@@ -21,10 +21,10 @@ from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     settle_live_gpu_wait_marker,
 )
 from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
-from kernel_bench_experiment_agents.kernelbench.ncu_summary import summarize_ncu_raw_csv
+from kernel_bench_experiment_agents.kernelbench.profiling.summary import summarize_ncu_raw_csv
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, now_iso, relative_path_within, write_json, write_text
 from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, run_subprocess_capture, serialize_exception
-from kernel_bench_experiment_agents.workspace.workspace_paths import (
+from kernel_bench_experiment_agents.workspace.paths import (
     latest_workspace_profile_paths,
     validate_workspace_assignment,
     workspace_candidate_path,
@@ -202,7 +202,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 str(report_prefix),
                 sys.executable,
                 "-m",
-                "kernel_bench_experiment_agents.kernelbench.ncu_runner",
+                "kernel_bench_experiment_agents.kernelbench.profiling.runner",
                 "--candidate",
                 str(snapshot_path),
                 "--level",
@@ -293,7 +293,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 archive_report_prefix,
                 "python",
                 "-m",
-                "kernel_bench_experiment_agents.kernelbench.ncu_runner",
+                "kernel_bench_experiment_agents.kernelbench.profiling.runner",
                 "--candidate",
                 archive_candidate_path,
                 "--level",

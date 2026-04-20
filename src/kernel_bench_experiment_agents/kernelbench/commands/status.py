@@ -7,15 +7,15 @@ from __future__ import annotations
 
 import argparse
 
-from kernel_bench_experiment_agents.workspace.archive_layout import archive_problem_contract_dir, sample_manifest_entries
+from kernel_bench_experiment_agents.workspace.archive import archive_problem_contract_dir, sample_manifest_entries
 from kernel_bench_experiment_agents.runtime.common import emit_json, normalize_tool_name
-from kernel_bench_experiment_agents.summary.completion_policy import annotate_completion_outcomes, infer_measured_outcome
+from kernel_bench_experiment_agents.summary.completion import annotate_completion_outcomes, infer_measured_outcome
 from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.gpu_pool import lease_problem_artifacts
-from kernel_bench_experiment_agents.surface.policy_model import SOLVER_TERMINAL_STATES
+from kernel_bench_experiment_agents.surface.policy import SOLVER_TERMINAL_STATES
 from kernel_bench_experiment_agents.runtime.project import archive_agent_dir, now_iso, write_json, write_text
-from kernel_bench_experiment_agents.kernelbench.run_metrics import best_correct_payload
-from kernel_bench_experiment_agents.workspace.workspace_paths import (
+from kernel_bench_experiment_agents.kernelbench.metrics import best_correct_payload
+from kernel_bench_experiment_agents.workspace.paths import (
     validate_workspace_assignment,
     workspace_candidate_path,
     workspace_path,

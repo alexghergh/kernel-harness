@@ -8,10 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME, candidate_template
-from kernel_bench_experiment_agents.surface.hardware_catalog import render_hardware_markdown
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME, candidate_template
+from kernel_bench_experiment_agents.surface.hardware import render_hardware_markdown
 from kernel_bench_experiment_agents.runtime.project import now_iso, write_json, write_text
-from kernel_bench_experiment_agents.surface.workspace_contract import (
+from kernel_bench_experiment_agents.surface.contract import (
     build_workspace_contract,
     render_initial_prompt,
     render_workspace_agents_md,

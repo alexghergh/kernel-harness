@@ -9,9 +9,9 @@ import argparse
 
 from kernel_bench_experiment_agents.runtime.common import emit_json
 from kernel_bench_experiment_agents.runtime.project import archive_dir, write_json
-from kernel_bench_experiment_agents.summary.summary_math import parse_pass_k_list
-from kernel_bench_experiment_agents.summary.summary_report import build_run_summary_payload
-from kernel_bench_experiment_agents.summary.summary_scan import collect_problem_rows
+from kernel_bench_experiment_agents.summary.math import parse_pass_k_list
+from kernel_bench_experiment_agents.summary.report import build_run_summary_payload
+from kernel_bench_experiment_agents.summary.scan import collect_problem_rows
 
 
 def command_summarize_run(args: argparse.Namespace) -> None:

@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.runtime.project import make_executable, write_text
 
 

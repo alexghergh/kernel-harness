@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from kernel_bench_experiment_agents.surface.agent_specs import write_shared_helper_agent_specs
-from kernel_bench_experiment_agents.surface.policy_model import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
+from kernel_bench_experiment_agents.surface.policy import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
 from kernel_bench_experiment_agents.runtime.project import ensure_dir, write_text
 
 
@@ -85,7 +85,7 @@ def render_codex_config() -> str:
     env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
     python_command = json.dumps(_python_command())
     payload = (
-        '# Generated from src/kernel_bench_experiment_agents/runtime_policy.py\n'
+        '# Generated from src/kernel_bench_experiment_agents/runtime/policy.py\n'
         'personality = "pragmatic"\n'
         'approval_policy = "never"\n'
         'sandbox_mode = "read-only"\n'

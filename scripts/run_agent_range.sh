@@ -21,7 +21,7 @@ export DATA_ROOT
 
 prepare_shared_tool_state() {
   python - <<'PY'
-from kernel_bench_experiment_agents.runtime.runtime_policy import write_shared_tool_state
+from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
 from kernel_bench_experiment_agents.runtime.project import state_dir
 
 write_shared_tool_state(state_dir() / "config")

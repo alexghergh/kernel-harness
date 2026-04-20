@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.summary.summary_math import pass_at_k_estimate
+from kernel_bench_experiment_agents.summary.math import pass_at_k_estimate
 
 TOKEN_USAGE_KEYS = (
     "turns_completed",

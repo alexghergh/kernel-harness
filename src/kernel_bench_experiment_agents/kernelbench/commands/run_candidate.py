@@ -10,13 +10,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.workspace.archive_layout import sample_manifest_path
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.kernelbench.candidate_snapshot import read_validated_candidate_source, write_run_candidate_snapshot
-from kernel_bench_experiment_agents.kernelbench.candidate_validation import CandidateValidationError
+from kernel_bench_experiment_agents.workspace.archive import sample_manifest_path
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_run_candidate_snapshot
+from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError
 from kernel_bench_experiment_agents.runtime.common import as_float, emit_json
 from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
-from kernel_bench_experiment_agents.kernelbench.run_metrics import payload_counts_toward_progress
+from kernel_bench_experiment_agents.kernelbench.metrics import payload_counts_toward_progress
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     clear_live_gpu_wait_marker,
     create_live_gpu_wait_marker,
@@ -34,7 +34,7 @@ from kernel_bench_experiment_agents.runtime.project import (
     write_text,
 )
 from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, load_json_object, run_subprocess_capture, serialize_exception
-from kernel_bench_experiment_agents.workspace.workspace_paths import (
+from kernel_bench_experiment_agents.workspace.paths import (
     load_workspace_metadata,
     validate_workspace_assignment,
     workspace_candidate_path,
@@ -199,7 +199,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             command = [
                 sys.executable,
                 "-m",
-                "kernel_bench_experiment_agents.kernelbench.kernelbench.evaluation_runner",
+                "kernel_bench_experiment_agents.kernelbench.runners.evaluation",
                 "--candidate",
                 str(kernel_path),
                 "--output-path",

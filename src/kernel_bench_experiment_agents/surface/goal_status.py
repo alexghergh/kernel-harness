@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.workspace.archive_layout import (
+from kernel_bench_experiment_agents.workspace.archive import (
     goal_status_archive_path,
     mcp_trace_events_path,
     profile_manifest_entries,
@@ -20,15 +20,15 @@ from kernel_bench_experiment_agents.runtime.common import as_float
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import active_live_gpu_wait_seconds
 from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
 from kernel_bench_experiment_agents.runtime.project import now_iso, write_json, write_text
-from kernel_bench_experiment_agents.kernelbench.run_metrics import (
+from kernel_bench_experiment_agents.kernelbench.metrics import (
     best_correct_payload,
     candidate_runtime,
     payload_counts_toward_progress,
     sum_numeric_field,
 )
-from kernel_bench_experiment_agents.trace.trace_analysis import trace_counts, web_searches_from_ir
-from kernel_bench_experiment_agents.trace.trace_ir import load_trace_event_entries, materialize_trace_ir
-from kernel_bench_experiment_agents.workspace.workspace_paths import (
+from kernel_bench_experiment_agents.trace.analysis import trace_counts, web_searches_from_ir
+from kernel_bench_experiment_agents.trace.ir import load_trace_event_entries, materialize_trace_ir
+from kernel_bench_experiment_agents.workspace.paths import (
     load_workspace_baseline,
     load_workspace_metadata,
     write_workspace_best_sample,

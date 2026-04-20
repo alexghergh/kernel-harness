@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-from kernel_bench_experiment_agents.kernelbench.kernelbench import evaluate_candidate
+from kernel_bench_experiment_agents.kernelbench.evaluator import evaluate_candidate
 
 
 def parse_args() -> argparse.Namespace:

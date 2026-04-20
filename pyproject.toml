@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["mcp>=1.2.0"]
 
 [project.scripts]
-kbharness = "kernel_bench_experiment_agents.cli:main"
+kbharness = "kernel_bench_experiment_agents.runtime.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

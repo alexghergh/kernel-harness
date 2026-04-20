@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.kernelbench.run_metrics import candidate_runtime
-from kernel_bench_experiment_agents.workspace.workspace_paths import read_json_file
+from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime
+from kernel_bench_experiment_agents.workspace.paths import read_json_file
 
 
 def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:

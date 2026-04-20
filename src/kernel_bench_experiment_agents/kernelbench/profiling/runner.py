@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.kernelbench.kernelbench import load_problem
+from kernel_bench_experiment_agents.kernelbench.problems import load_problem
 from kernel_bench_experiment_agents.runtime.project import build_problem_dir
 
 

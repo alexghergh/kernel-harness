@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ast
 
-from kernel_bench_experiment_agents.kernelbench.candidate_contract import candidate_template, normalize_candidate_template
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import candidate_template, normalize_candidate_template
 
 
 FORBIDDEN_IMPORT_ROOTS = {

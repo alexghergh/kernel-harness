@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.surface.policy_model import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
+from kernel_bench_experiment_agents.surface.policy import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
 from kernel_bench_experiment_agents.runtime.project import write_text
 
 

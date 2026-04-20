@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kernel_bench_experiment_agents.kernelbench.candidate_validation import validate_candidate_source
+from kernel_bench_experiment_agents.kernelbench.candidate.validation import validate_candidate_source
 from kernel_bench_experiment_agents.runtime.project import official_kernel_path, write_text
 
 
