@@ -39,8 +39,8 @@ KBHARNESS_CLI="kbharness"
 prepare_shared_tool_state() {
   python - <<'PY'
 from pathlib import Path
-from kernel_bench_experiment_agents.runtime_policy import write_shared_tool_state
-from kernel_bench_experiment_agents.project import state_dir
+from kernel_bench_experiment_agents.runtime.runtime_policy import write_shared_tool_state
+from kernel_bench_experiment_agents.runtime.project import state_dir
 
 write_shared_tool_state(state_dir() / "config")
 PY

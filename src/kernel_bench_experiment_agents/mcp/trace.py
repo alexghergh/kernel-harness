@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..project import append_jsonl
+from kernel_bench_experiment_agents.runtime.project import append_jsonl
 
 
 

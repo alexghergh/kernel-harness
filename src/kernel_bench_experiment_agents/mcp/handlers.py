@@ -8,14 +8,14 @@ import json
 from contextlib import redirect_stdout
 from typing import Any
 
-from ..candidate_commands import command_run_candidate
-from ..candidate_contract import CANDIDATE_FILENAME
-from ..policy_model import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
-from ..profile_commands import command_profile_ncu
-from ..project import write_text
-from ..run_metrics import blocked_run_reason
-from ..status_commands import command_best_result, command_complete_problem, command_goal_status
-from ..workspace_paths import load_workspace_metadata, workspace_candidate_path
+from kernel_bench_experiment_agents.kernelbench.candidate_commands import command_run_candidate
+from kernel_bench_experiment_agents.kernelbench.candidate_contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.surface.policy_model import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
+from kernel_bench_experiment_agents.kernelbench.profile_commands import command_profile_ncu
+from kernel_bench_experiment_agents.runtime.project import write_text
+from kernel_bench_experiment_agents.kernelbench.run_metrics import blocked_run_reason
+from kernel_bench_experiment_agents.kernelbench.status_commands import command_best_result, command_complete_problem, command_goal_status
+from kernel_bench_experiment_agents.workspace.workspace_paths import load_workspace_metadata, workspace_candidate_path
 from . import SERVER_NAME
 from .context import ServerContext
 from .filesystem import (

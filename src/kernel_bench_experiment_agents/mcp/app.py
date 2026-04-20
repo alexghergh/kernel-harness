@@ -13,7 +13,7 @@ from typing import Any
 from mcp import types
 from mcp.server.fastmcp import FastMCP
 
-from ..policy_model import MCP_TOOL_SPECS, McpToolSpec
+from kernel_bench_experiment_agents.surface.policy_model import MCP_TOOL_SPECS, McpToolSpec
 from . import SERVER_NAME
 from .context import ServerContext, load_context
 from .filesystem import assert_allowed_read, resolve_workspace_path, safe_relative

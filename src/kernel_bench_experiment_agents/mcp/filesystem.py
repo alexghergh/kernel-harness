@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..policy_model import WORKSPACE_BROWSE_DIRS, workspace_edit_surface, workspace_read_surface
+from kernel_bench_experiment_agents.surface.policy_model import WORKSPACE_BROWSE_DIRS, workspace_edit_surface, workspace_read_surface
 from .context import ServerContext
 
 

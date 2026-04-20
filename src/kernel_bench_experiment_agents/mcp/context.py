@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..common import normalize_tool_name
-from ..project import archive_contract_dir
-from ..workspace_paths import load_workspace_metadata, validate_workspace_assignment
+from kernel_bench_experiment_agents.runtime.common import normalize_tool_name
+from kernel_bench_experiment_agents.runtime.project import archive_contract_dir
+from kernel_bench_experiment_agents.workspace.workspace_paths import load_workspace_metadata, validate_workspace_assignment
 
 
 @dataclass(frozen=True)

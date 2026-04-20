@@ -7,19 +7,19 @@ from __future__ import annotations
 
 import argparse
 
-from .candidate_commands import command_run_candidate
-from .common import TOOL_CHOICES
-from .profile_commands import command_profile_ncu
-from .policy_model import LAUNCHER_TERMINAL_STATES
-from .status_commands import (
+from kernel_bench_experiment_agents.kernelbench.candidate_commands import command_run_candidate
+from kernel_bench_experiment_agents.runtime.common import TOOL_CHOICES
+from kernel_bench_experiment_agents.kernelbench.profile_commands import command_profile_ncu
+from kernel_bench_experiment_agents.surface.policy_model import LAUNCHER_TERMINAL_STATES
+from kernel_bench_experiment_agents.kernelbench.status_commands import (
     command_best_result,
     command_complete_problem,
     command_goal_status,
     command_record_launcher_completion,
 )
-from .summary_commands import command_summarize_run
-from .trace_commands import command_materialize_agent_trace
-from .workspace_builder import command_prepare_problem_workspace
+from kernel_bench_experiment_agents.summary.summary_commands import command_summarize_run
+from kernel_bench_experiment_agents.trace.trace_commands import command_materialize_agent_trace
+from kernel_bench_experiment_agents.workspace.workspace_builder import command_prepare_problem_workspace
 
 
 # The solver-facing completion command is summary-only; launcher-only states are
