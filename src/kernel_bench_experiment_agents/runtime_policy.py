@@ -115,6 +115,7 @@ def render_codex_config() -> str:
 def claude_settings_payload() -> dict[str, object]:
     """Build the Claude settings payload that lives under CLAUDE_CONFIG_DIR/settings.json."""
     allow_tools = [
+        "WebSearch",
         *(f"WebFetch(domain:{domain})" for domain in ALLOWED_WEB_DOMAINS),
         *claude_mcp_tool_names(),
     ]
