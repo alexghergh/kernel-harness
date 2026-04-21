@@ -8,13 +8,14 @@ remains free of tool auth/config files.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import sys
 from pathlib import Path
 
 from kernel_bench_experiment_agents.surface.agent_specs import write_shared_helper_agent_specs
 from kernel_bench_experiment_agents.surface.policy import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
-from kernel_bench_experiment_agents.runtime.project import ensure_dir, write_text
+from kernel_bench_experiment_agents.runtime.project import ensure_dir, make_executable, write_text
 
 
 MCP_SERVER_ENV_VARS: tuple[str, ...] = (
@@ -112,7 +113,55 @@ def render_codex_config() -> str:
     return payload
 
 
-def claude_settings_payload() -> dict[str, object]:
+def claude_websearch_hook_path(claude_config_dir: Path) -> Path:
+    return claude_config_dir / "hooks" / "restrict_nvidia_docs_websearch.py"
+
+
+
+def render_claude_websearch_hook() -> str:
+    allowed_domains = ", ".join(json.dumps(domain) for domain in ALLOWED_WEB_DOMAINS)
+    reason = json.dumps(
+        f"Restrict WebSearch to {', '.join(ALLOWED_WEB_DOMAINS)} for this harness."
+    )
+    return (
+        "#!/usr/bin/env python3\n"
+        "from __future__ import annotations\n\n"
+        "import json\n"
+        "import sys\n\n"
+        f"ALLOWED_DOMAINS = [{allowed_domains}]\n\n"
+        "def main() -> int:\n"
+        "    try:\n"
+        "        event = json.load(sys.stdin)\n"
+        "    except Exception:\n"
+        "        return 0\n\n"
+        "    tool_input = event.get('tool_input')\n"
+        "    if not isinstance(tool_input, dict):\n"
+        "        return 0\n\n"
+        "    updated_input = dict(tool_input)\n"
+        "    updated_input['allowed_domains'] = ALLOWED_DOMAINS\n"
+        "    payload = {\n"
+        "        'hookSpecificOutput': {\n"
+        "            'hookEventName': 'PreToolUse',\n"
+        "            'permissionDecision': 'allow',\n"
+        f"            'permissionDecisionReason': {reason},\n"
+        "            'updatedInput': updated_input,\n"
+        "        }\n"
+        "    }\n"
+        "    json.dump(payload, sys.stdout)\n"
+        "    sys.stdout.write('\\n')\n"
+        "    return 0\n\n"
+        "if __name__ == '__main__':\n"
+        "    raise SystemExit(main())\n"
+    )
+
+
+
+def _claude_websearch_hook_command(hook_path: Path) -> str:
+    return f"{shlex.quote(_python_command())} {shlex.quote(str(hook_path))}"
+
+
+
+def claude_settings_payload(*, websearch_hook_path: Path) -> dict[str, object]:
     """Build the Claude settings payload that lives under CLAUDE_CONFIG_DIR/settings.json."""
     allow_tools = [
         "WebSearch",
@@ -121,7 +170,6 @@ def claude_settings_payload() -> dict[str, object]:
     ]
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
-        "disableBypassPermissionsMode": "disable",
         "permissions": {
             "allow": allow_tools,
             "deny": [
@@ -134,6 +182,20 @@ def claude_settings_payload() -> dict[str, object]:
                 "Grep",
                 "LS",
             ],
+            "disableBypassPermissionsMode": "disable",
+        },
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "WebSearch",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": _claude_websearch_hook_command(websearch_hook_path),
+                        }
+                    ],
+                }
+            ]
         },
         "sandbox": {"enabled": False},
     }
@@ -155,8 +217,8 @@ def claude_user_config_payload() -> dict[str, object]:
 
 
 
-def render_claude_settings() -> str:
-    return json.dumps(claude_settings_payload(), indent=2, sort_keys=True) + "\n"
+def render_claude_settings(*, websearch_hook_path: Path) -> str:
+    return json.dumps(claude_settings_payload(websearch_hook_path=websearch_hook_path), indent=2, sort_keys=True) + "\n"
 
 
 
@@ -171,10 +233,13 @@ def write_shared_tool_state(config_root: Path, *, repo_root: Path | None = None)
     codex_path = codex_dir / "config.toml"
     claude_settings_path = claude_dir / "settings.json"
     claude_user_config_path = claude_dir / ".claude.json"
+    claude_websearch_hook = claude_websearch_hook_path(claude_dir)
     write_text(codex_path, render_codex_config())
-    write_text(claude_settings_path, render_claude_settings())
+    write_text(claude_websearch_hook, render_claude_websearch_hook())
+    make_executable(claude_websearch_hook)
+    write_text(claude_settings_path, render_claude_settings(websearch_hook_path=claude_websearch_hook))
     write_text(claude_user_config_path, render_claude_user_config())
-    written = [codex_path, claude_settings_path, claude_user_config_path]
+    written = [codex_path, claude_websearch_hook, claude_settings_path, claude_user_config_path]
     written.extend(sync_repo_auth_into_shared_tool_state(config_root, repo_root=repo_root))
     written.extend(
         write_shared_helper_agent_specs(codex_home=codex_dir, claude_config_dir=claude_dir)
