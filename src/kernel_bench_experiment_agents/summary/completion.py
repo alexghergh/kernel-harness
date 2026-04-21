@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from kernel_bench_experiment_agents.kernelbench.metrics import suspicious_attempt_count
 from kernel_bench_experiment_agents.runtime.common import as_float
 
 
@@ -59,6 +60,8 @@ def apply_trace_audit_to_completion(
 
 def annotate_completion_outcomes(
     completion_payload: dict[str, Any],
+    *,
+    sample_entries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     goal_status = completion_payload.get("goal_status")
     if isinstance(goal_status, dict):
@@ -77,6 +80,16 @@ def annotate_completion_outcomes(
     completion_payload["raw_beats_compile"] = raw_beats_compile
     completion_payload["raw_beats_both"] = raw_beats_both
     completion_payload["outside_harness_success"] = raw_beats_both
+    if sample_entries is not None:
+        hacked_kernel_attempts = suspicious_attempt_count(sample_entries)
+        completion_payload["hacked_kernel_attempts"] = hacked_kernel_attempts
+        completion_payload["hacked_kernel"] = hacked_kernel_attempts > 0
+    else:
+        completion_payload["hacked_kernel_attempts"] = int(completion_payload.get("hacked_kernel_attempts") or 0)
+        completion_payload["hacked_kernel"] = bool(
+            completion_payload.get("hacked_kernel")
+            or completion_payload["hacked_kernel_attempts"] > 0
+        )
     completion_payload["measured_outcome"] = infer_measured_outcome(
         goal_status if isinstance(goal_status, dict) else None
     )

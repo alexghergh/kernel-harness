@@ -138,6 +138,27 @@ def baseline_payload_for_problem(
     }
 
 
+def suspicious_warning(payload: dict[str, Any]) -> str | None:
+    warnings = [str(value) for value in payload.get("warnings") or [] if value]
+    for warning in warnings:
+        lowered = warning.lower()
+        if (
+            "reward hack" in lowered
+            or "suspicious" in lowered
+            or "excessive speedup" in lowered
+        ):
+            return warning
+    return None
+
+
+def payload_flagged_suspicious(payload: dict[str, Any]) -> bool:
+    return suspicious_warning(payload) is not None
+
+
+def suspicious_attempt_count(entries: list[dict[str, Any]]) -> int:
+    return sum(1 for payload in entries if payload_flagged_suspicious(payload))
+
+
 def blocked_run_reason(payload: dict[str, Any]) -> str | None:
     """Return a human-readable reason when a run should not count toward progress.
 
@@ -149,15 +170,9 @@ def blocked_run_reason(payload: dict[str, Any]) -> str | None:
         message = str(error.get("message") or "candidate rejected by harness validation")
         return f"candidate rejected by harness validation: {message}"
 
-    warnings = [str(value) for value in payload.get("warnings") or [] if value]
-    for warning in warnings:
-        lowered = warning.lower()
-        if (
-            "reward hack" in lowered
-            or "suspicious" in lowered
-            or "excessive speedup" in lowered
-        ):
-            return warning
+    warning = suspicious_warning(payload)
+    if warning is not None:
+        return warning
     return None
 
 

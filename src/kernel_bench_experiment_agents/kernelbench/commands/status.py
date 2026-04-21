@@ -10,9 +10,9 @@ import argparse
 from kernel_bench_experiment_agents.workspace.archive import archive_problem_contract_dir, sample_manifest_entries
 from kernel_bench_experiment_agents.runtime.common import emit_json, normalize_tool_name
 from kernel_bench_experiment_agents.summary.completion import annotate_completion_outcomes, infer_measured_outcome
-from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
+from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.gpu_pool import lease_problem_artifacts
-from kernel_bench_experiment_agents.surface.policy import SOLVER_TERMINAL_STATES
+from kernel_bench_experiment_agents.agent_contract.policy import SOLVER_TERMINAL_STATES
 from kernel_bench_experiment_agents.runtime.project import archive_agent_dir, now_iso, write_json, write_text
 from kernel_bench_experiment_agents.kernelbench.metrics import best_correct_payload
 from kernel_bench_experiment_agents.workspace.paths import (
@@ -105,7 +105,10 @@ def _write_completion_payload(
             "summary": summary,
             "goal_status": snapshot,
         }
-        payload = annotate_completion_outcomes(payload)
+        payload = annotate_completion_outcomes(
+            payload,
+            sample_entries=sample_manifest_entries(args.run_name, args.level, args.problem_id),
+        )
         write_json(completion_path, payload)
         write_json(workspace / "completion.json", payload)
         candidate_path = workspace_candidate_path(workspace)

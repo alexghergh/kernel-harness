@@ -84,7 +84,7 @@ def main() -> None:
         context,
         str(build_problem_dir(args.run_name, args.level, args.problem_id, args.sample_label)),
     )
-    model = model_type(*init_inputs).cuda(device=device)
+    model = model_type(*init_inputs).to(device=device, dtype=precision_dtype)
     torch.cuda.synchronize(device=device)
 
     for _ in range(5):

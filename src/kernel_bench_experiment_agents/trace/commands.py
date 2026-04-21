@@ -17,6 +17,7 @@ from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
 from kernel_bench_experiment_agents.runtime.project import now_iso, relative_path_within, write_json, write_text
 from kernel_bench_experiment_agents.trace.analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from kernel_bench_experiment_agents.trace.ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
+from kernel_bench_experiment_agents.workspace.archive import sample_manifest_entries
 from kernel_bench_experiment_agents.workspace.paths import read_json_file
 
 
@@ -116,7 +117,18 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
                     completion_payload,
                     audit,
                 )
-            completion_payload = annotate_completion_outcomes(completion_payload)
+            completion_payload = annotate_completion_outcomes(
+                completion_payload,
+                sample_entries=(
+                    sample_manifest_entries(
+                        str(completion_payload.get("run_name") or ""),
+                        int(completion_payload.get("level") or 0),
+                        int(completion_payload.get("problem_id") or 0),
+                    )
+                    if completion_payload.get("run_name") and completion_payload.get("level") and completion_payload.get("problem_id")
+                    else None
+                ),
+            )
             write_json(completion_path, completion_payload)
             if args.workspace:
                 write_json(
