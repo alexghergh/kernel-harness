@@ -27,7 +27,7 @@ from kernel_bench_experiment_agents.workspace.wrappers import write_default_work
 
 
 def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
-    """Create the workspace, archived contract, compatibility wrappers, and initial goal status for one problem."""
+    """Create the workspace, archived contract, workspace wrappers, and initial goal status for one problem."""
     resolved_kernelbench_root = str(kernelbench_root(args.kernelbench_root))
     try:
         hardware = resolve_hardware_spec(args.hardware_name)

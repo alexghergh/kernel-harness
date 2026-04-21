@@ -162,7 +162,3 @@ def _pid_is_alive(pid: int) -> bool:
         return True
     return True
 
-
-# Backward-compatible aliases while the wrapper commands settle on the marker naming.
-begin_live_gpu_wait = create_live_gpu_wait_marker
-clear_live_gpu_wait = clear_live_gpu_wait_marker

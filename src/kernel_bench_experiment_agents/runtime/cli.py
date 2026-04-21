@@ -19,7 +19,7 @@ from kernel_bench_experiment_agents.kernelbench.commands.status import (
 )
 from kernel_bench_experiment_agents.summary.commands import command_summarize_run
 from kernel_bench_experiment_agents.trace.commands import command_materialize_agent_trace
-from kernel_bench_experiment_agents.workspace.builder import command_prepare_problem_workspace
+from kernel_bench_experiment_agents.workspace.prepare import command_prepare_problem_workspace
 
 
 # The solver-facing completion command is summary-only; launcher-only states are
