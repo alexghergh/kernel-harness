@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.surface.policy import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
+from kernel_bench_experiment_agents.agent_contract.policy import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
 from kernel_bench_experiment_agents.runtime.project import write_text
 
 
@@ -29,6 +29,7 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         Read local problem files only through `read_workspace_file`, and only for {read_list}.
         Do not inspect unrelated files, local config, or hidden harness state.
         Do not use ad hoc shell commands, Python snippets, or local file tools.
+        Hosted web tools, if available at all, are restricted to docs.nvidia.com only.
         If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.
         Never start a second harness MCP call while another one is still running.
         Do not edit any files unless the main agent explicitly delegated candidate writing to you.
@@ -60,6 +61,7 @@ def _claude_agent_md(spec: HelperAgentSpec) -> str:
         f"Read local problem files only through `read_workspace_file`, and only for {read_list}.\n"
         "Do not inspect unrelated files, local config, or hidden harness state.\n"
         "Do not use shell commands or Python snippets to inspect profiler outputs or parse files.\n"
+        "Hosted web tools, if available at all, are restricted to docs.nvidia.com only.\n"
         "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
         "Never start a second harness MCP call while another one is still running.\n"
         "Do not edit any files unless the main agent explicitly delegated candidate writing to you.\n"

@@ -188,7 +188,7 @@ def goal_status_snapshot(
                 "Act as the planner-manager. Keep the main context focused on strategy and delegate measured evaluation to `runner` and Nsight profiling to `profiler` whenever those helper agents are available.",
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
                 "WHEN you are stuck or a candidate is slower than expected, use `profile_ncu`; read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
-                "WHEN the next optimization idea depends on NVIDIA-specific behavior, use hosted web search on docs.nvidia.com for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits.",
+                "WHEN the next optimization idea depends on NVIDIA-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
                 "WHEN you are choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
                 "Do not end with a plain assistant message. The only valid exit path is the `complete_problem` MCP tool.",
                 "Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",

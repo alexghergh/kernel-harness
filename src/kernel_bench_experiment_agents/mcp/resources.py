@@ -7,7 +7,7 @@ past attempts without getting a vague "read any path" resource template.
 
 from __future__ import annotations
 
-from kernel_bench_experiment_agents.surface.policy import FIXED_WORKSPACE_RESOURCE_PATHS
+from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS
 
 RESOURCE_PATHS: tuple[str, ...] = FIXED_WORKSPACE_RESOURCE_PATHS
 RESOURCE_URI_PREFIX = "kb://workspace/"

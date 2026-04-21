@@ -14,7 +14,7 @@ from kernel_bench_experiment_agents.workspace.archive import archive_problem_pro
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_profile_candidate_snapshot
 from kernel_bench_experiment_agents.runtime.common import emit_json
-from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
+from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     clear_live_gpu_wait_marker,
     create_live_gpu_wait_marker,

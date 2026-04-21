@@ -15,7 +15,7 @@ from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDID
 from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_run_candidate_snapshot
 from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError
 from kernel_bench_experiment_agents.runtime.common import as_float, emit_json
-from kernel_bench_experiment_agents.surface.goal_status import write_goal_status_files
+from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.kernelbench.metrics import payload_counts_toward_progress
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     clear_live_gpu_wait_marker,

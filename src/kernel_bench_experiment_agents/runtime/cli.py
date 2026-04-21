@@ -10,7 +10,7 @@ import argparse
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.runtime.common import TOOL_CHOICES
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
-from kernel_bench_experiment_agents.surface.policy import LAUNCHER_TERMINAL_STATES
+from kernel_bench_experiment_agents.agent_contract.policy import LAUNCHER_TERMINAL_STATES
 from kernel_bench_experiment_agents.kernelbench.commands.status import (
     command_best_result,
     command_complete_problem,

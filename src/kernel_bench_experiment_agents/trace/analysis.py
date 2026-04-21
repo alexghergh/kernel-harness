@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float, normalize_tool_name
-from kernel_bench_experiment_agents.surface.policy import (
+from kernel_bench_experiment_agents.agent_contract.policy import (
     ALLOWED_WEB_DOMAINS,
     GPU_WRAPPER_PATHS,
     WORKSPACE_WRAPPER_TRACE_KEYS,

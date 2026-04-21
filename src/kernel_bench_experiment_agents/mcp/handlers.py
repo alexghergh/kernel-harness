@@ -10,7 +10,7 @@ from typing import Any
 
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.surface.policy import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
+from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
 from kernel_bench_experiment_agents.runtime.project import write_text
 from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_reason

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.surface.policy import (
+from kernel_bench_experiment_agents.agent_contract.policy import (
     ALLOWED_WEB_DOMAINS,
     HELPER_SPECS,
     LAUNCHER_TERMINAL_STATES,
@@ -140,7 +140,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Web policy:",
         "",
-        "- if hosted web search is enabled, use it only for `docs.nvidia.com`",
+        "- hosted web tools are permission-restricted to `docs.nvidia.com` only; any other domain will be blocked",
         "- do not use shell networking at all",
         "- do not use online code, papers, forums, or blogs for solution ideas",
         "",

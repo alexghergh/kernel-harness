@@ -155,7 +155,7 @@ WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
     "WHEN you do not already have profiling for the current idea, call `profile_ncu`.",
     "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
-    "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits.",
+    "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
     "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
