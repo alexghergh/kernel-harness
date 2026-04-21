@@ -13,8 +13,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from kernel_bench_experiment_agents.surface.agent_specs import write_shared_helper_agent_specs
-from kernel_bench_experiment_agents.surface.policy import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
+from kernel_bench_experiment_agents.agent_contract.agent_specs import write_shared_helper_agent_specs
+from kernel_bench_experiment_agents.agent_contract.policy import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
 from kernel_bench_experiment_agents.runtime.project import ensure_dir, make_executable, write_text
 
 
@@ -23,6 +23,42 @@ MCP_SERVER_ENV_VARS: tuple[str, ...] = (
     "KBH_WORKSPACE",
     "KBH_CLIENT_TOOL",
     "KBH_MCP_EVENTS_PATH",
+)
+
+CLAUDE_DENIED_TOOLS: tuple[str, ...] = (
+    "AskUserQuestion",
+    "Bash",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "Edit",
+    "EnterPlanMode",
+    "EnterWorktree",
+    "ExitPlanMode",
+    "ExitWorktree",
+    "Glob",
+    "Grep",
+    "LS",
+    "LSP",
+    "Monitor",
+    "MultiEdit",
+    "NotebookEdit",
+    "PowerShell",
+    "Read",
+    "RemoteTrigger",
+    "SendMessage",
+    "Skill",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "TaskUpdate",
+    "TeamCreate",
+    "TeamDelete",
+    "TodoWrite",
+    "ToolSearch",
+    "Write",
 )
 
 
@@ -172,16 +208,7 @@ def claude_settings_payload(*, websearch_hook_path: Path) -> dict[str, object]:
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
         "permissions": {
             "allow": allow_tools,
-            "deny": [
-                "Read",
-                "Write",
-                "Edit",
-                "MultiEdit",
-                "Bash",
-                "Glob",
-                "Grep",
-                "LS",
-            ],
+            "deny": list(CLAUDE_DENIED_TOOLS),
             "disableBypassPermissionsMode": "disable",
         },
         "hooks": {
