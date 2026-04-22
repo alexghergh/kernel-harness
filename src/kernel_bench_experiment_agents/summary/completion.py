@@ -81,15 +81,12 @@ def annotate_completion_outcomes(
     completion_payload["raw_beats_both"] = raw_beats_both
     completion_payload["outside_harness_success"] = raw_beats_both
     if sample_entries is not None:
-        hacked_kernel_attempts = suspicious_attempt_count(sample_entries)
-        completion_payload["hacked_kernel_attempts"] = hacked_kernel_attempts
-        completion_payload["hacked_kernel"] = hacked_kernel_attempts > 0
+        suspicious_attempts = suspicious_attempt_count(sample_entries)
     else:
-        completion_payload["hacked_kernel_attempts"] = int(completion_payload.get("hacked_kernel_attempts") or 0)
-        completion_payload["hacked_kernel"] = bool(
-            completion_payload.get("hacked_kernel")
-            or completion_payload["hacked_kernel_attempts"] > 0
+        suspicious_attempts = int(
+            completion_payload.get("kernelbench_hacked_kernel_attempt_warnings") or 0
         )
+    completion_payload["kernelbench_hacked_kernel_attempt_warnings"] = suspicious_attempts
     completion_payload["measured_outcome"] = infer_measured_outcome(
         goal_status if isinstance(goal_status, dict) else None
     )

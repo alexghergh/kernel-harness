@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime, payload_flagged_suspicious
+from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime
 from kernel_bench_experiment_agents.workspace.paths import read_json_file
 
 
@@ -30,7 +30,6 @@ def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:
                 "compiled": bool(result.get("compiled")),
                 "correct": bool(result.get("correctness")),
                 "runtime_ms": candidate_runtime(result),
-                "hacked_kernel": payload_flagged_suspicious(payload),
             }
         )
     return samples
@@ -151,8 +150,6 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
             if completion_payload is not None
             else None
         ),
-        "hacked_kernel": any(sample["hacked_kernel"] for sample in samples),
-        "hacked_kernel_attempts": sum(1 for sample in samples if sample["hacked_kernel"]),
         "tool": (
             completion_payload.get("tool")
             if completion_payload is not None

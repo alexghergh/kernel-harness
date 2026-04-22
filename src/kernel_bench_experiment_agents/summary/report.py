@@ -171,15 +171,6 @@ def build_run_summary_payload(
         "terminal_states": _state_counts(problem_rows, "terminal_state"),
         "solver_states": _state_counts(problem_rows, "solver_state"),
         "measured_outcomes": _state_counts(problem_rows, "measured_outcome"),
-        "hacked_kernel_problems": {
-            "count": sum(1 for row in problem_rows if row.get("hacked_kernel")),
-            "rate": (
-                sum(1 for row in problem_rows if row.get("hacked_kernel")) / total_problems
-                if total_problems
-                else None
-            ),
-        },
-        "hacked_kernel_attempts": sum(int(row.get("hacked_kernel_attempts") or 0) for row in problem_rows),
         "cost_usd": _cost_totals(problem_rows),
         "token_usage": _token_usage_totals(problem_rows),
         "trace_counts": _trace_count_totals(problem_rows),
