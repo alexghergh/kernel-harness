@@ -142,7 +142,8 @@ def render_codex_config() -> str:
         'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
         f'env_vars = [{env_vars}]\n'
         'required = true\n'
-        'startup_timeout_sec = 20\n\n'
+        'startup_timeout_sec = 20\n'
+        'tool_timeout_sec = 600\n\n'
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )

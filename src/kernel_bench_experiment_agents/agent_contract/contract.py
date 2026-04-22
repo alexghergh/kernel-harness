@@ -140,7 +140,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         "",
         "Web policy:",
         "",
-        "- hosted web tools are permission-restricted to `docs.nvidia.com` only; any other domain will be blocked",
+        "- hosted `WebSearch` and `WebFetch` are permission-restricted to `docs.nvidia.com` only; any other domain will be blocked",
         "- do not use shell networking at all",
         "- do not use online code, papers, forums, or blogs for solution ideas",
         "",
