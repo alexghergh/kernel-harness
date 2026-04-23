@@ -176,6 +176,21 @@ def blocked_run_reason(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def blocked_run_message(payload: dict[str, Any]) -> str | None:
+    reason = blocked_run_reason(payload)
+    if reason is None:
+        return None
+    if reason.startswith("candidate rejected by harness validation:"):
+        return (
+            "This run does not count toward progress. The harness rejected the candidate before evaluation. "
+            "Fix the exact validation error below and try again."
+        )
+    return (
+        "This run does not count toward progress. KernelBench flagged it as suspicious or cheating. "
+        "Discard this result and keep iterating until you have a clean measured win."
+    )
+
+
 def payload_counts_toward_progress(payload: dict[str, Any]) -> bool:
     return blocked_run_reason(payload) is None
 

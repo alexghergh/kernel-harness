@@ -22,6 +22,7 @@ from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
 from kernel_bench_experiment_agents.runtime.project import now_iso, write_json, write_text
 from kernel_bench_experiment_agents.kernelbench.metrics import (
     best_correct_payload,
+    blocked_run_reason,
     candidate_runtime,
     payload_counts_toward_progress,
     sum_numeric_field,
@@ -33,6 +34,7 @@ from kernel_bench_experiment_agents.workspace.paths import (
     load_workspace_metadata,
     write_workspace_best_sample,
 )
+from kernel_bench_experiment_agents.agent_contract.prompts import render_goal_status_markdown
 
 
 def _elapsed_minutes_since(started_at: Any) -> float | None:
@@ -103,6 +105,10 @@ def goal_status_snapshot(
     baseline = load_workspace_baseline(workspace)
     entries = sample_manifest_entries(run_name, level, problem_id)
     profiles = profile_manifest_entries(run_name, level, problem_id)
+    latest_attempt = entries[-1] if entries else None
+    latest_attempt_sample_id = latest_attempt.get("sample_id") if isinstance(latest_attempt, dict) else None
+    latest_attempt_blocked_reason = blocked_run_reason(latest_attempt) if isinstance(latest_attempt, dict) else None
+    latest_attempt_counts_toward_progress = latest_attempt_blocked_reason is None
     progress_entries = [payload for payload in entries if payload_counts_toward_progress(payload)]
     best_payload = best_correct_payload(progress_entries)
     best_runtime_ms = None
@@ -173,6 +179,15 @@ def goal_status_snapshot(
     )
     resolved = beats_eager and beats_compile and not best_result_suspicious
     recommended_actions = []
+    if latest_attempt_blocked_reason and not resolved:
+        if latest_attempt_blocked_reason.startswith("candidate rejected by harness validation:"):
+            recommended_actions.append(
+                "The latest attempted run does not count toward progress. The harness rejected the candidate before evaluation. Fix the exact validation error from the tool output and try again."
+            )
+        else:
+            recommended_actions.append(
+                "The latest attempted run does not count toward progress. KernelBench flagged it as suspicious or cheating. Discard it and keep iterating until you have a clean measured win."
+            )
     if best_result_suspicious:
         recommended_actions.append(
             "The current best result is flagged as suspicious by KernelBench (possible reward hacking). Do not stop yet; inspect the candidate, remove the suspicious behavior, and produce a non-suspicious measured win."
@@ -230,6 +245,9 @@ def goal_status_snapshot(
         "best_result_suspicious": best_result_suspicious,
         "best_result_warnings": best_result_warnings,
         "has_correct_solution": best_payload is not None,
+        "latest_attempt_sample_id": latest_attempt_sample_id,
+        "latest_attempt_counts_toward_progress": latest_attempt_counts_toward_progress,
+        "latest_attempt_blocked_reason": latest_attempt_blocked_reason,
         "trace_counts": live_trace_counts,
         "web_searches": live_web_searches,
         "static_docs": ["AGENTS.md", "SPEC.md", "HARDWARE.md"],
@@ -248,103 +266,7 @@ def goal_status_snapshot(
 
 def goal_status_markdown(snapshot: dict[str, Any]) -> str:
     """Render the live goal-status markdown that the solver re-reads during the loop."""
-    best_runtime = snapshot.get("best_correct_runtime_ms")
-    eager_baseline = snapshot.get("eager_baseline_ms")
-    compile_baseline = snapshot.get("compile_baseline_ms")
-    problem_name = snapshot.get("problem_name") or "unknown"
-    wall_clock_elapsed_minutes = as_float(snapshot.get("wall_clock_elapsed_minutes"))
-    elapsed_minutes = as_float(snapshot.get("elapsed_minutes"))
-    recorded_gpu_wait_minutes = as_float(snapshot.get("recorded_gpu_wait_minutes"))
-    live_gpu_wait_minutes = as_float(snapshot.get("live_gpu_wait_minutes"))
-    gpu_wait_minutes_total = as_float(snapshot.get("gpu_wait_minutes_total"))
-    remaining_minutes = as_float(snapshot.get("remaining_minutes"))
-    time_budget_minutes = as_float(snapshot.get("time_budget_minutes"))
-    substantial_budget_remains = (
-        remaining_minutes is not None
-        and time_budget_minutes is not None
-        and remaining_minutes > max(60.0, time_budget_minutes * 0.25)
-    )
-    unresolved = not snapshot["beats_both"]
-    if unresolved:
-        heading = "# Goal Status: UNRESOLVED — keep working"
-        if snapshot.get("best_result_suspicious"):
-            heading = "# Goal Status: UNRESOLVED — current best result is suspicious; keep working"
-        standing_orders = [
-            "- You MUST NOT stop, summarize, or hand back control. Keep working.",
-            "- Do NOT ask the user for confirmation, approval, or whether to continue. Choose the next action yourself.",
-            "- Re-read `SPEC.md` and `HARDWARE.md` before every major strategy change.",
-            "- Timing and profiling are normal tools, not expensive last resorts. Use them even for small constant or layout changes.",
-            "- Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
-            "- Harness MCP tools are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
-            "- If stuck: call `profile_ncu`, read `HARDWARE.md`, search NVIDIA docs, make a new plan, and try a new branch without asking for approval.",
-            "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `complete_problem` before remaining time reaches zero.",
-            "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `complete_problem(summary=...)`.",
-            "- `run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
-        ]
-    else:
-        heading = "# Goal Status: RESOLVED — both baselines beaten; complete with success"
-        standing_orders = [
-            "- Re-check `SPEC.md` once, then end through `complete_problem(summary='both baselines beaten')`.",
-        ]
-
-    if remaining_minutes is None:
-        remaining_line = "unknown"
-    elif substantial_budget_remains:
-        remaining_line = (
-            f"{remaining_minutes} (most of your budget remains — stopping now wastes it)"
-        )
-    else:
-        remaining_line = str(remaining_minutes)
-
-    if best_runtime is None:
-        best_runtime_line = "none yet"
-    else:
-        best_runtime_line = (
-            f"{best_runtime} ms (must be below {eager_baseline} ms and {compile_baseline} ms)"
-        )
-
-    profiler_line = str(snapshot["num_profile_runs"])
-    attempt_breakdown = (
-        f"{snapshot['num_correct_attempts']} correct, "
-        f"{snapshot['num_incorrect_attempts']} incorrect, "
-        f"{snapshot['num_execution_failed_attempts']} execution-failed"
-    )
-    if snapshot.get("num_other_attempts"):
-        attempt_breakdown += f", {snapshot['num_other_attempts']} other"
-    lines = [
-        heading,
-        "",
-        "Standing orders (active until both baselines are beaten):",
-        "",
-        *standing_orders,
-        "",
-        "## Current State",
-        "",
-        f"- problem: level {snapshot['level']} problem {snapshot['problem_id']} ({problem_name})",
-        f"- best correct runtime: {best_runtime_line}",
-        f"- beats eager ({eager_baseline} ms): {snapshot['beats_eager']}",
-        f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
-        f"- beats both: {snapshot['beats_both']}",
-        f"- best result flagged suspicious: {snapshot.get('best_result_suspicious', False)}",
-        f"- attempts counted toward progress: {snapshot['num_attempts']} ({attempt_breakdown})",
-        f"- timing calls: {snapshot['num_timing_runs']}",
-        f"- profiler calls: {profiler_line}",
-        f"- best correct sample: {snapshot.get('best_correct_sample_id')}",
-        f"- best result warnings: {snapshot.get('best_result_warnings') or []}",
-        f"- wall-clock minutes since workspace creation: {wall_clock_elapsed_minutes}",
-        f"- completed gpu wait minutes excluded from budget: {recorded_gpu_wait_minutes}",
-        f"- currently active gpu queue-wait minutes excluded from budget: {live_gpu_wait_minutes}",
-        f"- total gpu wait minutes excluded from budget: {gpu_wait_minutes_total}",
-        f"- elapsed minutes counted against budget: {elapsed_minutes}",
-        f"- remaining minutes: {remaining_line}",
-        "- static docs: `AGENTS.md`, `SPEC.md`, `HARDWARE.md`",
-        "- live docs: `GOAL_STATUS.md`, `goal_status.json`",
-        "- local sample mirrors: `samples/`, `samples/best_sample.py`, `samples/best_result.json`",
-        "- latest profiler mirrors: `profiles/latest.summary.txt` and `profiles/latest.details.txt`",
-        "",
-        "Source of truth: measured run history plus the live solver trace. Refresh via the `goal_status` or `run_candidate` MCP tools.",
-    ]
-    return "\n".join(lines) + "\n"
+    return render_goal_status_markdown(snapshot)
 
 
 def write_goal_status_files(

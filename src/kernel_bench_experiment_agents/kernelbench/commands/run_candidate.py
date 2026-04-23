@@ -60,7 +60,7 @@ def _result_warnings(
     metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
     if metadata.get("excessive_speedup"):
         warnings.append(
-            "KernelBench flagged this run as suspicious because the measured speedup is excessively large. Treat the candidate as potentially reward hacked and continue iterating until you have a non-suspicious result."
+            "KernelBench flagged this run as suspicious because the measured speedup is excessively large. This run does not count toward progress. Discard it as possible reward hacking and continue iterating until you have a non-suspicious result."
         )
     for line in stdout_text.splitlines():
         stripped = line.strip()

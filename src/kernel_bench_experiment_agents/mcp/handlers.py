@@ -10,10 +10,11 @@ from typing import Any
 
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError, validate_candidate_source
 from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
 from kernel_bench_experiment_agents.runtime.project import write_text
-from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_reason
+from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_message, blocked_run_reason
 from kernel_bench_experiment_agents.kernelbench.commands.status import command_best_result, command_complete_problem, command_goal_status
 from kernel_bench_experiment_agents.workspace.paths import load_workspace_metadata, workspace_candidate_path
 from . import SERVER_NAME
@@ -189,6 +190,26 @@ def handle_write_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dic
         raise RuntimeError("content must be a string")
     candidate_path = workspace_candidate_path(ctx.workspace)
     assert_allowed_edit(ctx, candidate_path)
+    try:
+        validate_candidate_source(content)
+    except CandidateValidationError as exc:
+        message = str(exc)
+        append_trace_event(
+            ctx,
+            kind="validation_failure",
+            tool_name="write_candidate",
+            path=safe_relative(candidate_path, ctx.workspace),
+            metadata={"error_type": "CandidateValidationError", "message": message},
+        )
+        return text_result(
+            "Candidate rejected by harness validation. This write was not applied.\n\n"
+            f"Exact violation: {message}",
+            structured={
+                "path": CANDIDATE_FILENAME,
+                "error": {"type": "CandidateValidationError", "message": message},
+            },
+            is_error=True,
+        )
     write_text(candidate_path, content)
     append_trace_event(
         ctx,
@@ -234,9 +255,10 @@ def handle_run_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dict[
         metadata={"status": payload.get("status"), "sample_id": payload.get("sample_id")},
     )
     notice = blocked_run_reason(payload)
+    summary = blocked_run_message(payload)
     text = json.dumps(payload, indent=2, sort_keys=True)
-    if notice:
-        text = f"This run is not counted toward progress because {notice}.\n\n{text}"
+    if summary and notice:
+        text = f"{summary}\nReason: {notice}\n\n{text}"
     return text_result(text, structured=payload)
 
 

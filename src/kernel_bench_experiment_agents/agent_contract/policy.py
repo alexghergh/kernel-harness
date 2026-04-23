@@ -108,7 +108,7 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     ),
     McpToolSpec(
         name="write_candidate",
-        purpose=f"write_candidate(content) -> overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
+        purpose=f"write_candidate(content) -> validate and overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
         destructive=True,
     ),
     McpToolSpec(
@@ -147,6 +147,7 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "WHEN you want a measured evaluation, spawn the `runner` helper if available; use direct `run_candidate` yourself only when helper spawning is unavailable.",
     "WHEN you want Nsight Compute output or profile interpretation, spawn the `profiler` helper if available; use direct `profile_ncu` yourself only when helper spawning is unavailable.",
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
+    "Stay inside the benchmark contract: no cuBLAS, CUTLASS, Triton, ATen compute helpers, or extra CUDA streams.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
 )
@@ -157,6 +158,7 @@ WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
     "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
     "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
+    "Do not switch to library wrappers or extra CUDA streams; they are forbidden by the benchmark contract.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 

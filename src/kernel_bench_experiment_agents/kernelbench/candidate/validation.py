@@ -49,6 +49,10 @@ FORBIDDEN_CALL_NAMES = {
     "torch.matmul",
     "torch.bmm",
     "torch.ops.load_library",
+    "torch.cuda.Stream",
+    "torch.cuda.current_stream",
+    "torch.cuda.default_stream",
+    "torch.cuda.stream",
 }
 
 FORBIDDEN_CALL_SUFFIXES = {
@@ -67,6 +71,14 @@ REQUIRED_LOADER_NAMES = {
 
 FORBIDDEN_STRING_MARKERS = {
     "TORCH_EXTENSIONS_DIR",
+    "cudaEventCreate",
+    "cudaEventRecord",
+    "cudaStreamCreate",
+    "cudaStreamSynchronize",
+    "cudaStreamWaitEvent",
+    "cudaStream_t",
+    "torch.cuda.Stream",
+    "torch.cuda.stream",
 }
 
 FORBIDDEN_REBIND_NAMES = {
@@ -107,7 +119,7 @@ def validate_candidate_source(candidate_src: str) -> None:
         raise CandidateValidationError(str(exc)) from exc
     if normalized_candidate != normalized_template:
         raise CandidateValidationError(
-            "candidate_model_new.py must keep the fixed scaffold unchanged and edit only the marked blocks."
+            "candidate_model_new.py must keep the fixed scaffold unchanged and edit only the marked blocks. Do not add code outside the editable markers."
         )
 
     for marker in FORBIDDEN_STRING_MARKERS:
