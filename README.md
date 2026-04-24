@@ -40,7 +40,7 @@ The exact live model trace is saved as `archive/.../agent/events.jsonl`. `trace_
 - fixed read-only MCP resources: `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, `GOAL_STATUS.md`, `problem_reference.py`, `candidate_model_new.py`
 - bounded read tools: `list_workspace_dir` for `samples/` and `profiles/`, plus `read_workspace_file` for those history files and the fixed resources above
 - write/action tools: `write_candidate`, `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`
-- `goal_status` returns the live JSON status snapshot (remaining budget, attempt counts, best sample, baseline progress)
+- `goal_status` returns the live JSON status snapshot (remaining budget, attempt counts, latest discarded-attempt reason when present, best sample, baseline progress)
 - `best_result` returns the current best measured correct attempt, including `sample_id` and archive-relative artifact paths
 - native web stays separate from MCP and is limited to `docs.nvidia.com`
 
@@ -223,7 +223,7 @@ Override those scheduler defaults in the script header or on the submit command 
 kbharness summarize-run --run-name kernelbench-codex-h100-v4
 ```
 
-This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`.
+This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`. Summary beat-rates and best-runtime fields exclude suspicious or otherwise non-counting attempts.
 
 ## User knobs you will actually use
 

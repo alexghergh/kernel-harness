@@ -207,7 +207,7 @@ Important files:
 - `events.jsonl` — raw streamed output from the agent CLI for this problem only
 - `mcp_ir_events.jsonl` — synthetic MCP tool events for this problem only
 - `trace_ir.json` — normalized trace representation used by the harness
-- `completion.json` — terminal state plus measured outcome and trace-derived metadata
+- `completion.json` — terminal state plus measured outcome, trace-derived metadata, and `kernelbench_hacked_kernel_attempt_warnings`
 - `goal_status.json` — archived final goal-status snapshot for where the solver ended
 - `final_message.txt` — the last assistant-visible model message, when one is available
 
@@ -289,10 +289,10 @@ Semantics:
 - fixed docs/code are exposed as read-only MCP resources; there is no generic `read any path` resource template
 - `list_workspace_dir` is limited to `samples/` and `profiles/`
 - `read_workspace_file` can read the fixed files above plus files under `samples/` and `profiles/`
-- `write_candidate` is the only supported local edit path
+- `write_candidate` is the only supported local edit path; validation failures return the exact rejected construct and do not apply the write
 - `run_candidate` is the only supported measured-evaluation path
 - `profile_ncu` is the only supported profiling path
-- `goal_status` is **not** just a cached file read: it refreshes `GOAL_STATUS.md` under the artifact lock and returns the live structured snapshot, including remaining budget, baseline status, and current best-run summary
+- `goal_status` is **not** just a cached file read: it refreshes `GOAL_STATUS.md` under the artifact lock and returns the live structured snapshot, including remaining budget, baseline status, current best-run summary, and the latest discarded-attempt reason when present
 - `best_result` returns the best measured correct attempt manifest so far, including at least the `sample_id`, the measured result payload, and archive-relative artifact paths such as the archived kernel snapshot
 - `complete_problem` is the only valid solver termination path
 
@@ -324,6 +324,8 @@ The harness computes the measured outcome from archived attempts:
 - `beats_eager_only`
 - `beats_compile_only`
 - `beats_neither`
+
+Suspicious or otherwise non-counting attempts still remain in `attempts/` for audit, but they do not count toward progress, best-result selection, or summary beat-rate fields.
 
 ## Canonical JSON vs rendered Markdown
 
