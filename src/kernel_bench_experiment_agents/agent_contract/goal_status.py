@@ -111,7 +111,6 @@ def goal_status_snapshot(
 
     eager_ms = as_float(baseline.get("eager", {}).get("runtime_ms"))
     compile_ms = as_float(baseline.get("compile", {}).get("runtime_ms"))
-    best_result_suspicious = False
     best_result_warnings = _attempt_warnings(best_payload)
     beats_eager = best_runtime_ms is not None and eager_ms is not None and best_runtime_ms < eager_ms
     beats_compile = best_runtime_ms is not None and compile_ms is not None and best_runtime_ms < compile_ms
@@ -228,7 +227,6 @@ def goal_status_snapshot(
         "beats_eager": beats_eager,
         "beats_compile": beats_compile,
         "beats_both": resolved,
-        "best_result_suspicious": best_result_suspicious,
         "best_result_warnings": best_result_warnings,
         "has_correct_solution": best_payload is not None,
         "latest_attempt_sample_id": latest_attempt_sample_id,
