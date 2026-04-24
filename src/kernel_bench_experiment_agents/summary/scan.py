@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime
+from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime, payload_counts_toward_progress
 from kernel_bench_experiment_agents.workspace.paths import read_json_file
 
 
@@ -27,6 +27,7 @@ def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:
             {
                 "sample_id": payload.get("sample_id"),
                 "status": payload.get("status"),
+                "counts_toward_progress": payload_counts_toward_progress(payload),
                 "compiled": bool(result.get("compiled")),
                 "correct": bool(result.get("correctness")),
                 "runtime_ms": candidate_runtime(result),
@@ -58,7 +59,17 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
     if not samples and completion_payload is None:
         return None
 
+    counted_samples = [sample for sample in samples if sample["counts_toward_progress"]]
+
     best_correct_runtime = min(
+        (
+            sample["runtime_ms"]
+            for sample in counted_samples
+            if sample["correct"] and sample["runtime_ms"] is not None
+        ),
+        default=None,
+    )
+    raw_best_correct_runtime = min(
         (
             sample["runtime_ms"]
             for sample in samples
@@ -86,7 +97,7 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
         else True
     )
     effective_correct_samples = (
-        sum(1 for sample in samples if sample["correct"])
+        sum(1 for sample in counted_samples if sample["correct"])
         if audit_valid
         else 0
     )
@@ -96,27 +107,27 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
         "problem_id": problem_id,
         "problem_name": problem_name,
         "num_samples": len(samples),
-        "compiled_samples": sum(1 for sample in samples if sample["compiled"]),
-        "correct_samples": sum(1 for sample in samples if sample["correct"]),
+        "compiled_samples": sum(1 for sample in counted_samples if sample["compiled"]),
+        "correct_samples": sum(1 for sample in counted_samples if sample["correct"]),
         "effective_correct_samples": effective_correct_samples,
         "best_correct_runtime_ms": effective_best_correct_runtime,
-        "raw_best_correct_runtime_ms": best_correct_runtime,
+        "raw_best_correct_runtime_ms": raw_best_correct_runtime,
         "raw_beats_eager": (
-            best_correct_runtime is not None
+            raw_best_correct_runtime is not None
             and eager_mean is not None
-            and best_correct_runtime < eager_mean
+            and raw_best_correct_runtime < eager_mean
         ),
         "raw_beats_compile": (
-            best_correct_runtime is not None
+            raw_best_correct_runtime is not None
             and compile_mean is not None
-            and best_correct_runtime < compile_mean
+            and raw_best_correct_runtime < compile_mean
         ),
         "raw_beats_both": (
-            best_correct_runtime is not None
+            raw_best_correct_runtime is not None
             and eager_mean is not None
             and compile_mean is not None
-            and best_correct_runtime < eager_mean
-            and best_correct_runtime < compile_mean
+            and raw_best_correct_runtime < eager_mean
+            and raw_best_correct_runtime < compile_mean
         ),
         "eager_baseline_ms": eager_mean,
         "compile_baseline_ms": compile_mean,

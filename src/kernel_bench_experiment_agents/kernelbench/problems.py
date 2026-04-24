@@ -66,11 +66,12 @@ def _construct_dataset(dataset_module: Any, level: int, dataset_src: str) -> Any
 
 
 def _problem_from_dataset(dataset: Any, problem_id: int) -> Any:
+    lookup_error: Exception | None = None
     if hasattr(dataset, "get_problem_by_id"):
         try:
             return dataset.get_problem_by_id(problem_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            lookup_error = exc
 
     if hasattr(dataset, "__iter__"):
         for item in dataset:
@@ -87,7 +88,10 @@ def _problem_from_dataset(dataset: Any, problem_id: int) -> Any:
             if getattr(item, "problem_id", None) == problem_id:
                 return item
 
-    raise RuntimeError(f"Failed to locate problem_id={problem_id} in the dataset.")
+    message = f"Failed to locate problem_id={problem_id} in the dataset."
+    if lookup_error is not None:
+        message += f" KernelBench get_problem_by_id() also raised: {lookup_error}"
+    raise RuntimeError(message) from lookup_error
 
 
 def load_problem(

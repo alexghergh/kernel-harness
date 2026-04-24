@@ -16,7 +16,6 @@ from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_v
 from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError
 from kernel_bench_experiment_agents.runtime.common import as_float, emit_json
 from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
-from kernel_bench_experiment_agents.kernelbench.metrics import payload_counts_toward_progress
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     clear_live_gpu_wait_marker,
     create_live_gpu_wait_marker,
@@ -279,7 +278,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     write_json(sample_json_path, payload)
                     clear_live_gpu_wait_marker(live_gpu_wait_marker)
                     live_gpu_wait_marker = None
-                    if workspace is not None and payload_counts_toward_progress(payload):
+                    if workspace is not None:
                         write_goal_status_files(
                             run_name=args.run_name,
                             level=args.level,

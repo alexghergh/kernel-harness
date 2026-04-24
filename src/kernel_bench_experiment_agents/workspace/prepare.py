@@ -131,7 +131,7 @@ def command_prepare_problem_workspace(args: argparse.Namespace) -> None:
         {
             "workspace": str(paths["workspace"]),
             "contract_dir": str(contract_dir),
-            "archive_problem_dir": str(archive_problem_dir),
+            "archive_problem_dir": str(problem_archive_dir),
             "candidate": str(workspace_candidate_path(paths["workspace"])),
             "goal_status": str(paths["workspace"] / "goal_status.json"),
             "status_snapshot": status_snapshot,
