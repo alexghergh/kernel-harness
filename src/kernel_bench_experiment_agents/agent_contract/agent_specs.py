@@ -22,7 +22,7 @@ def _codex_agent_toml(spec: HelperAgentSpec) -> str:
         f'''
         name = "{spec.name}"
         description = "{spec.description}"
-        sandbox_mode = "read-only"
+        sandbox_mode = "workspace-write"
         developer_instructions = """
         {render_codex_helper_instructions(spec=spec).rstrip()}
         """

@@ -125,7 +125,6 @@ HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 PRECISION="${PRECISION:-bf16}"
 NUM_GPU_SLOTS="$(visible_gpu_slot_count)"
-CODEX_SANDBOX_MODE="read-only"
 BUDGET_POLL_SECONDS=30
 
 if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
@@ -312,7 +311,8 @@ if [[ "${TOOL}" == "codex" ]]; then
   )
   CODEX_ARGS+=(
     exec
-    --sandbox "${CODEX_SANDBOX_MODE}"
+    --sandbox "workspace-write" # should always be write, since Codex runs in empty cwd anyway
+                                # it also accesses the real cwd through MCP
     --cd "${TOOL_CWD}"
     --skip-git-repo-check
     --model "${MODEL}"

@@ -125,7 +125,7 @@ def render_codex_config() -> str:
         '# Generated from src/kernel_bench_experiment_agents/runtime/policy.py\n'
         'personality = "pragmatic"\n'
         'approval_policy = "never"\n'
-        'sandbox_mode = "read-only"\n'
+        'sandbox_mode = "workspace-write"\n'
         'project_root_markers = []\n'
         'allow_login_shell = false\n'
         'web_search = "live"\n'
