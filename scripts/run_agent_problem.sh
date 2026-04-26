@@ -5,12 +5,12 @@
 #
 # Required environment:
 #   TOOL=codex|claude
-#   KERNELBENCH_ROOT=/path/to/KernelBench
+#   KERNELBENCH_ROOT=/path/to/KernelBench  (optional when ./third_party/KernelBench exists)
 #   HARDWARE_NAME=<timings-subdir name, e.g. H100 or H100_tsubame>
 #
 # Common overrides:
 #   DATA_ROOT=/path/for/archive-and-state   (defaults to ./ from the launch directory)
-#   RUN_NAME=kernelbench-codex-h100-v4
+#   RUN_NAME=kernelbench-codex
 #   LEVEL=1
 #   PROBLEM_ID=1
 #   MODEL=gpt-5.4|claude-opus-4-7
@@ -24,10 +24,19 @@ if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]];
   exit 1
 fi
 
+REPO_ROOT="$(pwd)"
+BOOTSTRAP_HINT="./kb setup"
+# shellcheck source=./scripts/kb_python.sh
+source "${REPO_ROOT}/scripts/kb_python.sh"
+PYTHON_BIN="$(resolve_repo_python "${REPO_ROOT}" "${BOOTSTRAP_HINT}")"
+export PATH="${REPO_ROOT}/scripts:${PATH}"
+export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
 DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
+KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
 
 STATE_ROOT="${DATA_ROOT}/state"
 ARCHIVE_ROOT="${DATA_ROOT}/archive"
@@ -37,7 +46,7 @@ CLAUDE_SHARED_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
 KBHARNESS_CLI="kbharness"
 
 prepare_shared_tool_state() {
-  python - <<'PY'
+  "${PYTHON_BIN}" - <<'PY'
 from pathlib import Path
 from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
 from kernel_bench_experiment_agents.runtime.project import state_dir
@@ -69,6 +78,27 @@ require_command() {
     echo "Required command is not on PATH: ${name}" >&2
     exit 1
   fi
+}
+
+require_harness_command() {
+  local name="$1"
+  if command -v "${name}" >/dev/null 2>&1; then
+    return
+  fi
+  echo "Required command is not on PATH: ${name}" >&2
+  echo "Run ${BOOTSTRAP_HINT} first." >&2
+  exit 1
+}
+
+require_kernelbench_checkout() {
+  if [[ -n "${KERNELBENCH_ROOT:-}" ]]; then
+    return
+  fi
+  if [[ -d "./third_party/KernelBench" ]]; then
+    return
+  fi
+  echo "KernelBench checkout not found. Run ${BOOTSTRAP_HINT} or set KERNELBENCH_ROOT=/path/to/KernelBench." >&2
+  exit 1
 }
 
 visible_gpu_slot_count() {
@@ -115,7 +145,7 @@ if [[ "${TOOL}" == "claude" ]]; then
   DEFAULT_MODEL="claude-opus-4-7"
 fi
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v4}"
+RUN_NAME="${RUN_NAME:-$(default_run_name "${TOOL}")}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
@@ -131,18 +161,14 @@ if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "RUN_NAME may contain only ASCII letters, digits, dot, underscore, and hyphen." >&2
   exit 1
 fi
-if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
-  echo "KERNELBENCH_ROOT must point to the official KernelBench checkout." >&2
-  exit 1
-fi
 if [[ -z "${HARDWARE_NAME}" ]]; then
   echo "HARDWARE_NAME must name the KernelBench timings subdirectory to use." >&2
   exit 1
 fi
 
-require_command python
 require_command flock
-require_command "${KBHARNESS_CLI}"
+require_harness_command "${KBHARNESS_CLI}"
+require_kernelbench_checkout
 if [[ "${SHARED_TOOL_STATE_PREPARED:-0}" != "1" ]]; then
   prepare_shared_tool_state
 fi
@@ -218,7 +244,7 @@ PREP_OUTPUT="$({
 })"
 
 WORKSPACE="$({
-  PREP_OUTPUT="${PREP_OUTPUT}" python - <<'PY'
+  PREP_OUTPUT="${PREP_OUTPUT}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
 payload = json.loads(os.environ["PREP_OUTPUT"])
@@ -264,7 +290,7 @@ mark_budget_exhausted_if_needed() {
 
   refresh_goal_status || return 1
   exhausted="$({
-    STATUS_PATH="${status_path}" python - <<'PY'
+    STATUS_PATH="${status_path}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
 payload = json.loads(open(os.environ["STATUS_PATH"], "r", encoding="utf-8").read())
@@ -287,7 +313,7 @@ watch_budget_limit() {
     fi
     if mark_budget_exhausted_if_needed; then
       remaining="$({
-        STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" python - <<'PY'
+        STATUS_PATH="${BUDGET_EXHAUSTED_MARKER_PATH}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
 payload = json.loads(open(os.environ["STATUS_PATH"], "r", encoding="utf-8").read())
@@ -381,7 +407,7 @@ if ! "${KBHARNESS_CLI}" materialize-agent-trace \
 fi
 
 readarray -t COMPLETION_STATE < <(
-  COMPLETION_PATH="${COMPLETION_PATH}" python - <<'PY'
+  COMPLETION_PATH="${COMPLETION_PATH}" "${PYTHON_BIN}" - <<'PY'
 import json
 import os
 payload = json.loads(open(os.environ["COMPLETION_PATH"], "r", encoding="utf-8").read())

@@ -50,35 +50,42 @@ The client-specific enforcement differs slightly:
 - **Claude** also runs from an empty scratch cwd, and its built-in local file/shell tools are explicitly denied (`Read`, `Write`, `Edit`, `MultiEdit`, `Bash`, `Glob`, `Grep`, `LS`). That means Claude reaches the problem environment only through MCP as well.
 
 
-## Install KernelBench and this harness into the same environment
+## Setup
 
-Create and activate the Python environment you want to use for both repos. The important part is that **KernelBench and this harness are installed into the same active environment**.
-
-Example:
+The clean repo-root entrypoint is:
 
 ```bash
-pyenv create <env-name>
-pyenv activate <env-name>
-
-cd /path/to/KernelBench
-uv pip install -e .
-
-cd /path/to/kernel-bench-experiment-agents
-uv pip install -e .
+./kb setup
 ```
 
-Before local or batch runs on cluster nodes, activate the intended Python environment and load CUDA if your cluster requires it.
+Optional setup knobs:
 
-```bash
-pyenv activate <env-name>
-module load cuda
-```
+- `./kb setup --python 3.10`
+- `./kb setup --venv-dir /path/to/venv`
 
 This harness assumes:
 
-- the official KernelBench checkout already exists
+- the official KernelBench checkout exists either at `./third_party/KernelBench/` or wherever `KERNELBENCH_ROOT` points
 - the KernelBench timing files already exist for your hardware
 - `KERNELBENCH_TIMINGS_DIR` is optional; set it only when your timing results live outside the default KernelBench timing tree
+
+Notes:
+
+- `./kb setup` always syncs and initializes the vendored `third_party/KernelBench` submodule first, so older clones pick up `.gitmodules` URL changes automatically.
+- `./kb setup` always uses `uv` and provisions a Python 3.10 environment under `./.venv` by default.
+- When `./.venv` already exists, `./kb setup` removes and recreates it non-interactively before reinstalling packages.
+- For safety, `--venv-dir` only auto-replaces the repo-managed `./.venv` or an existing directory that already looks like a virtualenv; it refuses to delete arbitrary existing directories.
+- `./kb setup` defaults `uv` to `UV_LINK_MODE=copy`, which avoids noisy hardlink fallback warnings on NFS or cross-filesystem setups.
+- `./kb run` and `./kb range` require `--hardware-name` unless `HARDWARE_NAME` is already set in the environment.
+- `./kb submit` requires `--partition` and `--hardware-name`, plus one of `--problem-id`, `--problem-ids`, or `--start-problem-id/--end-problem-id`.
+- When the active submit command is `ybatch`, `./kb submit` also requires `--ybatch-resource` or `KB_YBATCH_RESOURCE`.
+- When `uv` is missing, `./kb setup` prints the official install command plus the installation docs URL and exits.
+- KernelBench upstream currently publishes `requires-python = "==3.10.*"` in its `pyproject.toml`, so the supported setup path today is still Python 3.10.x.
+- Pass `--gpu-extras` when you want `KernelBench[gpu]`. For compatibility, `INSTALL_KERNELBENCH_GPU_EXTRAS=1` is still honored too.
+- `./kb setup` records the selected interpreter in `./.kb-python`, and the launchers reuse that exact Python on later runs instead of guessing from a stale `./.venv`.
+- When `RUN_NAME` is unset, the launchers generate a unique default like `kernelbench-codex-20260423T081530Z-12345` so reruns do not reuse the same archive tree by accident.
+
+For compatibility, `./scripts/bootstrap_uv.sh` still works and now forwards to `./kb setup`.
 
 ## Authenticate the agent tools
 
@@ -144,83 +151,105 @@ The shared helper agents `runner` and `profiler` are also loaded from `state/con
 
 ## Most common runs
 
-Run these scripts from the harness repo root.
+Run these commands from the harness repo root.
 
 ### Run one problem
 
 ```bash
-TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v4 \
-LEVEL=1 \
-PROBLEM_ID=1 \
-MODEL=gpt-5.4 \
-TIME_BUDGET_MINUTES=180 \
-PRECISION=bf16 \
-KERNELBENCH_ROOT=/path/to/KernelBench \
-HARDWARE_NAME=H100 \
-./scripts/run_agent_problem.sh
+./kb run \
+  --tool codex \
+  --run-name kernelbench-codex-h100-v4 \
+  --level 1 \
+  --problem-id 1 \
+  --model gpt-5.4 \
+  --time-budget-minutes 180 \
+  --precision bf16 \
+  --hardware-name H100
 ```
 
 ### Run one problem with Claude
 
 ```bash
-TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v4 \
-LEVEL=1 \
-PROBLEM_ID=1 \
-MODEL=claude-opus-4-7 \
-TIME_BUDGET_MINUTES=180 \
-PRECISION=bf16 \
-KERNELBENCH_ROOT=/path/to/KernelBench \
-HARDWARE_NAME=H100 \
-./scripts/run_agent_problem.sh
+./kb run \
+  --tool claude \
+  --run-name kernelbench-claude-h100-v4 \
+  --level 1 \
+  --problem-id 1 \
+  --model claude-opus-4-7 \
+  --time-budget-minutes 180 \
+  --precision bf16 \
+  --hardware-name H100
+```
+
+If you are **not** using the vendored submodule, add:
+
+```bash
+--kernelbench-root /path/to/KernelBench
 ```
 
 ### Run a contiguous range
 
 ```bash
-TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v4 \
-LEVEL=1 \
-START_PROBLEM_ID=1 \
-END_PROBLEM_ID=10 \
-MODEL=gpt-5.4 \
-TIME_BUDGET_MINUTES=180 \
-PRECISION=bf16 \
-KERNELBENCH_ROOT=/path/to/KernelBench \
-HARDWARE_NAME=H100 \
-./scripts/run_agent_range.sh
+./kb range \
+  --tool codex \
+  --run-name kernelbench-codex-h100-v4 \
+  --level 1 \
+  --start-problem-id 1 \
+  --end-problem-id 10 \
+  --model gpt-5.4 \
+  --time-budget-minutes 180 \
+  --precision bf16 \
+  --hardware-name H100
 ```
 
 ### Run an explicit problem list
 
 ```bash
-TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v4 \
-LEVEL=1 \
-PROBLEM_IDS=1,4,9 \
-MODEL=claude-opus-4-7 \
-TIME_BUDGET_MINUTES=180 \
-PRECISION=bf16 \
-KERNELBENCH_ROOT=/path/to/KernelBench \
-HARDWARE_NAME=H100 \
-./scripts/run_agent_range.sh
+./kb range \
+  --tool claude \
+  --run-name kernelbench-claude-h100-v4 \
+  --level 1 \
+  --problem-ids 1,4,9 \
+  --model claude-opus-4-7 \
+  --time-budget-minutes 180 \
+  --precision bf16 \
+  --hardware-name H100
 ```
 
-### Submit the Slurm wrapper
-
-Submit from the harness repo root. The script itself carries the default `#SBATCH` / `#YBATCH` header block for the common H100 path, so the usual launch is still:
+### Submit one problem to Slurm
 
 ```bash
-ybatch --export=TOOL=codex,RUN_NAME=kernelbench-codex-h100-v4,LEVEL=1,START_PROBLEM_ID=1,END_PROBLEM_ID=10,MODEL=gpt-5.4,TIME_BUDGET_MINUTES=180,PRECISION=bf16,KERNELBENCH_ROOT=/path/to/KernelBench,HARDWARE_NAME=H100 ./scripts/run_agent_problem.slurm.sh
+./kb submit \
+  --partition h100 \
+  --hardware-name H100 \
+  --ybatch-resource h100_1 \
+  --tool codex \
+  --problem-id 1
 ```
 
-Override those scheduler defaults in the script header or on the submit command when your cluster needs something different. Use `sbatch` instead of `ybatch` on clusters that expose plain Slurm submission.
+`./kb submit` uses `ybatch` automatically when that site-local command exists; otherwise it uses `sbatch`.
+Use `--dry-run` first when you want to inspect the exact submit command and any generated `ybatch` wrapper without queueing a job.
+
+### Submit a range to Slurm
+
+```bash
+./kb submit \
+  --partition a100 \
+  --hardware-name A100 \
+  --ybatch-resource a100_1 \
+  --tool codex \
+  --start-problem-id 1 \
+  --end-problem-id 10 \
+  --time 13:00:00
+```
+
+Keep the scheduler choice explicit. `./kb submit` does not try to autodetect free hardware or choose GPU fallbacks for you.
+On clusters with a site-local `ybatch`, the resource name is still site-specific, so set `--ybatch-resource` or `KB_YBATCH_RESOURCE` yourself.
 
 ### Summarize one archived run
 
 ```bash
-kbharness summarize-run --run-name kernelbench-codex-h100-v4
+./kb summarize-run --run-name kernelbench-codex-h100-v4
 ```
 
 This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`. Summary beat-rates and best-runtime fields exclude suspicious or otherwise non-counting attempts.
@@ -239,7 +268,7 @@ These are the main variables worth changing:
 - `PROBLEM_IDS=1,4,9`
 - `TIME_BUDGET_MINUTES=...`
 - `PRECISION=bf16`
-- `KERNELBENCH_ROOT=/path/to/KernelBench`
+- `KERNELBENCH_ROOT=/path/to/KernelBench` when you are not using `./third_party/KernelBench`
 - `HARDWARE_NAME=H100`
 - `KERNELBENCH_TIMINGS_DIR=/path/to/results/timing/<hardware>` when you need a non-default timings location
 - inherited `CUDA_VISIBLE_DEVICES` when you want to pin visible GPUs from the scheduler or shell
@@ -254,15 +283,18 @@ archive/<run_name>/
 
 Live workspaces, locks, shared tool config, per-problem scratch directories, and build products live under `state/` and are disposable once no run is active.
 
-## CLI surface
+## Lower-level entrypoints
 
-Installing this repo exposes the harness CLI:
+`./kb` is the clean user-facing wrapper. These still exist underneath it:
 
 ```bash
-kbharness --help
+./scripts/run_agent_problem.sh
+./scripts/run_agent_range.sh
+./scripts/run_agent_problem.slurm.sh
+./scripts/kbharness --help
 ```
 
-The launcher scripts are the normal entrypoints. The CLI exists mainly so those scripts, workspace wrappers, and the MCP server can call the harness internals in a stable way.
+The shell launchers and workspace wrappers call the repo-local `scripts/kbharness` wrapper, which runs `python -m kernel_bench_experiment_agents.runtime.cli` against the repo source tree. An installed `kbharness` console script is still fine, but it is no longer required just to use this repo.
 
 ## Need more detail?
 
