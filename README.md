@@ -121,24 +121,11 @@ export ANTHROPIC_AUTH_TOKEN=...
 export CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
-## Harness MCP smoke test
+## Harness MCP
 
-Use the real harness MCP server, not a separate dev server. This prepares one real problem workspace, exports the exact `DATA_ROOT` / `KBH_*` context the harness uses, and then talks to `python -m kernel_bench_experiment_agents.mcp` through the official Python MCP client.
+The launcher writes the shared `state/config/codex/config.toml` and forwards the per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into the stdio MCP server through Codex `env_vars`. The same server path is used for Claude.
 
-```bash
-TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v4 \
-LEVEL=1 \
-PROBLEM_ID=1 \
-MODEL=gpt-5.4 \
-TIME_BUDGET_MINUTES=180 \
-PRECISION=bf16 \
-KERNELBENCH_ROOT=/path/to/KernelBench \
-HARDWARE_NAME=H100 \
-./scripts/test_harness_mcp.sh
-```
-
-That is the supported smoke path for the actual harness server. The real launcher uses the same shared `state/config/codex/config.toml` and forwards the per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into the stdio MCP server through Codex `env_vars`.
+The old standalone MCP smoke script was removed; the real signal is a normal launcher run plus the archived `agent/events.jsonl`, `agent/mcp_ir_events.jsonl`, and `agent/trace_ir.json` for that problem.
 
 The shared helper agents `runner` and `profiler` are also loaded from `state/config/` when the client runtime supports them.
 
