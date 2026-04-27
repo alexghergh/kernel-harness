@@ -15,16 +15,6 @@ MCP_SERVER_NAME = "kernelbench"
 
 
 @dataclass(frozen=True)
-class WrapperCommandSpec:
-    """Describes one backend wrapper command that the harness still records in traces."""
-
-    name: str
-    path: str
-    purpose: str
-    uses_gpu: bool = False
-
-
-@dataclass(frozen=True)
 class McpToolSpec:
     """Describes one solver-visible MCP tool."""
 
@@ -64,42 +54,21 @@ LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
     "failed_to_generate",
 )
 
-# These wrapper paths remain the backend command surface used by the harness itself. Synthetic MCP
-# trace events refer to them so the existing counting/audit logic can stay stable.
-WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
-    WrapperCommandSpec(
-        name="hardware_info",
-        path="./bin/hardware_info.sh",
-        purpose="print frozen hardware facts for this workspace",
-    ),
-    WrapperCommandSpec(
-        name="run_candidate",
-        path="./bin/run_candidate.sh",
-        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
-        uses_gpu=True,
-    ),
-    WrapperCommandSpec(
-        name="profile_ncu",
-        path="./bin/profile_ncu.sh",
-        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
-        uses_gpu=True,
-    ),
-    WrapperCommandSpec(
-        name="goal_status",
-        path="./bin/goal_status.sh",
-        purpose="refresh and print live goal status",
-    ),
-    WrapperCommandSpec(
-        name="best_result",
-        path="./bin/best_result.sh",
-        purpose="print the best measured correct result so far",
-    ),
-    WrapperCommandSpec(
-        name="complete_problem",
-        path="./bin/complete_problem.sh",
-        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
-    ),
+# These compatibility wrappers remain for humans and old trace accounting, but they are no
+# longer advertised in the solver contract. Agents should use the MCP tools instead.
+WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
+    "./bin/hardware_info.sh": "hardware_info_calls",
+    "./bin/run_candidate.sh": "run_candidate_calls",
+    "./bin/profile_ncu.sh": "profile_ncu_calls",
+    "./bin/goal_status.sh": "goal_status_calls",
+    "./bin/best_result.sh": "best_result_calls",
+    "./bin/complete_problem.sh": "complete_problem_calls",
+}
+GPU_WRAPPER_PATHS: tuple[str, ...] = (
+    "./bin/run_candidate.sh",
+    "./bin/profile_ncu.sh",
 )
+
 
 MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     McpToolSpec(
@@ -240,13 +209,6 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
     ),
 )
 
-
-WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
-    spec.path: f"{spec.name}_calls" for spec in WORKSPACE_COMMAND_SPECS
-}
-GPU_WRAPPER_PATHS: tuple[str, ...] = tuple(
-    spec.path for spec in WORKSPACE_COMMAND_SPECS if spec.uses_gpu
-)
 
 
 def mcp_tool_names() -> tuple[str, ...]:
