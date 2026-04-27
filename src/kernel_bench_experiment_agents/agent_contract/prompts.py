@@ -117,7 +117,11 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
             "",
             "Web policy:",
             "",
-            "- if hosted web search is enabled, use it only for `docs.nvidia.com`",
+            "- prefer the direct `research_nvidia_docs` command tool for official NVIDIA docs research when it is exposed",
+            "- use hosted web search or fetch only for `docs.nvidia.com`",
+            "- when CUDA, PTX, WMMA/MMA, tensor-core, memory-hierarchy, occupancy, Nsight Compute, or compiler behavior is uncertain, call `research_nvidia_docs` before guessing",
+            "- after repeated CUDA API, compile, profiling-metric, or hardware-tuning failures, call `research_nvidia_docs` before the next code edit",
+            "- useful research roots include `https://docs.nvidia.com/llms.txt`, `https://docs.nvidia.com/cuda/llms.txt`, and the official URLs in `HARDWARE.md`",
             "- do not use shell networking at all",
             "- do not use online code, papers, forums, or blogs for solution ideas",
             "",
@@ -147,7 +151,9 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
             "",
             "- LOOP UNTIL DONE. DO NOT STOP EARLY.",
             "- every measured attempt must go through the direct `run_candidate` tool",
-            "- profiling is a normal command, not a last resort",
+            "- profiling is a required optimization step, not a last resort",
+            "- when a candidate compiles and runs but is slower than either baseline, use `profile_ncu` before more than one further optimization edit",
+            "- do not declare a slow correct candidate fundamentally limited unless you have profiled it and read `profiles/latest.summary.txt`",
             "- trust command-tool output; do not monitor progress with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection",
             "- `HARDWARE.md` and `hardware.json` are the only supported hardware surface; do not probe the machine yourself",
             "- do not use ad hoc shell, Python, or benchmarking commands",
@@ -169,6 +175,7 @@ def render_workspace_spec_md(
     tool = str(metadata.get("tool") or "")
     direct_run_tool = _direct_command_tool_name(tool=tool, name="run_candidate")
     direct_profile_tool = _direct_command_tool_name(tool=tool, name="profile_ncu")
+    direct_research_tool = _direct_command_tool_name(tool=tool, name="research_nvidia_docs")
     direct_complete_tool = _direct_command_tool_name(tool=tool, name="complete_problem")
     lines = [
         "# Orders",
@@ -197,14 +204,19 @@ def render_workspace_spec_md(
         ),
         "4. Re-read `GOAL_STATUS.md`.",
         (
-            f"5. If needed, run `{direct_profile_tool}` directly; read `profiles/latest.summary.txt` first."
+            f"5. As soon as a candidate compiles and runs but is slower than either baseline, run `{direct_profile_tool}` directly before making more than one further optimization edit; read `profiles/latest.summary.txt` first."
             if direct_profile_tool
-            else "5. If needed, run the direct `profile_ncu` tool if your runtime exposes it; read `profiles/latest.summary.txt` first."
+            else "5. As soon as a candidate compiles and runs but is slower than either baseline, run the direct `profile_ncu` tool before making more than one further optimization edit; read `profiles/latest.summary.txt` first."
         ),
         (
-            f"6. Repeat until `{direct_complete_tool}` is justified."
+            f"6. When CUDA/NVIDIA-specific behavior is uncertain or repeated compile/profile failures occur, call `{direct_research_tool}` before the next code edit."
+            if direct_research_tool
+            else "6. When CUDA/NVIDIA-specific behavior is uncertain or repeated compile/profile failures occur, call the direct `research_nvidia_docs` tool before the next code edit."
+        ),
+        (
+            f"7. Repeat until `{direct_complete_tool}` is justified."
             if direct_complete_tool
-            else "6. Repeat until the direct `complete_problem` tool is justified."
+            else "7. Repeat until the direct `complete_problem` tool is justified."
         ),
         "",
         "Never overlap direct command tools. Start a new one only after the previous one has fully returned.",

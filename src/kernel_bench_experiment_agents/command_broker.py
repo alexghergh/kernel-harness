@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from kernel_bench_experiment_agents.activity_trace import append_activity_event
+from kernel_bench_experiment_agents.kernelbench.commands.nvidia_docs import command_research_nvidia_docs
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.kernelbench.commands.status import (
@@ -218,6 +219,61 @@ def _handle_goal_status(ctx: BrokerContext) -> tuple[str, dict[str, Any]]:
     return stdout, payload
 
 
+def _handle_research_nvidia_docs(
+    ctx: BrokerContext,
+    *,
+    query: str,
+    url: str,
+    max_results: int,
+    max_chars: int,
+) -> tuple[str, dict[str, Any]]:
+    try:
+        stdout, payload = _invoke(
+            command_research_nvidia_docs,
+            argparse.Namespace(
+                query=query,
+                url=url,
+                max_results=max_results,
+                max_chars=max_chars,
+            ),
+        )
+    except InvocationError as exc:
+        _append_activity(
+            ctx,
+            kind="command_execution",
+            command="./bin/research_nvidia_docs.sh",
+            command_name="research_nvidia_docs",
+            text=query or url,
+            metadata={
+                "status": exc.payload.get("status") or "failed",
+                "query": query or None,
+                "url": url or None,
+                "error": str(exc),
+            },
+        )
+        raise
+    _append_activity(
+        ctx,
+        kind="command_execution",
+        command="./bin/research_nvidia_docs.sh",
+        command_name="research_nvidia_docs",
+        text=query or url,
+        metadata={
+            "status": payload.get("status"),
+            "query": payload.get("query"),
+            "url": payload.get("url"),
+            "result_count": len(payload.get("results") or []),
+            "document_url": (
+                payload.get("document", {}).get("url")
+                if isinstance(payload.get("document"), dict)
+                else None
+            ),
+            "domains": ["docs.nvidia.com"],
+        },
+    )
+    return stdout, payload
+
+
 def _handle_best_result(ctx: BrokerContext) -> tuple[str, dict[str, Any]]:
     try:
         stdout, payload = _invoke(
@@ -292,6 +348,18 @@ def _dispatch_request(ctx: BrokerContext, request: dict[str, Any]) -> tuple[str,
         return _handle_profile_ncu(ctx)
     if command == "goal_status":
         return _handle_goal_status(ctx)
+    if command == "research_nvidia_docs":
+        query = str(request.get("query") or "").strip()
+        url = str(request.get("url") or "").strip()
+        max_results = int(request.get("max_results") or 8)
+        max_chars = int(request.get("max_chars") or 12000)
+        return _handle_research_nvidia_docs(
+            ctx,
+            query=query,
+            url=url,
+            max_results=max_results,
+            max_chars=max_chars,
+        )
     if command == "best_result":
         return _handle_best_result(ctx)
     if command == "complete_problem":

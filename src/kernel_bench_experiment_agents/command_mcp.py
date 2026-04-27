@@ -57,11 +57,11 @@ def _invoke(command: str, **arguments: Any) -> types.CallToolResult:
     )
 
 
-def _annotations(*, read_only: bool = False) -> types.ToolAnnotations:
+def _annotations(*, read_only: bool = False, open_world: bool = False) -> types.ToolAnnotations:
     return types.ToolAnnotations(
         readOnlyHint=read_only,
         destructiveHint=False,
-        openWorldHint=False,
+        openWorldHint=open_world,
         idempotentHint=read_only,
     )
 
@@ -80,6 +80,7 @@ def workspace_commands() -> str:
                 "run_candidate",
                 "profile_ncu",
                 "goal_status",
+                "research_nvidia_docs",
                 "best_result",
                 "complete_problem",
             ],
@@ -114,6 +115,29 @@ def profile_ncu() -> types.CallToolResult:
 )
 def goal_status() -> types.CallToolResult:
     return _invoke("goal_status")
+
+
+@mcp.tool(
+    name="research_nvidia_docs",
+    description=(
+        "Search or fetch official NVIDIA documentation through the launcher-owned broker. "
+        "Provide a natural-language query, an exact docs.nvidia.com URL, or both."
+    ),
+    annotations=_annotations(read_only=True, open_world=True),
+)
+def research_nvidia_docs(
+    query: str = "",
+    url: str = "",
+    max_results: int = 8,
+    max_chars: int = 12000,
+) -> types.CallToolResult:
+    return _invoke(
+        "research_nvidia_docs",
+        query=query,
+        url=url,
+        max_results=max_results,
+        max_chars=max_chars,
+    )
 
 
 @mcp.tool(

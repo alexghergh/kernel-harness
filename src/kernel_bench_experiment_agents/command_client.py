@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("run-candidate")
     subparsers.add_parser("profile-ncu")
     subparsers.add_parser("goal-status")
+    research = subparsers.add_parser("research-nvidia-docs")
+    research.add_argument("--query", default="")
+    research.add_argument("--url", default="")
+    research.add_argument("--max-results", type=int, default=8)
+    research.add_argument("--max-chars", type=int, default=12000)
     subparsers.add_parser("best-result")
     complete = subparsers.add_parser("complete-problem")
     complete.add_argument("--summary", required=True)
@@ -50,6 +55,11 @@ def main() -> int:
     request: dict[str, Any] = {"command": args.command.replace("-", "_")}
     if args.command == "complete-problem":
         request["summary"] = args.summary
+    if args.command == "research-nvidia-docs":
+        request["query"] = args.query
+        request["url"] = args.url
+        request["max_results"] = args.max_results
+        request["max_chars"] = args.max_chars
 
     response = send_request(
         socket_path=Path(args.socket).expanduser().resolve(),

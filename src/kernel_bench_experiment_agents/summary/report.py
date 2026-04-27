@@ -28,6 +28,7 @@ TRACE_COUNT_KEYS = (
     "run_candidate_calls",
     "profile_ncu_calls",
     "goal_status_calls",
+    "research_nvidia_docs_calls",
     "best_result_calls",
     "complete_problem_calls",
     "spawn_agent_calls",

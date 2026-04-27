@@ -95,6 +95,17 @@ def generate_goal_status_wrapper(*, run_name: str, level: int, problem_id: int) 
     return common + shell_multiline_command(command_lines)
 
 
+def generate_research_wrapper() -> str:
+    common = workspace_wrapper_common()
+    command_lines = [
+        '"${PYTHON_BIN}" -m kernel_bench_experiment_agents.command_client',
+        '  --socket "${SOCKET_PATH}"',
+        "  research-nvidia-docs",
+        '  "$@"',
+    ]
+    return common + shell_multiline_command(command_lines)
+
+
 def generate_best_wrapper(*, run_name: str, level: int, problem_id: int) -> str:
     common = workspace_wrapper_common()
     command_lines = [
@@ -180,6 +191,7 @@ def write_default_workspace_wrappers(
             level=level,
             problem_id=problem_id,
         ),
+        "research_nvidia_docs.sh": generate_research_wrapper(),
         "best_result.sh": generate_best_wrapper(
             run_name=run_name,
             level=level,

@@ -91,6 +91,11 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
         purpose="refresh and print live goal status",
     ),
     WrapperCommandSpec(
+        name="research_nvidia_docs",
+        path="./bin/research_nvidia_docs.sh",
+        purpose="search or fetch official NVIDIA docs through the broker",
+    ),
+    WrapperCommandSpec(
         name="best_result",
         path="./bin/best_result.sh",
         purpose="print the best measured correct result so far",
@@ -150,6 +155,11 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
         read_only=True,
     ),
     McpToolSpec(
+        name="research_nvidia_docs",
+        purpose="research_nvidia_docs(query, url, max_results, max_chars) -> official docs.nvidia.com search or fetch result through the broker",
+        read_only=True,
+    ),
+    McpToolSpec(
         name="best_result",
         purpose="best_result() -> JSON for the best measured correct attempt so far, including sample_id and archive-relative artifact paths; takes no arguments",
         read_only=True,
@@ -166,19 +176,25 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
     "Do not end with a plain assistant message. The only valid exit is the direct `complete_problem` command tool.",
     "Never start a second harness command tool while another one is still running.",
-    "Use direct command tools like `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, and `complete_problem` for all harness actions.",
+    "Use direct command tools like `run_candidate`, `profile_ncu`, `research_nvidia_docs`, `goal_status`, `best_result`, and `complete_problem` for all harness actions.",
     "Do not use shell commands or Python snippets for harness actions.",
     "After every measured run or profile, re-read GOAL_STATUS.md or run the direct `goal_status` tool; keep iterating if it still says UNRESOLVED.",
     "After every measured run, inspect `samples/latest.json` first and then `samples/latest.stdout.txt` / `samples/latest.stderr.txt` when the latest attempt failed to compile, validate, or run correctly.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
+    "Once any candidate compiles and runs but is slower than either baseline, run `profile_ncu` before more than one additional optimization edit.",
+    "If a correct candidate is slower than either baseline and no profile exists for that candidate family, profile it before deciding the bottleneck from intuition.",
+    "Do not conclude that a slow correct candidate is fundamentally limited until you have profiled it and read `profiles/latest.summary.txt`.",
+    "When CUDA, PTX, WMMA/MMA, tensor-core, memory-hierarchy, occupancy, Nsight Compute, or compiler details are uncertain, call `research_nvidia_docs` instead of guessing.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
-    "Run the direct `profile_ncu` tool if you do not already have profiling for the current idea.",
+    "If the current candidate compiles and runs, run the direct `profile_ncu` tool before the next implementation branch unless you already profiled this candidate family.",
+    "If two consecutive measured attempts are correct but slower than either baseline, run `profile_ncu` before editing the candidate again.",
     "Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed.",
-    "Use hosted web search only for docs.nvidia.com when you need CUDA or hardware guidance.",
+    "Before the next implementation branch, call `research_nvidia_docs` for CUDA/NVIDIA-specific uncertainty; query the relevant CUDA, PTX, WMMA/MMA, tensor-core, occupancy, memory hierarchy, or Nsight Compute topic.",
+    "If two consecutive attempts fail for a CUDA API, compile, profiling-metric, or hardware-tuning reason, call `research_nvidia_docs` before editing the candidate again.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
@@ -240,8 +256,8 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Profiling helper for one assigned optimization problem. "
             "Use proactively to run Nsight Compute profiling and summarize bottlenecks and likely next steps."
         ),
-        commands=("./bin/profile_ncu.sh", "./bin/goal_status.sh"),
-        mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
+        commands=("./bin/profile_ncu.sh", "./bin/research_nvidia_docs.sh", "./bin/goal_status.sh"),
+        mcp_tools=("read_workspace_file", "profile_ncu", "research_nvidia_docs", "goal_status"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -280,6 +296,7 @@ def command_mcp_tool_names() -> tuple[str, ...]:
         f"mcp__{COMMAND_MCP_SERVER_NAME}__run_candidate",
         f"mcp__{COMMAND_MCP_SERVER_NAME}__profile_ncu",
         f"mcp__{COMMAND_MCP_SERVER_NAME}__goal_status",
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__research_nvidia_docs",
         f"mcp__{COMMAND_MCP_SERVER_NAME}__best_result",
         f"mcp__{COMMAND_MCP_SERVER_NAME}__complete_problem",
     )

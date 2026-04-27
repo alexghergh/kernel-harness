@@ -48,7 +48,7 @@ The solver is nudged through several small surfaces rather than one giant prompt
 - generated workspace `AGENTS.md` — durable top-level contract
 - generated `INITIAL_PROMPT.md` — opening run-specific instructions
 - generated `GOAL_STATUS.md` — live status file re-read after measured actions
-- direct command tools — the measured harness action surface
+- direct command tools — the measured harness action and brokered NVIDIA-docs research surface
 - helper-agent specs for `runner` and `profiler` — narrow delegated roles when the client runtime supports helper spawning
 
 The intended behavior is:
@@ -57,7 +57,7 @@ The intended behavior is:
 - `runner` handles measured evaluation by default
 - `profiler` handles Nsight Compute work by default
 - direct `run_candidate` / `profile_ncu` from the main agent are valid paths when helper spawning is unavailable
-- hosted web remains separate from local file/actions and should be used only for NVIDIA docs when the next optimization branch depends on hardware-specific behavior
+- `research_nvidia_docs` is the canonical audited docs-research path when the next optimization branch depends on hardware-specific behavior
 
 ## High-level flow
 
@@ -306,6 +306,7 @@ Semantics:
 - `candidate_model_new.py` is the only supported local edit path; validation failures return the exact rejected construct and the run does not count toward progress
 - `run_candidate` is the only supported measured-evaluation path
 - `profile_ncu` is the only supported profiling path
+- `research_nvidia_docs` is the only broker-owned docs-research path and is restricted to `docs.nvidia.com`
 - `goal_status` is **not** just a cached file read: it refreshes `GOAL_STATUS.md` under the artifact lock and returns the live structured snapshot, including remaining budget, baseline status, current best-run summary, and the latest discarded-attempt reason when present
 - `best_result` returns the best measured correct attempt manifest so far, including at least the `sample_id`, the measured result payload, and archive-relative artifact paths such as the archived kernel snapshot
 - `complete_problem` is the only valid solver termination path
@@ -313,8 +314,9 @@ Semantics:
 In other words, the solver surface is intentionally split into:
 
 - **native web**: tool-specific hosted search/fetch, restricted to `docs.nvidia.com`
+- **brokered docs research**: normalized `research_nvidia_docs` calls through the command broker, also restricted to `docs.nvidia.com`
 - **direct workspace files**: the small fixed problem contract, candidate, and bounded history mirrors
-- **brokered actions**: measured run, profiling, live status refresh, best-result query, and completion
+- **brokered actions**: measured run, profiling, NVIDIA-docs research, live status refresh, best-result query, and completion
 
 ## Completion model
 

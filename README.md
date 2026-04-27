@@ -21,7 +21,7 @@ The solver policy is not hidden in one giant prompt. It is split across a few ge
 - `AGENTS.md` — the durable top-level solver contract
 - `INITIAL_PROMPT.md` — the opening run-specific instructions
 - `GOAL_STATUS.md` — the live progress/status file the solver should re-read after measured actions
-- direct command tools — the only measured harness actions
+- direct command tools — the brokered harness action and NVIDIA-docs research surface
 - helper-agent specs for `runner` and `profiler` — narrow delegated roles when the client runtime supports sub-agents
 
 The intended behavior is:
@@ -30,6 +30,7 @@ The intended behavior is:
 - `runner` handles measured evaluation by default
 - `profiler` handles Nsight Compute work by default
 - direct `run_candidate` / `profile_ncu` from the main agent are valid paths when helper spawning is unavailable
+- direct `research_nvidia_docs` is the canonical audited path for NVIDIA-specific docs lookup
 
 ## Actual solver surface
 
@@ -43,10 +44,10 @@ The exact live model trace is saved as `archive/.../agent/events.jsonl`. Broker-
 - bounded history reads: `samples/` and `profiles/`
 - only workspace edit: `candidate_model_new.py`
 - OS-enforced local write surface: `candidate_model_new.py`; other workspace paths are read-only to the agent process
-- privileged actions: `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`
+- privileged actions: `run_candidate`, `profile_ncu`, `research_nvidia_docs`, `goal_status`, `best_result`, `complete_problem`
 - `goal_status` returns the live JSON status snapshot and refreshes `GOAL_STATUS.md`
 - `best_result` returns the current best measured correct attempt, including `sample_id` and archive-relative artifact paths
-- native web stays separate from local actions and is limited to `docs.nvidia.com`
+- native web stays separate from local actions and is limited to `docs.nvidia.com`; comparable enforced-docs runs should use brokered `research_nvidia_docs`
 
 The client-specific enforcement differs slightly:
 

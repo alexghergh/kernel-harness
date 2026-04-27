@@ -278,6 +278,7 @@ def _empty_trace_counts() -> dict[str, Any]:
         "run_candidate_calls": 0,
         "profile_ncu_calls": 0,
         "goal_status_calls": 0,
+        "research_nvidia_docs_calls": 0,
         "best_result_calls": 0,
         "complete_problem_calls": 0,
         "spawn_agent_calls": 0,

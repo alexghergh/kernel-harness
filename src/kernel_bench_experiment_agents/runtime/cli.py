@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 
+from kernel_bench_experiment_agents.kernelbench.commands.nvidia_docs import command_research_nvidia_docs
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.runtime.common import TOOL_CHOICES
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
@@ -86,6 +87,12 @@ def build_parser() -> argparse.ArgumentParser:
     goal.add_argument("--problem-id", type=int, required=True)
     goal.add_argument("--workspace", required=True)
 
+    research = subparsers.add_parser("research-nvidia-docs")
+    research.add_argument("--query", default="")
+    research.add_argument("--url", default="")
+    research.add_argument("--max-results", type=int, default=8)
+    research.add_argument("--max-chars", type=int, default=12000)
+
     complete = subparsers.add_parser("complete-problem")
     complete.add_argument("--run-name", required=True)
     complete.add_argument("--level", type=int, required=True)
@@ -132,6 +139,7 @@ def main() -> None:
         "profile-ncu": command_profile_ncu,
         "best-result": command_best_result,
         "goal-status": command_goal_status,
+        "research-nvidia-docs": command_research_nvidia_docs,
         "complete-problem": command_complete_problem,
         "record-launcher-completion": command_record_launcher_completion,
         "materialize-agent-trace": command_materialize_agent_trace,
