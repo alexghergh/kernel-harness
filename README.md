@@ -65,13 +65,15 @@ Optional setup knobs:
 
 This harness assumes:
 
+- Go 1.18 or newer is available during `./kb setup` so the vendored Landrun submodule can be built
 - the official KernelBench checkout exists either at `./third_party/KernelBench/` or wherever `KERNELBENCH_ROOT` points
 - the KernelBench timing files already exist for your hardware
 - `KERNELBENCH_TIMINGS_DIR` is optional; set it only when your timing results live outside the default KernelBench timing tree
 
 Notes:
 
-- `./kb setup` always syncs and initializes the vendored `third_party/KernelBench` submodule first, so older clones pick up `.gitmodules` URL changes automatically.
+- `./kb setup` always syncs and initializes the vendored `third_party/KernelBench` and `third_party/landrun` submodules first, so older clones pick up `.gitmodules` URL changes automatically.
+- `./kb setup` builds the vendored Landrun checkout into `third_party/bin/landrun`, verifies `landrun --version`, and runs a small sandbox smoke before installing the Python environment.
 - `./kb setup` always uses `uv` and provisions a Python 3.10 environment under `./.venv` by default.
 - When `./.venv` already exists, `./kb setup` removes and recreates it non-interactively before reinstalling packages.
 - For safety, `--venv-dir` only auto-replaces the repo-managed `./.venv` or an existing directory that already looks like a virtualenv; it refuses to delete arbitrary existing directories.
@@ -83,6 +85,7 @@ Notes:
 - KernelBench upstream currently publishes `requires-python = "==3.10.*"` in its `pyproject.toml`, so the supported setup path today is still Python 3.10.x.
 - Pass `--gpu-extras` when you want `KernelBench[gpu]`. For compatibility, `INSTALL_KERNELBENCH_GPU_EXTRAS=1` is still honored too.
 - `./kb setup` records the selected interpreter in `./.kb-python`, and the launchers reuse that exact Python on later runs instead of guessing from a stale `./.venv`.
+- Launchers use the repo-built `third_party/bin/landrun` by default. Set `LANDRUN=/path/to/landrun` only when intentionally testing a different Landrun binary.
 - When `RUN_NAME` is unset, the launchers generate a unique default like `kernelbench-codex-20260423T081530Z-12345` so reruns do not reuse the same archive tree by accident.
 
 For compatibility, `./scripts/bootstrap_uv.sh` still works and now forwards to `./kb setup`.

@@ -24,7 +24,7 @@ if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]];
 fi
 
 REPO_ROOT="$(pwd)"
-export PATH="${REPO_ROOT}/scripts:${PATH}"
+export PATH="${REPO_ROOT}/scripts:${REPO_ROOT}/third_party/bin:${PATH}"
 export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 # shellcheck source=./scripts/kb_python.sh

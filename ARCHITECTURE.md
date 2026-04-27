@@ -17,7 +17,7 @@ The harness is responsible for:
 
 The harness is responsible for vendoring the official KernelBench repository under `third_party/KernelBench/`, and that vendored copy may carry local harness-specific fixes until upstream equivalents land. The harness is **not** responsible for downloading KernelBench on demand at launch time.
 
-The clean user-facing repo entrypoint is `./kb`. It provides a small setup, run, range, and submit surface while the lower-level shell scripts and Python CLI stay available underneath it. `./kb setup` uses `uv` to provision a Python 3.10 environment under `./.venv` by default.
+The clean user-facing repo entrypoint is `./kb`. It provides a small setup, run, range, and submit surface while the lower-level shell scripts and Python CLI stay available underneath it. `./kb setup` uses `uv` to provision a Python 3.10 environment under `./.venv` by default, and builds the vendored `third_party/landrun` checkout into `third_party/bin/landrun`.
 
 The committed submission support stays intentionally narrow: `./kb submit` wraps a generic Slurm submission flow and uses `ybatch` only when that command is already present on PATH. On clusters with a site-local `ybatch` wrapper, users must still pass the site-local resource name explicitly. The harness does not probe cluster topology or choose hardware automatically.
 
@@ -112,6 +112,8 @@ It is safe to delete `state/` only when no run is active.
 The workspace is solver-visible. Tool-private config and auth live outside it.
 
 The launcher and wrappers do not require an installed `kbharness` console script. The repo ships a local `scripts/kbharness` wrapper that runs `python -m kernel_bench_experiment_agents.runtime.cli` against the repo source tree, and `./kb setup` provisions the harness into a `uv`-managed virtual environment.
+
+Landrun is treated as a required runtime/security dependency rather than an ambient system tool. The harness vendors the source as `third_party/landrun`, builds `third_party/bin/landrun` during `./kb setup`, verifies that the built binary identifies as Landrun, and has launchers use that repo-local binary by default. `LANDRUN=/path/to/landrun` is an explicit override for testing another binary.
 
 After `./kb setup`, the chosen interpreter is recorded in repo-root `./.kb-python`, and the shell launchers reuse that exact Python instead of blindly preferring `./.venv`.
 

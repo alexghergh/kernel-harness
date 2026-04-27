@@ -18,7 +18,7 @@ REPO_ROOT="$(pwd)"
 # shellcheck source=./scripts/kb_python.sh
 source "${REPO_ROOT}/scripts/kb_python.sh"
 PYTHON_BIN="$(resolve_repo_python "${REPO_ROOT}" "./kb setup")"
-export PATH="${REPO_ROOT}/scripts:${PATH}"
+export PATH="${REPO_ROOT}/scripts:${REPO_ROOT}/third_party/bin:${PATH}"
 export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 DATA_ROOT="${DATA_ROOT:-.}"

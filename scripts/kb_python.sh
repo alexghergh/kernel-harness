@@ -33,3 +33,21 @@ default_run_name() {
   local tool="$1"
   printf 'kernelbench-%s-%s-%s\n' "${tool}" "$(date -u '+%Y%m%dT%H%M%SZ')" "$$"
 }
+
+resolve_repo_landrun() {
+  local repo_root="$1"
+  local bootstrap_hint="${2:-./kb setup}"
+  local landrun_bin="${LANDRUN:-}"
+
+  if [[ -z "${landrun_bin}" ]]; then
+    landrun_bin="${repo_root}/third_party/bin/landrun"
+  fi
+
+  if [[ ! -x "${landrun_bin}" ]]; then
+    echo "Landrun binary is not executable: ${landrun_bin}" >&2
+    echo "Run ${bootstrap_hint} to build the vendored third_party/landrun binary, or set LANDRUN=/path/to/landrun." >&2
+    exit 1
+  fi
+
+  printf '%s\n' "${landrun_bin}"
+}
