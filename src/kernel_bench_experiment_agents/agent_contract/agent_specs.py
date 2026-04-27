@@ -9,39 +9,83 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.agent_contract.policy import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
-from kernel_bench_experiment_agents.agent_contract.prompts import (
-    render_claude_helper_body,
-    render_codex_helper_instructions,
+from kernel_bench_experiment_agents.agent_contract.policy import (
+    COMMAND_MCP_SERVER_NAME,
+    HELPER_SPECS,
+    HelperAgentSpec,
 )
 from kernel_bench_experiment_agents.runtime.project import write_text
 
 
 def _codex_agent_toml(spec: HelperAgentSpec) -> str:
+    command_list = ", ".join(f"`{name}`" for name in spec.commands)
+    command_tool_list = ", ".join(
+        f"`mcp__{COMMAND_MCP_SERVER_NAME}__{path.rsplit('/', 1)[-1].removesuffix('.sh')}`"
+        for path in spec.commands
+    )
+    read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
     return dedent(
         f'''
         name = "{spec.name}"
         description = "{spec.description}"
-        sandbox_mode = "workspace-write"
+        sandbox_mode = "read-only"
         developer_instructions = """
-        {render_codex_helper_instructions(spec=spec).rstrip()}
+        You are a narrow helper for one assigned optimization problem.
+
+        Work only inside the prepared problem workspace.
+        Read local problem files directly, and only for {read_list}.
+        Use only these direct command tools for harness actions: {command_tool_list}.
+        Those tools are equivalent to these backend wrapper commands: {command_list}.
+        Do not inspect unrelated files, hidden launcher runtime state, or tool-private config.
+        Do not use shell commands, Python snippets, or local file edits.
+        If one of the allowed command tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.
+        Never start a second harness command tool while another one is still running.
+        Do not edit any files.
+        Work independently: do not ask the user or the main agent for permission to proceed once assigned.
+        When finished, return only a concise actionable summary; do not ask follow-up questions.
+        {spec.summary_focus}
         """
         '''
     ).strip() + "\n"
 
 
 def _claude_agent_md(spec: HelperAgentSpec) -> str:
-    yaml_tools = "\n".join(
-        f"  - mcp__{MCP_SERVER_NAME}__{tool_name}" for tool_name in spec.mcp_tools
+    command_list = ", ".join(f"`{name}`" for name in spec.commands)
+    command_tool_list = ", ".join(
+        f"`mcp__{COMMAND_MCP_SERVER_NAME}__{path.rsplit('/', 1)[-1].removesuffix('.sh')}`"
+        for path in spec.commands
+    )
+    read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
+    tools_value = ", ".join(
+        [
+            "Read",
+            "LS",
+            "Glob",
+            "Grep",
+            *[
+                f"mcp__{COMMAND_MCP_SERVER_NAME}__{path.rsplit('/', 1)[-1].removesuffix('.sh')}"
+                for path in spec.commands
+            ],
+        ]
     )
     return (
         "---\n"
         f"name: {spec.name}\n"
         f"description: {spec.description}\n"
-        "tools:\n"
-        f"{yaml_tools}\n"
+        f"tools: {tools_value}\n"
         "---\n\n"
-        f"{render_claude_helper_body(spec=spec)}"
+        "You are a narrow helper for one assigned optimization problem.\n\n"
+        f"Read local problem files directly, and only for {read_list}.\n"
+        f"Use only these direct command tools for harness actions: {command_tool_list}.\n"
+        f"Those tools are equivalent to these backend wrapper commands: {command_list}.\n"
+        "Do not inspect unrelated files, hidden launcher runtime state, or tool-private config.\n"
+        "Do not use shell commands or Python snippets.\n"
+        "If one of the allowed command tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
+        "Never start a second harness command tool while another one is still running.\n"
+        "Do not edit any files.\n"
+        "Work independently: do not ask the user or the main agent for permission to proceed once assigned.\n"
+        "When finished, return only a concise actionable summary; do not ask follow-up questions.\n"
+        f"{spec.summary_focus}\n"
     )
 
 

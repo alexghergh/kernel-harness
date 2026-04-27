@@ -8,67 +8,53 @@ remains free of tool auth/config files.
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 import sys
 from pathlib import Path
 
 from kernel_bench_experiment_agents.agent_contract.agent_specs import write_shared_helper_agent_specs
-from kernel_bench_experiment_agents.agent_contract.policy import ALLOWED_WEB_DOMAINS, MCP_SERVER_NAME, claude_mcp_tool_names
+from kernel_bench_experiment_agents.agent_contract.policy import (
+    ALLOWED_WEB_DOMAINS,
+    COMMAND_MCP_SERVER_NAME,
+    command_mcp_tool_names,
+)
 from kernel_bench_experiment_agents.runtime.project import ensure_dir, make_executable, write_text
 
 
-MCP_SERVER_ENV_VARS: tuple[str, ...] = (
-    "DATA_ROOT",
-    "KBH_WORKSPACE",
-    "KBH_CLIENT_TOOL",
-    "KBH_MCP_EVENTS_PATH",
+COMMAND_MCP_SERVER_ENV_VARS: tuple[str, ...] = (
+    "KBH_COMMAND_SOCKET",
 )
 
-CLAUDE_DENIED_TOOLS: tuple[str, ...] = (
-    "AskUserQuestion",
-    "Bash",
-    "CronCreate",
-    "CronDelete",
-    "CronList",
+CLAUDE_BUILTIN_TOOLS: tuple[str, ...] = (
+    "Read",
+    "Write",
     "Edit",
-    "EnterPlanMode",
-    "EnterWorktree",
-    "ExitPlanMode",
-    "ExitWorktree",
+    "MultiEdit",
+    "LS",
     "Glob",
     "Grep",
-    "LS",
-    "LSP",
-    "Monitor",
-    "MultiEdit",
-    "NotebookEdit",
-    "PowerShell",
+    "Task",
+    "WebSearch",
+    "WebFetch",
+)
+
+CLAUDE_ALLOWED_TOOL_PATTERNS: tuple[str, ...] = (
     "Read",
-    "RemoteTrigger",
-    "SendMessage",
-    "Skill",
-    "TaskCreate",
-    "TaskGet",
-    "TaskList",
-    "TaskOutput",
-    "TaskStop",
-    "TaskUpdate",
-    "TeamCreate",
-    "TeamDelete",
-    "TodoWrite",
-    "ToolSearch",
     "Write",
+    "Edit",
+    "MultiEdit",
+    "LS",
+    "Glob",
+    "Grep",
+    "Task",
+    "WebSearch",
+    *(f"WebFetch(domain:{domain})" for domain in ALLOWED_WEB_DOMAINS),
+    *command_mcp_tool_names(),
 )
 
 
 def _python_command() -> str:
-    """Return the exact Python executable path that launched the harness.
-
-    Do not resolve symlinks here. Virtualenv/pyenv interpreters are often shim or symlink paths into
-    a base interpreter; resolving them can bypass the environment that actually has the harness and
-    MCP SDK installed.
-    """
+    """Return the interpreter that generated this tool config."""
     return str(Path(sys.executable).expanduser())
 
 
@@ -111,15 +97,9 @@ def sync_repo_auth_into_shared_tool_state(config_root: Path, *, repo_root: Path 
 
 
 def render_codex_config() -> str:
-    """Render the shared Codex config.toml.
-
-    The Codex home is shared across problems. The MCP server registration stays static here, while
-    the launcher exports the small per-problem context (`DATA_ROOT`, `KBH_WORKSPACE`,
-    `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) and Codex forwards only those names into the stdio
-    server via `env_vars`.
-    """
+    """Render the shared Codex config.toml."""
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
-    env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
+    env_vars = ", ".join(f'"{name}"' for name in COMMAND_MCP_SERVER_ENV_VARS)
     python_command = json.dumps(_python_command())
     payload = (
         '# Generated from src/kernel_bench_experiment_agents/runtime/policy.py\n'
@@ -137,13 +117,13 @@ def render_codex_config() -> str:
         '[agents]\n'
         'max_threads = 6\n'
         'max_depth = 1\n\n'
-        f'[mcp_servers.{MCP_SERVER_NAME}]\n'
+        f'[mcp_servers.{COMMAND_MCP_SERVER_NAME}]\n'
         f'command = {python_command}\n'
-        'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
+        'args = ["-m", "kernel_bench_experiment_agents.command_mcp"]\n'
         f'env_vars = [{env_vars}]\n'
         'required = true\n'
         'startup_timeout_sec = 20\n'
-        'tool_timeout_sec = 600\n\n'
+        'tool_timeout_sec = 1200\n\n'
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )
@@ -194,22 +174,18 @@ def render_claude_websearch_hook() -> str:
 
 
 def _claude_websearch_hook_command(hook_path: Path) -> str:
-    return f"{shlex.quote(_python_command())} {shlex.quote(str(hook_path))}"
+    return f"python3 {json.dumps(str(hook_path))}"
 
 
 
 def claude_settings_payload(*, websearch_hook_path: Path) -> dict[str, object]:
     """Build the Claude settings payload that lives under CLAUDE_CONFIG_DIR/settings.json."""
-    allow_tools = [
-        "WebSearch",
-        *(f"WebFetch(domain:{domain})" for domain in ALLOWED_WEB_DOMAINS),
-        *claude_mcp_tool_names(),
-    ]
+    allow_tools = list(CLAUDE_ALLOWED_TOOL_PATTERNS)
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
         "permissions": {
             "allow": allow_tools,
-            "deny": list(CLAUDE_DENIED_TOOLS),
+            "deny": ["Bash(*)"],
             "disableBypassPermissionsMode": "disable",
         },
         "hooks": {
@@ -231,17 +207,12 @@ def claude_settings_payload(*, websearch_hook_path: Path) -> dict[str, object]:
 
 
 def claude_user_config_payload() -> dict[str, object]:
-    """Build the shared Claude user config that registers the harness MCP server."""
-    return {
-        "mcpServers": {
-            MCP_SERVER_NAME: {
-                "type": "stdio",
-                "command": _python_command(),
-                "args": ["-m", "kernel_bench_experiment_agents.mcp"],
-                "env": {name: f"${{{name}:-}}" for name in MCP_SERVER_ENV_VARS},
-            }
-        }
-    }
+    """Build the shared Claude user config.
+
+    Per-run command MCP registration is generated by the launcher because it
+    needs the private command-broker socket path.
+    """
+    return {}
 
 
 

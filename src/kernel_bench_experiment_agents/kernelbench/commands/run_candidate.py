@@ -40,6 +40,7 @@ from kernel_bench_experiment_agents.workspace.paths import (
     workspace_path,
     workspace_relpath,
     write_workspace_sample_copy,
+    write_workspace_sample_mirrors,
 )
 
 
@@ -49,22 +50,13 @@ def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None)
     return candidate_path.name
 
 
-def _result_warnings(
-    result: dict[str, Any],
-    workspace: Path | None,
-    *,
-    stdout_text: str = "",
-) -> list[str]:
+def _result_warnings(result: dict[str, Any], workspace: Path | None) -> list[str]:
     warnings: list[str] = []
     metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
     if metadata.get("excessive_speedup"):
         warnings.append(
             "KernelBench flagged this run as suspicious because the measured speedup is excessively large. This run does not count toward progress. Discard it as possible reward hacking and continue iterating until you have a non-suspicious result."
         )
-    for line in stdout_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("[WARNING]"):
-            warnings.append(stripped)
     if workspace is None:
         return warnings
     metadata = load_workspace_metadata(workspace)
@@ -82,6 +74,38 @@ def _result_warnings(
     return warnings
 
 
+def _normalize_evaluation_result(
+    result: Any,
+    *,
+    stdout_path: Path,
+    stderr_path: Path,
+) -> dict[str, Any]:
+    if isinstance(result, dict) and result.get("compiled") is not None:
+        return result
+    return {
+        "compiled": False,
+        "correctness": False,
+        "runtime": None,
+        "runtime_stats": None,
+        "ref_runtime": None,
+        "ref_runtime_stats": None,
+        "metadata": {
+            "compilation_error_name": "KernelBenchMalformedResult",
+            "compilation_error": (
+                "KernelBench returned no structured evaluation result. "
+                f"Inspect {stdout_path.name} and {stderr_path.name} for the underlying compiler or loader failure."
+            ),
+        },
+        "raw_repr": repr(result),
+    }
+
+
+def _read_text_if_exists(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
 
 def command_run_candidate(args: argparse.Namespace) -> None:
     """Evaluate one frozen candidate snapshot and persist the measured attempt payload."""
@@ -92,6 +116,10 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     sample_id: int | None = None
     payload: dict[str, Any] | None = None
     sample_json_path: Path | None = None
+    stdout_path: Path | None = None
+    stderr_path: Path | None = None
+    candidate_src: str | None = None
+    emit_payload: dict[str, Any] | None = None
     live_gpu_wait_marker = None
     failure: Exception | None = None
     persist_failure: Exception | None = None
@@ -195,6 +223,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 args.problem_id,
                 f"sample_{sample_id}",
             ) / "evaluation_result.json"
+            runner_work_dir = runner_output_path.parent
             command = [
                 sys.executable,
                 "-m",
@@ -232,6 +261,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             completed = run_subprocess_capture(
                 command,
                 env=isolated_gpu_environment(device_selector=lease.device_selector),
+                cwd=str(runner_work_dir),
             )
             write_text(stdout_path, completed.stdout)
             write_text(stderr_path, completed.stderr)
@@ -252,11 +282,15 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             raise RuntimeError(
                 f"Candidate evaluation subprocess produced no result payload at {runner_output_path}."
             )
-        result = load_json_object(runner_output_path)
+        result = _normalize_evaluation_result(
+            load_json_object(runner_output_path),
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
         payload["status"] = "succeeded"
         payload["updated_at"] = now_iso()
         payload["result"] = result
-        payload["warnings"] = _result_warnings(result, workspace, stdout_text=completed.stdout)
+        payload["warnings"] = _result_warnings(result, workspace)
     except Exception as exc:
         failure = exc
         if payload is None or sample_id is None or sample_json_path is None:
@@ -279,6 +313,55 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     clear_live_gpu_wait_marker(live_gpu_wait_marker)
                     live_gpu_wait_marker = None
                     if workspace is not None:
+                        mirror_paths = write_workspace_sample_mirrors(
+                            workspace=workspace,
+                            sample_id=sample_id,
+                            payload=payload,
+                            stdout_text=_read_text_if_exists(stdout_path),
+                            stderr_text=_read_text_if_exists(stderr_path),
+                            candidate_src=candidate_src,
+                        )
+                        emit_payload = dict(payload)
+                        emit_payload.update(
+                            {
+                                "candidate_path": (
+                                    workspace_relpath(mirror_paths["source"], workspace)
+                                    if candidate_src is not None
+                                    else payload["candidate_path"]
+                                ),
+                                "sample_json_path": workspace_relpath(
+                                    mirror_paths["json"], workspace
+                                ),
+                                "stdout_path": workspace_relpath(
+                                    mirror_paths["stdout"], workspace
+                                ),
+                                "stderr_path": workspace_relpath(
+                                    mirror_paths["stderr"], workspace
+                                ),
+                                "latest_sample_path": (
+                                    workspace_relpath(mirror_paths["latest_source"], workspace)
+                                    if candidate_src is not None
+                                    else None
+                                ),
+                                "latest_json_path": workspace_relpath(
+                                    mirror_paths["latest_json"], workspace
+                                ),
+                                "latest_stdout_path": workspace_relpath(
+                                    mirror_paths["latest_stdout"], workspace
+                                ),
+                                "latest_stderr_path": workspace_relpath(
+                                    mirror_paths["latest_stderr"], workspace
+                                ),
+                            }
+                        )
+                        write_workspace_sample_mirrors(
+                            workspace=workspace,
+                            sample_id=sample_id,
+                            payload=emit_payload,
+                            stdout_text=_read_text_if_exists(stdout_path),
+                            stderr_text=_read_text_if_exists(stderr_path),
+                            candidate_src=candidate_src,
+                        )
                         write_goal_status_files(
                             run_name=args.run_name,
                             level=args.level,
@@ -290,7 +373,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
         else:
             clear_live_gpu_wait_marker(live_gpu_wait_marker)
 
-    emit_json(payload)
+    emit_json(emit_payload or payload)
     if failure is not None:
         if persist_failure is not None:
             print(

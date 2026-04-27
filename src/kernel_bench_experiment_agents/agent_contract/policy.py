@@ -12,11 +12,22 @@ from pathlib import Path
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 
 MCP_SERVER_NAME = "kernelbench"
+COMMAND_MCP_SERVER_NAME = "kernelbench_commands"
 
 
 @dataclass(frozen=True)
 class WrapperCommandSpec:
     """Describes one backend wrapper command that the harness still records in traces."""
+
+    name: str
+    path: str
+    purpose: str
+    uses_gpu: bool = False
+
+
+@dataclass(frozen=True)
+class SolverCommandSpec:
+    """Describes one solver-visible workspace command."""
 
     name: str
     path: str
@@ -41,6 +52,7 @@ class HelperAgentSpec:
 
     name: str
     description: str
+    commands: tuple[str, ...]
     mcp_tools: tuple[str, ...]
     read_paths: tuple[str, ...]
     summary_focus: str
@@ -53,8 +65,8 @@ LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
     "failed_to_generate",
 )
 
-# These wrapper paths remain the backend command surface used by the harness itself. Synthetic MCP
-# trace events refer to them so the existing counting/audit logic can stay stable.
+# These wrapper paths are the backend command surface used by the harness itself. The broker records
+# transport-neutral activity events against these paths so counting/audit can stay stable.
 WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="hardware_info",
@@ -64,13 +76,13 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="run_candidate",
         path="./bin/run_candidate.sh",
-        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
+        purpose="evaluate correctness and runtime for the current candidate",
         uses_gpu=True,
     ),
     WrapperCommandSpec(
         name="profile_ncu",
         path="./bin/profile_ncu.sh",
-        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
+        purpose="profile the current candidate with Nsight Compute",
         uses_gpu=True,
     ),
     WrapperCommandSpec(
@@ -86,8 +98,19 @@ WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
     WrapperCommandSpec(
         name="complete_problem",
         path="./bin/complete_problem.sh",
-        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
+        purpose="record a terminal completion summary",
     ),
+)
+
+SOLVER_COMMAND_SPECS: tuple[SolverCommandSpec, ...] = tuple(
+    SolverCommandSpec(
+        name=spec.name,
+        path=spec.path,
+        purpose=spec.purpose,
+        uses_gpu=spec.uses_gpu,
+    )
+    for spec in WORKSPACE_COMMAND_SPECS
+    if spec.name != "hardware_info"
 )
 
 MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
@@ -139,37 +162,40 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
 )
 
 WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
-    "Act as the planner-manager for this problem. Keep the main context focused on strategy, debugging, and choosing the next branch.",
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
-    "Do not end with a plain assistant message. The only valid exit is the `complete_problem` MCP tool.",
-    "Never start a second harness MCP call while another one is still running.",
-    "WHEN you want a measured evaluation, spawn the `runner` helper if available; use direct `run_candidate` yourself only when helper spawning is unavailable.",
-    "WHEN you want Nsight Compute output or profile interpretation, spawn the `profiler` helper if available; use direct `profile_ncu` yourself only when helper spawning is unavailable.",
-    "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
-    "Stay inside the benchmark contract: no cuBLAS, CUTLASS, Triton, ATen compute helpers, or extra CUDA streams.",
+    "Do not end with a plain assistant message. The only valid exit is the direct `complete_problem` command tool.",
+    "Never start a second harness command tool while another one is still running.",
+    "Use direct command tools like `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, and `complete_problem` for all harness actions.",
+    "Do not use shell commands or Python snippets for harness actions.",
+    "After every measured run or profile, re-read GOAL_STATUS.md or run the direct `goal_status` tool; keep iterating if it still says UNRESOLVED.",
+    "After every measured run, inspect `samples/latest.json` first and then `samples/latest.stdout.txt` / `samples/latest.stderr.txt` when the latest attempt failed to compile, validate, or run correctly.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
 )
 
 WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
-    "WHEN you do not already have profiling for the current idea, call `profile_ncu`.",
-    "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
-    "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
-    "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
-    "Do not switch to library wrappers or extra CUDA streams; they are forbidden by the benchmark contract.",
+    "Run the direct `profile_ncu` tool if you do not already have profiling for the current idea.",
+    "Read profiles/latest.summary.txt first, then profiles/latest.details.txt if needed.",
+    "Use hosted web search only for docs.nvidia.com when you need CUDA or hardware guidance.",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
 FIXED_WORKSPACE_RESOURCE_PATHS: tuple[str, ...] = (
+    ".",
     "AGENTS.md",
     "INITIAL_PROMPT.md",
     "SPEC.md",
     "HARDWARE.md",
     "GOAL_STATUS.md",
+    "goal_status.json",
+    "hardware.json",
+    "workspace_contract.json",
+    "problem.json",
     "problem_reference.py",
     CANDIDATE_FILENAME,
+    "bin/",
 )
 
 WORKSPACE_BROWSE_DIRS: tuple[str, ...] = (
@@ -189,14 +215,16 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="runner",
         description=(
             "Execution-focused helper for one assigned optimization problem. "
-            "The main solver should delegate measured evaluations to this helper by default so the main context stays focused on planning."
+            "Use proactively to run measured evaluations and summarize results without polluting the main context."
         ),
+        commands=("./bin/run_candidate.sh", "./bin/goal_status.sh", "./bin/best_result.sh"),
         mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
             "HARDWARE.md",
             "GOAL_STATUS.md",
+            "goal_status.json",
             "problem_reference.py",
             CANDIDATE_FILENAME,
             "samples/",
@@ -210,8 +238,9 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         name="profiler",
         description=(
             "Profiling helper for one assigned optimization problem. "
-            "The main solver should delegate Nsight Compute work to this helper by default so the main context stays focused on planning."
+            "Use proactively to run Nsight Compute profiling and summarize bottlenecks and likely next steps."
         ),
+        commands=("./bin/profile_ncu.sh", "./bin/goal_status.sh"),
         mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
         read_paths=(
             "AGENTS.md",
@@ -244,6 +273,20 @@ def mcp_tool_names() -> tuple[str, ...]:
 
 def claude_mcp_tool_names() -> tuple[str, ...]:
     return tuple(f"mcp__{MCP_SERVER_NAME}__{name}" for name in mcp_tool_names())
+
+
+def command_mcp_tool_names() -> tuple[str, ...]:
+    return (
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__run_candidate",
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__profile_ncu",
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__goal_status",
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__best_result",
+        f"mcp__{COMMAND_MCP_SERVER_NAME}__complete_problem",
+    )
+
+
+def solver_command_names() -> tuple[str, ...]:
+    return tuple(spec.path for spec in SOLVER_COMMAND_SPECS)
 
 
 def _resolve_workspace_surface(

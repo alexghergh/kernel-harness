@@ -27,12 +27,21 @@ DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
 
 prepare_shared_tool_state() {
+  local shared_tool_state_lock_dir="${DATA_ROOT}/state/locks/shared_tool_state"
+  local shared_tool_state_lock_path="${shared_tool_state_lock_dir}/config.lock"
+
+  mkdir -p "${shared_tool_state_lock_dir}"
+  exec 8>"${shared_tool_state_lock_path}"
+  flock 8
+
   "${PYTHON_BIN}" - <<'PY'
 from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
 from kernel_bench_experiment_agents.runtime.project import state_dir
 
 write_shared_tool_state(state_dir() / "config")
 PY
+  flock -u 8
+  exec 8>&-
 }
 
 TOOL="${TOOL:-codex}"

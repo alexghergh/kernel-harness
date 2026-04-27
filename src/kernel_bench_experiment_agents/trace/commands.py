@@ -13,6 +13,7 @@ from kernel_bench_experiment_agents.summary.completion import (
     annotate_completion_outcomes,
     apply_trace_audit_to_completion,
 )
+from kernel_bench_experiment_agents.activity_trace import load_activity_ir_events
 from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
 from kernel_bench_experiment_agents.runtime.project import now_iso, relative_path_within, write_json, write_text
 from kernel_bench_experiment_agents.trace.analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
@@ -58,6 +59,15 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
     if getattr(args, 'mcp_events_path', None):
         mcp_events_path = Path(args.mcp_events_path).expanduser().resolve()
         ir_events.extend(load_mcp_ir_events(mcp_events_path, warn=True, starting_line=len(raw_event_entries) + 1_000_000))
+    if getattr(args, "activity_events_path", None):
+        activity_events_path = Path(args.activity_events_path).expanduser().resolve()
+        ir_events.extend(
+            load_activity_ir_events(
+                activity_events_path,
+                warn=True,
+                starting_line=len(raw_event_entries) + 2_000_000,
+            )
+        )
 
     token_usage = trace_usage_summary(raw_events, tool=tool)
     cost_usd = trace_cost_usd(raw_events, tool=tool)
@@ -81,12 +91,22 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             )
         except FileNotFoundError:
             mcp_source_events_path = None
+    activity_source_events_path = None
+    if getattr(args, "activity_events_path", None):
+        try:
+            activity_source_events_path = _trace_source_reference(
+                events_path=Path(args.activity_events_path).expanduser().resolve(),
+                output_path=output_path,
+            )
+        except FileNotFoundError:
+            activity_source_events_path = None
     payload = {
         "tool": tool,
         "source_events_path": source_events_path,
         "generated_at": now_iso(),
         "trace_ir_version": 1,
         "mcp_source_events_path": mcp_source_events_path,
+        "activity_source_events_path": activity_source_events_path,
         "num_raw_events": len(raw_events),
         "num_ir_events": len(ir_events),
         "token_usage": token_usage,

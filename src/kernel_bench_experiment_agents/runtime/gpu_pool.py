@@ -9,9 +9,11 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterator
 
@@ -179,7 +181,95 @@ def resolve_gpu_device_selectors(*, num_slots: int) -> tuple[list[str], str]:
 def isolated_gpu_environment(*, device_selector: str) -> dict[str, str]:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = device_selector
+    cuda_home = discover_cuda_home()
+    if cuda_home:
+        env.setdefault("CUDA_HOME", cuda_home)
+        env.setdefault("CUDA_PATH", cuda_home)
+        _prepend_env_path(env, "PATH", str(Path(cuda_home) / "bin"))
+        _prepend_env_path(env, "LD_LIBRARY_PATH", str(Path(cuda_home) / "lib64"))
     return env
+
+
+@lru_cache(maxsize=1)
+def discover_cuda_home() -> str | None:
+    explicit = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    if explicit:
+        resolved = _validated_cuda_home(Path(explicit))
+        if resolved is not None:
+            return resolved
+
+    try:
+        from torch.utils.cpp_extension import CUDA_HOME as torch_cuda_home
+    except Exception:
+        torch_cuda_home = None
+    if torch_cuda_home:
+        resolved = _validated_cuda_home(Path(torch_cuda_home))
+        if resolved is not None:
+            return resolved
+
+    nvcc = shutil.which("nvcc")
+    if nvcc:
+        resolved = _validated_cuda_home(Path(nvcc).resolve().parent.parent)
+        if resolved is not None:
+            return resolved
+
+    search_roots = (
+        Path("/mnt/nfs/packages/x86_64/cuda"),
+        Path("/usr/local"),
+        Path("/opt"),
+    )
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for candidate in sorted(root.glob("cuda*"), key=_cuda_home_sort_key, reverse=True):
+            resolved = _validated_cuda_home(candidate)
+            if resolved is not None:
+                return resolved
+    return None
+
+
+def _validated_cuda_home(path: Path) -> str | None:
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        return None
+    if not resolved.is_dir():
+        return None
+    if (resolved / "bin" / "nvcc").exists():
+        return str(resolved)
+    if (resolved / "include" / "cuda.h").exists():
+        return str(resolved)
+    return None
+
+
+def _cuda_home_sort_key(path: Path) -> tuple[int, tuple[int, ...], str]:
+    name = path.name
+    if name == "cuda":
+        return (2, (), name)
+
+    version_text = name
+    if version_text.startswith("cuda-"):
+        version_text = version_text[5:]
+    elif version_text.startswith("cuda"):
+        version_text = version_text[4:]
+
+    parts: list[int] = []
+    for token in re.split(r"[^0-9]+", version_text):
+        if token:
+            parts.append(int(token))
+    if parts:
+        return (1, tuple(parts), name)
+    return (0, (), name)
+
+
+def _prepend_env_path(env: dict[str, str], name: str, entry: str) -> None:
+    if not Path(entry).exists():
+        return
+    current = env.get(name, "")
+    parts = [value for value in current.split(os.pathsep) if value]
+    if entry in parts:
+        return
+    env[name] = os.pathsep.join([entry, *parts]) if parts else entry
 
 
 def _parse_gpu_selector_list(raw_value: str, *, env_name: str) -> list[str]:

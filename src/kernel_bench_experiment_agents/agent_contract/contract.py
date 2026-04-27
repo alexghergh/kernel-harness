@@ -11,7 +11,7 @@ from kernel_bench_experiment_agents.agent_contract.policy import (
     ALLOWED_WEB_DOMAINS,
     HELPER_SPECS,
     LAUNCHER_TERMINAL_STATES,
-    MCP_TOOL_SPECS,
+    SOLVER_COMMAND_SPECS,
     SOLVER_TERMINAL_STATES,
     WORKSPACE_COMMAND_SPECS,
     WORKSPACE_EDIT_PATHS,
@@ -26,7 +26,14 @@ from kernel_bench_experiment_agents.agent_contract.prompts import (
 )
 
 
+def _direct_command_tool_name(*, tool: str | None, name: str) -> str | None:
+    if (tool or "").strip().lower() in {"codex", "claude"}:
+        return f"mcp__kernelbench_commands__{name}"
+    return None
+
+
 def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
+    tool = str(metadata.get("tool") or "")
     return {
         "assignment": {
             "run_name": metadata["run_name"],
@@ -38,20 +45,31 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
             "num_gpus": metadata.get("num_gpus"),
             "time_budget_minutes": metadata.get("time_budget_minutes"),
             "model": metadata.get("model"),
+            "tool": tool,
             "precision": metadata.get("precision", "bf16"),
         },
         "reads": list(WORKSPACE_READ_PATHS),
         "edits": list(WORKSPACE_EDIT_PATHS),
-        "mcp_tools": [
+        "commands": [
             {
                 "name": spec.name,
+                "path": spec.path,
                 "gpu": spec.uses_gpu,
                 "purpose": spec.purpose,
-                "read_only": spec.read_only,
-                "destructive": spec.destructive,
             }
-            for spec in MCP_TOOL_SPECS
+            for spec in SOLVER_COMMAND_SPECS
         ],
+        "command_tools": [
+            {
+                "name": spec.name,
+                "tool_name": _direct_command_tool_name(tool=tool, name=spec.name),
+                "gpu": spec.uses_gpu,
+                "purpose": spec.purpose,
+            }
+            for spec in SOLVER_COMMAND_SPECS
+            if _direct_command_tool_name(tool=tool, name=spec.name) is not None
+        ],
+        "mcp_tools": [],
         "backend_wrapper_commands": [
             {
                 "name": spec.name,

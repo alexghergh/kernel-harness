@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ast
 
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import candidate_template, normalize_candidate_template
+from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 
 
 FORBIDDEN_IMPORT_ROOTS = {
@@ -26,6 +26,8 @@ FORBIDDEN_IMPORT_ROOTS = {
     "tempfile",
     "triton",
     "urllib",
+    "problem_reference",
+    "reference",
 }
 
 FORBIDDEN_DEFINITION_NAMES = {
@@ -71,6 +73,7 @@ REQUIRED_LOADER_NAMES = {
 
 FORBIDDEN_STRING_MARKERS = {
     "TORCH_EXTENSIONS_DIR",
+    "build_directory",
     "cudaEventCreate",
     "cudaEventRecord",
     "cudaStreamCreate",
@@ -110,28 +113,18 @@ class CandidateValidationError(ValueError):
 
 
 def validate_candidate_source(candidate_src: str) -> None:
-    """Validate that candidate source matches the solution-only KernelBench contract."""
-
-    try:
-        normalized_candidate = normalize_candidate_template(candidate_src)
-        normalized_template = normalize_candidate_template(candidate_template())
-    except ValueError as exc:
-        raise CandidateValidationError(str(exc)) from exc
-    if normalized_candidate != normalized_template:
-        raise CandidateValidationError(
-            "candidate_model_new.py must keep the fixed scaffold unchanged and edit only the marked blocks. Do not add code outside the editable markers."
-        )
+    """Validate that candidate source matches the free-form KernelBench contract."""
 
     for marker in FORBIDDEN_STRING_MARKERS:
         if marker in candidate_src:
             raise CandidateValidationError(
-                f"Candidate may not set or reference forbidden runtime marker {marker!r}."
+                f"{CANDIDATE_FILENAME} may not set or reference forbidden runtime marker {marker!r}."
             )
     lowered = candidate_src.lower()
     for marker in FORBIDDEN_VENDOR_MARKERS:
         if marker in lowered:
             raise CandidateValidationError(
-                f"Vendor-library shortcut {marker!r} is forbidden in candidate_model_new.py."
+                f"Vendor-library shortcut {marker!r} is forbidden in {CANDIDATE_FILENAME}."
             )
 
     try:
@@ -167,7 +160,7 @@ class _CandidateValidator(ast.NodeVisitor):
             root = alias.name.split(".", 1)[0]
             if root in FORBIDDEN_IMPORT_ROOTS:
                 raise CandidateValidationError(
-                    f"Importing {alias.name!r} is forbidden in candidate_model_new.py."
+                    f"Importing {alias.name!r} is forbidden in {CANDIDATE_FILENAME}."
                 )
         self.generic_visit(node)
 
@@ -176,7 +169,7 @@ class _CandidateValidator(ast.NodeVisitor):
         root = module.split(".", 1)[0]
         if root in FORBIDDEN_IMPORT_ROOTS:
             raise CandidateValidationError(
-                f"Importing from {module!r} is forbidden in candidate_model_new.py."
+                f"Importing from {module!r} is forbidden in {CANDIDATE_FILENAME}."
             )
         self.generic_visit(node)
 
@@ -185,7 +178,7 @@ class _CandidateValidator(ast.NodeVisitor):
             self._saw_model_new = True
         elif node.name in FORBIDDEN_DEFINITION_NAMES:
             raise CandidateValidationError(
-                f"Redefining {node.name!r} is forbidden. Only ModelNew belongs in the candidate file."
+                f"Redefining {node.name!r} is forbidden. Keep only ModelNew as the model entrypoint in {CANDIDATE_FILENAME}."
             )
         self.generic_visit(node)
 
@@ -221,19 +214,23 @@ class _CandidateValidator(ast.NodeVisitor):
 
         if call_name in FORBIDDEN_CALL_NAMES:
             raise CandidateValidationError(
-                f"Calling {call_name!r} is forbidden in candidate_model_new.py."
+                f"Calling {call_name!r} is forbidden in {CANDIDATE_FILENAME}."
             )
         if call_name is not None:
             if call_name.startswith("torch.backends."):
                 raise CandidateValidationError(
-                    "Mutating or querying torch backend flags is forbidden in candidate_model_new.py."
+                    f"Mutating or querying torch backend flags is forbidden in {CANDIDATE_FILENAME}."
                 )
             if any(call_name.endswith(suffix) for suffix in FORBIDDEN_CALL_SUFFIXES):
                 raise CandidateValidationError(
-                    f"Calling {call_name!r} is forbidden in candidate_model_new.py."
+                    f"Calling {call_name!r} is forbidden in {CANDIDATE_FILENAME}."
                 )
 
         for keyword in node.keywords:
+            if keyword.arg == "build_directory":
+                raise CandidateValidationError(
+                    "Setting build_directory is forbidden; extension build paths are owned by the harness."
+                )
             if keyword.arg == "out":
                 raise CandidateValidationError(
                     "Using out= in candidate ops is forbidden because it can reuse output buffers across evaluations."
@@ -246,22 +243,22 @@ class _CandidateValidator(ast.NodeVisitor):
         if name is not None:
             if name.startswith("os.environ"):
                 raise CandidateValidationError(
-                    "Environment-variable access is forbidden in candidate_model_new.py."
+                    f"Environment-variable access is forbidden in {CANDIDATE_FILENAME}."
                 )
             if name.startswith("torch.backends."):
                 raise CandidateValidationError(
-                    "Torch backend flag access is forbidden in candidate_model_new.py."
+                    f"Torch backend flag access is forbidden in {CANDIDATE_FILENAME}."
                 )
         self.generic_visit(node)
 
     def finalize(self) -> None:
         if not self._saw_model_new:
             raise CandidateValidationError(
-                "candidate_model_new.py must define a class named ModelNew."
+                f"{CANDIDATE_FILENAME} must define a class named ModelNew."
             )
         if not self._saw_custom_loader:
             raise CandidateValidationError(
-                "candidate_model_new.py must build a custom CUDA/C++ extension via load_inline or load."
+                f"{CANDIDATE_FILENAME} must build a custom CUDA/C++ extension via load_inline or load."
             )
 
     def _validate_assignment_targets(self, targets: list[ast.expr]) -> None:
@@ -271,13 +268,13 @@ class _CandidateValidator(ast.NodeVisitor):
                 continue
             if name in FORBIDDEN_REBIND_NAMES:
                 raise CandidateValidationError(
-                    f"Rebinding {name!r} is forbidden in candidate_model_new.py. Keep the extension loader itself untouched."
+                    f"Rebinding {name!r} is forbidden in {CANDIDATE_FILENAME}. Keep the extension loader itself untouched."
                 )
             if name.startswith("os.environ"):
                 raise CandidateValidationError(
-                    "Environment-variable mutation is forbidden in candidate_model_new.py."
+                    f"Environment-variable mutation is forbidden in {CANDIDATE_FILENAME}."
                 )
             if name.startswith("torch.backends."):
                 raise CandidateValidationError(
-                    "Torch backend flag mutation is forbidden in candidate_model_new.py."
+                    f"Torch backend flag mutation is forbidden in {CANDIDATE_FILENAME}."
                 )

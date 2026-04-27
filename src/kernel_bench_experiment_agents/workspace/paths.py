@@ -87,6 +87,26 @@ def workspace_profiles_dir(workspace: Path) -> Path:
     return workspace / "profiles"
 
 
+def workspace_sample_paths(workspace: Path, sample_id: int) -> dict[str, Path]:
+    sample_base = workspace_samples_dir(workspace) / f"sample_{sample_id}"
+    return {
+        "source": sample_base.with_suffix(".py"),
+        "json": sample_base.with_suffix(".json"),
+        "stdout": sample_base.with_suffix(".stdout.txt"),
+        "stderr": sample_base.with_suffix(".stderr.txt"),
+    }
+
+
+def latest_workspace_sample_paths(workspace: Path) -> dict[str, Path]:
+    samples_dir = workspace_samples_dir(workspace)
+    return {
+        "source": samples_dir / "latest.py",
+        "json": samples_dir / "latest.json",
+        "stdout": samples_dir / "latest.stdout.txt",
+        "stderr": samples_dir / "latest.stderr.txt",
+    }
+
+
 def workspace_relpath(path: Path, workspace: Path) -> str:
     try:
         return str(path.resolve().relative_to(workspace.resolve()))
@@ -99,10 +119,37 @@ def write_workspace_sample_copy(
     sample_id: int,
     candidate_src: str,
 ) -> None:
-    write_text(
-        workspace_samples_dir(workspace) / f"sample_{sample_id}.py",
-        candidate_src,
-    )
+    write_text(workspace_sample_paths(workspace, sample_id)["source"], candidate_src)
+
+
+def write_workspace_sample_mirrors(
+    *,
+    workspace: Path,
+    sample_id: int,
+    payload: dict[str, Any],
+    stdout_text: str,
+    stderr_text: str,
+    candidate_src: str | None = None,
+) -> dict[str, Path]:
+    local_paths = workspace_sample_paths(workspace, sample_id)
+    latest_paths = latest_workspace_sample_paths(workspace)
+
+    if candidate_src is not None:
+        write_text(local_paths["source"], candidate_src)
+        write_text(latest_paths["source"], candidate_src)
+
+    write_json(local_paths["json"], payload)
+    write_text(local_paths["stdout"], stdout_text)
+    write_text(local_paths["stderr"], stderr_text)
+
+    write_json(latest_paths["json"], payload)
+    write_text(latest_paths["stdout"], stdout_text)
+    write_text(latest_paths["stderr"], stderr_text)
+
+    return {
+        **local_paths,
+        **{f"latest_{key}": value for key, value in latest_paths.items()},
+    }
 
 
 def write_workspace_best_sample(

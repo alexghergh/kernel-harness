@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from kernel_bench_experiment_agents.activity_trace import load_activity_ir_events
 from kernel_bench_experiment_agents.workspace.archive import (
+    activity_trace_events_path,
     goal_status_archive_path,
     mcp_trace_events_path,
     profile_manifest_entries,
@@ -71,10 +73,17 @@ def live_trace_counts_for_problem(
         trace_events_path(run_name, level, problem_id)
     )
     ir_events = materialize_trace_ir(raw_event_entries, tool=tool)
+    # Legacy archives may still have MCP sidecar events from the pre-broker runtime.
     ir_events.extend(
         load_mcp_ir_events(
             mcp_trace_events_path(run_name, level, problem_id),
             starting_line=len(raw_event_entries) + 1_000_000,
+        )
+    )
+    ir_events.extend(
+        load_activity_ir_events(
+            activity_trace_events_path(run_name, level, problem_id),
+            starting_line=len(raw_event_entries) + 2_000_000,
         )
     )
     return (
@@ -179,7 +188,7 @@ def goal_status_snapshot(
             )
     if resolved:
         recommended_actions.append(
-            "Re-check SPEC.md once, then end via the `complete_problem` MCP tool with a short success summary."
+            "Re-check SPEC.md once, then end via the direct `complete_problem` tool with a short success summary."
         )
     else:
         recommended_actions.extend(
@@ -190,9 +199,9 @@ def goal_status_snapshot(
                 "WHEN you are stuck or a candidate is slower than expected, use `profile_ncu`; read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
                 "WHEN the next optimization idea depends on NVIDIA-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
                 "WHEN you are choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
-                "Do not end with a plain assistant message. The only valid exit path is the `complete_problem` MCP tool.",
-                "Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
-                "`run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
+                "Do not end with a plain assistant message. The only valid exit path is the direct `complete_problem` tool.",
+                "Never overlap direct command tools. Start a new harness command only after the previous one has fully returned.",
+                "`run_candidate` and `profile_ncu` may take a while; wait for the result instead of treating them as hung.",
             ]
         )
 

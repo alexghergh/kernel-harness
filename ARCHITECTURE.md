@@ -11,11 +11,11 @@ The harness is responsible for:
 - preparing a fresh workspace for one problem
 - rendering the solver-facing contract into that workspace
 - launching Codex or Claude with a narrow local surface
-- exposing local problem interaction only through a shared MCP server plus hosted web search
+- exposing direct workspace reads/edits while keeping privileged measured actions behind a launcher-owned command broker
 - recording attempts, traces, status, completion, and profiler outputs
 - aggregating archived results through `summarize-run`
 
-The harness is responsible for vendoring the official KernelBench repository under `third_party/KernelBench/`, and that vendored copy may carry local harness-specific fixes until upstream equivalents land. The harness is **not** responsible for downloading KernelBench on demand at launch time.
+The harness is responsible for pointing `third_party/KernelBench/` at the configured KernelBench fork. Local harness-specific KernelBench fixes should live in that fork rather than as vendored patches in this repository.
 
 The clean user-facing repo entrypoint is `./kb`. It provides a small setup, run, range, and submit surface while the lower-level shell scripts and Python CLI stay available underneath it. `./kb setup` uses `uv` to provision a Python 3.10 environment under `./.venv` by default, and builds the vendored `third_party/landrun` checkout into `third_party/bin/landrun`.
 
@@ -48,7 +48,7 @@ The solver is nudged through several small surfaces rather than one giant prompt
 - generated workspace `AGENTS.md` — durable top-level contract
 - generated `INITIAL_PROMPT.md` — opening run-specific instructions
 - generated `GOAL_STATUS.md` — live status file re-read after measured actions
-- MCP `workspace_overview()` — the first structured overview call
+- direct command tools — the measured harness action surface
 - helper-agent specs for `runner` and `profiler` — narrow delegated roles when the client runtime supports helper spawning
 
 The intended behavior is:
@@ -56,8 +56,8 @@ The intended behavior is:
 - the main agent acts as the planner-manager
 - `runner` handles measured evaluation by default
 - `profiler` handles Nsight Compute work by default
-- direct `run_candidate` / `profile_ncu` from the main agent are fallback paths when helper spawning is unavailable
-- hosted web remains separate from MCP and should be used only for NVIDIA docs when the next optimization branch depends on hardware-specific behavior
+- direct `run_candidate` / `profile_ncu` from the main agent are valid paths when helper spawning is unavailable
+- hosted web remains separate from local file/actions and should be used only for NVIDIA docs when the next optimization branch depends on hardware-specific behavior
 
 ## High-level flow
 
@@ -67,8 +67,8 @@ For one `(run_name, level, problem_id)` tuple, the harness does this:
 2. prepares a fresh self-contained workspace
 3. renders solver-facing docs and compatibility wrapper scripts into that workspace
 4. prepares the shared tool-private config under `state/config/`
-5. launches Codex or Claude from an empty per-problem scratch cwd under `state/cwd/`
-6. gives the model only hosted web search plus the `kernelbench` MCP server for local problem work
+5. launches Codex or Claude in the prepared workspace under Landrun
+6. gives the model direct workspace reads, a single writable candidate file, and direct-command access to the launcher-owned broker for privileged actions
 7. records attempts, traces, completion state, and optional profiles
 8. writes the durable record under `archive/<run_name>/level_<level>/problem_<problem_id>/`
 
@@ -126,8 +126,8 @@ Those shared tool dirs are where the harness writes:
 
 - generated Codex `config.toml`
 - generated Claude `settings.json`
-- generated Claude `.claude.json` for MCP server registration
-- Claude keeps bash sandboxing disabled on this cluster-oriented setup; the active client-side guardrail is the Claude permissions allow/deny list plus MCP-only workspace access
+- generated per-run Claude command-MCP registration for the launcher-owned broker
+- Claude's own shell sandbox stays disabled on this cluster-oriented setup, but the Bash tool itself is not exposed to the solver; Landrun and the command broker are the active local guardrails
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
 
@@ -142,7 +142,7 @@ This split is deliberate:
 
 - the workspace should contain only problem files the solver is meant to read or edit
 - tool auth/config should not sit inside the solver-visible workspace
-- traces are **not** recovered from shared tool history files; each problem captures its own streamed `agent/events.jsonl` directly from the launcher and its own `agent/mcp_ir_events.jsonl` from the MCP server
+- traces are **not** recovered from shared tool history files; each problem captures its own streamed `agent/events.jsonl` directly from the launcher and its own `agent/activity_ir_events.jsonl` from the command broker
 - `agent/events.jsonl` is the exact client stream you watch live; `agent/trace_ir.json` is the normalized merged view used for counts, audit, and summaries
 
 ## Codex vs Claude local-surface split
@@ -156,7 +156,7 @@ Codex keeps its shared user/runtime config under `CODEX_HOME`. The harness gener
 - `state/config/codex/config.toml`
 - `state/config/codex/agents/*.toml`
 
-Codex launches from an empty per-problem cwd under `state/cwd/codex/...`, with the real workspace reachable only through the `kernelbench` MCP server. The shared `state/config/codex/config.toml` registers that MCP server once and forwards only `DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, and `KBH_MCP_EVENTS_PATH` via Codex `env_vars`; the launcher exports those four values per problem before each run.
+Codex launches from the prepared problem workspace under Landrun. The shared `state/config/codex/config.toml` disables the shell tool and registers only the tiny command MCP server for privileged harness actions.
 
 ### Claude
 
@@ -166,24 +166,24 @@ Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harne
 - `state/config/claude/.claude.json`
 - `state/config/claude/agents/*.md`
 
-Claude also launches from an empty per-problem cwd under `state/cwd/claude/...`, with the real workspace reachable only through the `kernelbench` MCP server.
-The shared `state/config/claude/.claude.json` forwards the minimal per-problem MCP context (`DATA_ROOT`, `KBH_WORKSPACE`, `KBH_CLIENT_TOOL`, `KBH_MCP_EVENTS_PATH`) into that MCP server explicitly. The rest of the problem assignment comes from workspace metadata and archive provenance, so the launcher does not need to duplicate more environment than that.
+Claude also launches from the prepared problem workspace under Landrun. The shared Claude config carries web/search and helper-agent policy, while the launcher writes a per-run `command-mcp.json` that exposes only the command broker tools (`run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`) for the current problem socket.
 
 The practical result is the same for both tools **with respect to the actual problem environment**:
 
 - no tool auth/config files in the workspace
-- the real workspace is meant to be reachable only through the `kernelbench` MCP server
-- hosted web access stays native to each client and is restricted separately from MCP
+- the real workspace is directly visible but intentionally small and self-contained
+- Landrun mounts the workspace read-only except for `candidate_model_new.py`
+- hosted web access stays native to each client and is restricted separately from local actions
 - shared web-search policy and helper-agent definitions
 - `goal_status` is the live structured status query (remaining budget, attempt counts, best sample, baseline progress)
 - `best_result` is the narrow structured query for the current best measured correct attempt
 
 The enforcement mechanism differs:
 
-- **Codex** does not expose a Claude-style deny list for its built-in local browsing surface. The harness therefore launches Codex in an empty scratch cwd, disables the default shell tool, disables parent project-doc discovery, and keeps the real workspace behind MCP. Codex may still inspect the scratch cwd, but that scratch dir intentionally does not contain the problem environment.
-- **Claude** uses explicit permission denies for its built-in local file/shell tools, so local problem reads/writes/executes are blocked directly and the same real workspace is reachable only through MCP.
+- **Codex** gets native file/edit tools in the prepared workspace, with the shell tool disabled and privileged actions exposed only through the command MCP server.
+- **Claude** gets native file tools in the prepared workspace, with Bash not exposed and privileged actions exposed only through the command MCP server.
 
-Implementation note: the official Python MCP SDK owns transport, protocol, and initialization. The harness-specific MCP layer under `src/kernel_bench_experiment_agents/mcp/` now only covers context loading, filesystem policy, resources, tool handlers, and the synthetic trace sidecar.
+Implementation note: the legacy file-access MCP server under `src/kernel_bench_experiment_agents/mcp/` remains for compatibility and tests, but the active launcher path does not use it for workspace reads/writes. The active command MCP server is intentionally tiny and forwards only to the Unix-socket broker.
 
 ## Archive contents
 
@@ -217,7 +217,8 @@ The agent-side run record.
 Important files:
 
 - `events.jsonl` — raw streamed output from the agent CLI for this problem only
-- `mcp_ir_events.jsonl` — synthetic MCP tool events for this problem only
+- `activity_ir_events.jsonl` — synthetic wrapper/direct-command events recorded by the command broker for this problem only
+- `mcp_ir_events.jsonl` — legacy synthetic MCP tool events when present
 - `trace_ir.json` — normalized trace representation used by the harness
 - `completion.json` — terminal state plus measured outcome, trace-derived metadata, and `kernelbench_hacked_kernel_attempt_warnings`
 - `goal_status.json` — archived final goal-status snapshot for where the solver ended
@@ -254,7 +255,7 @@ Each solver workspace is fresh, self-contained, and intentionally small.
 
 Solver-visible problem files and history mirrors:
 
-- read-only MCP resources:
+- direct read surface:
   - `AGENTS.md`
   - `INITIAL_PROMPT.md`
   - `SPEC.md`
@@ -262,10 +263,18 @@ Solver-visible problem files and history mirrors:
   - `GOAL_STATUS.md`
   - `problem_reference.py`
   - `candidate_model_new.py`
-- history directories reachable only through MCP read/list tools:
+  - `workspace_contract.json`
+  - `problem.json`
+  - `hardware.json`
+- history directories:
   - `samples/`
   - `profiles/`
-- `bin/*.sh` still exist for humans and archived trace accounting, but the model is not supposed to call them directly
+- action wrappers:
+  - `bin/run_candidate.sh`
+  - `bin/profile_ncu.sh`
+  - `bin/goal_status.sh`
+  - `bin/best_result.sh`
+  - `bin/complete_problem.sh`
 
 Workspace-local `samples/` and `profiles/` are mirrors for solver convenience. They are not the durable source of truth.
 
@@ -280,28 +289,21 @@ Notably absent from the workspace:
 
 Those live under `state/config/` instead.
 
-## MCP tool surface
+## Local Tool Surface
 
-The solver is supposed to work through the `kernelbench` MCP server, not through ad hoc shell or local file workflows.
+The solver is supposed to work directly in the prepared workspace, not through ad hoc repository or system workflows.
 
-The solver-visible MCP surface is:
+The solver-visible direct workspace surface is:
 
-- `workspace_overview`
-- `list_workspace_dir`
-- `read_workspace_file`
-- `write_candidate`
-- `run_candidate`
-- `profile_ncu`
-- `goal_status`
-- `best_result`
-- `complete_problem`
+- read the generated workspace docs, problem reference, candidate, `samples/`, and `profiles/`
+- edit only `candidate_model_new.py`
+- run privileged actions only through direct command tools
 
 Semantics:
 
-- fixed docs/code are exposed as read-only MCP resources; there is no generic `read any path` resource template
-- `list_workspace_dir` is limited to `samples/` and `profiles/`
-- `read_workspace_file` can read the fixed files above plus files under `samples/` and `profiles/`
-- `write_candidate` is the only supported local edit path; validation failures return the exact rejected construct and do not apply the write
+- direct file reads are limited by workspace policy and Landrun to the self-contained problem workspace
+- Landrun mounts the workspace read-only and grants write access only to `candidate_model_new.py`
+- `candidate_model_new.py` is the only supported local edit path; validation failures return the exact rejected construct and the run does not count toward progress
 - `run_candidate` is the only supported measured-evaluation path
 - `profile_ncu` is the only supported profiling path
 - `goal_status` is **not** just a cached file read: it refreshes `GOAL_STATUS.md` under the artifact lock and returns the live structured snapshot, including remaining budget, baseline status, current best-run summary, and the latest discarded-attempt reason when present
@@ -311,11 +313,8 @@ Semantics:
 In other words, the solver surface is intentionally split into:
 
 - **native web**: tool-specific hosted search/fetch, restricted to `docs.nvidia.com`
-- **MCP resources**: the small fixed read-only problem contract
-- **MCP read tools**: bounded history browsing under `samples/` and `profiles/`
-- **MCP action tools**: candidate overwrite, measured run, profiling, live status refresh, best-result query, and completion
-
-The compatibility `bin/*.sh` wrappers still exist in the workspace for humans and archived trace accounting, but the model is not supposed to call them directly.
+- **direct workspace files**: the small fixed problem contract, candidate, and bounded history mirrors
+- **brokered actions**: measured run, profiling, live status refresh, best-result query, and completion
 
 ## Completion model
 

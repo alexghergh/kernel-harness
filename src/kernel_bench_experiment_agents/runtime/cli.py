@@ -1,6 +1,6 @@
-"""Expose the stable command-line entrypoints that scripts, wrappers, and the MCP server call.
+"""Expose the stable command-line entrypoints that scripts, wrappers, and command brokers call.
 
-The launcher uses internal commands here while the solver sees only the narrower MCP problem surface.
+The launcher uses internal commands here while the solver sees only the narrower workspace and broker surface.
 """
 
 from __future__ import annotations
@@ -107,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     trace.add_argument("--tool", choices=TOOL_CHOICES, default="codex")
     trace.add_argument("--events-path", required=True)
     trace.add_argument("--mcp-events-path", default=None)
+    trace.add_argument("--activity-events-path", default=None)
     trace.add_argument("--output-path", required=True)
     trace.add_argument("--completion-path", default=None)
     trace.add_argument("--final-message-path", default=None)
