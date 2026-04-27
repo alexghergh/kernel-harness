@@ -417,7 +417,7 @@ LANDRUN_ARGS=(
   --rw "${COMMAND_SOCKET_DIR}"
 )
 if [[ "${TOOL}" == "codex" ]]; then
-  LANDRUN_ARGS+=(--ro "${TOOL_RUNTIME_HOME}")
+  LANDRUN_ARGS+=(--rw "${TOOL_RUNTIME_HOME}")
 else
   LANDRUN_ARGS+=(--rw "${TOOL_RUNTIME_HOME}")
 fi
@@ -567,7 +567,7 @@ if [[ "${TOOL}" == "codex" ]]; then
     cd "${TOOL_CWD}" && \
       "${LANDRUN_BIN}" "${LANDRUN_ARGS[@]}" "${LANDRUN_ENV_ARGS[@]}" "${TOOL_BIN_PATH}" "${CODEX_ARGS[@]}" \
         --output-last-message "${RUNTIME_FINAL_MESSAGE_PATH}" \
-        "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
+        "$(cat "${INITIAL_PROMPT_PATH}")" </dev/null | tee "${EVENTS_PATH}"
   ) &
 else
   readarray -t CLAUDE_TOOL_FLAGS < <(
