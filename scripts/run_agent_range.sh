@@ -25,24 +25,8 @@ DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
-
-prepare_shared_tool_state() {
-  local shared_tool_state_lock_dir="${DATA_ROOT}/state/locks/shared_tool_state"
-  local shared_tool_state_lock_path="${shared_tool_state_lock_dir}/config.lock"
-
-  mkdir -p "${shared_tool_state_lock_dir}"
-  exec 8>"${shared_tool_state_lock_path}"
-  flock 8
-
-  "${PYTHON_BIN}" - <<'PY'
-from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
-from kernel_bench_experiment_agents.runtime.project import state_dir
-
-write_shared_tool_state(state_dir() / "config")
-PY
-  flock -u 8
-  exec 8>&-
-}
+KERNELBENCH_ROOT="$(resolve_kernelbench_root "${REPO_ROOT}" "${KERNELBENCH_ROOT:-}")"
+export KERNELBENCH_ROOT
 
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
@@ -94,15 +78,12 @@ report_elapsed_time() {
 trap report_elapsed_time EXIT
 
 echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
-prepare_shared_tool_state
-export SHARED_TOOL_STATE_PREPARED=1
 
 export DATA_ROOT TOOL RUN_NAME LEVEL
 export DATASET_SRC="${DATASET_SRC:-local}"
 export MODEL="${MODEL:-}"
 export TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 export HARDWARE_NAME="${HARDWARE_NAME:-}"
-export KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
 export KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 export PRECISION="${PRECISION:-bf16}"
 

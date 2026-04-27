@@ -17,6 +17,11 @@ from kernel_bench_experiment_agents.activity_trace import append_activity_event
 from kernel_bench_experiment_agents.kernelbench.commands.nvidia_docs import command_research_nvidia_docs
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
 from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
+from kernel_bench_experiment_agents.runtime.project import archive_problem_dir
+from kernel_bench_experiment_agents.runtime.solver_sanitize import (
+    sanitize_solver_text,
+    sanitize_solver_value,
+)
 from kernel_bench_experiment_agents.kernelbench.commands.status import (
     command_best_result,
     command_complete_problem,
@@ -55,6 +60,35 @@ class InvocationError(RuntimeError):
         self.payload = payload
 
 
+def _problem_archive_root(ctx: BrokerContext) -> Path:
+    return archive_problem_dir(ctx.run_name, ctx.level, ctx.problem_id)
+
+
+def _sanitize_text_for_solver(ctx: BrokerContext, text: str | None) -> str | None:
+    if text is None:
+        return None
+    return sanitize_solver_text(
+        text,
+        workspace=ctx.workspace,
+        problem_archive_root=_problem_archive_root(ctx),
+    )
+
+
+def _sanitize_value_for_solver(ctx: BrokerContext, value: Any) -> Any:
+    return sanitize_solver_value(
+        value,
+        workspace=ctx.workspace,
+        problem_archive_root=_problem_archive_root(ctx),
+    )
+
+
+def _sanitize_response_for_solver(
+    ctx: BrokerContext,
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    return _sanitize_value_for_solver(ctx, response)
+
+
 def _append_activity(
     ctx: BrokerContext,
     *,
@@ -64,7 +98,7 @@ def _append_activity(
     text: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    event_metadata = dict(metadata or {})
+    event_metadata = _sanitize_value_for_solver(ctx, dict(metadata or {}))
     event_metadata.setdefault("command_name", command_name)
     append_activity_event(
         ctx.activity_events_path,
@@ -72,7 +106,7 @@ def _append_activity(
             "tool": ctx.client_tool,
             "kind": kind,
             "command": command,
-            "text": text,
+            "text": _sanitize_text_for_solver(ctx, text),
             "metadata": event_metadata,
         },
     )
@@ -429,6 +463,7 @@ class BrokerHandler(socketserver.StreamRequestHandler):
                     "ok": False,
                     "error": str(exc),
                 }
+            response = _sanitize_response_for_solver(self.server.context, response)
             self.wfile.write((json.dumps(response, sort_keys=True) + "\n").encode("utf-8"))
         finally:
             self.server.note_request_end()

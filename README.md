@@ -51,8 +51,8 @@ The exact live model trace is saved as `archive/.../agent/events.jsonl`. Broker-
 
 The client-specific enforcement differs slightly:
 
-- **Codex** runs in the workspace with native file/edit tools and the shell tool disabled. A tiny command MCP server exposes only brokered privileged actions.
-- **Claude** runs in the workspace with normal file tools and a tiny command MCP server for brokered privileged actions. Bash is not exposed.
+- **Codex** runs in the workspace with native file/edit tools and the shell tool disabled. A per-problem `CODEX_HOME` is generated under disposable `state/tool_state/...`, and a tiny command MCP server exposes only brokered privileged actions.
+- **Claude** runs in the workspace with normal file tools and a tiny command MCP server for brokered privileged actions. A per-problem `CLAUDE_CONFIG_DIR` is generated under disposable `state/tool_state/...`; Bash is not exposed, and file-tool hooks deny reads outside the assigned workspace and writes outside `candidate_model_new.py`.
 
 
 ## Setup
@@ -99,11 +99,11 @@ For compatibility, `./scripts/bootstrap_uv.sh` still works and now forwards to `
 
 Run these commands from the harness repo root.
 
-The harness generates `state/config/` itself on launch. Authenticate once into repo-root tool dirs, and the harness will mirror only those repo-root auth files into `state/config/` each time it recreates shared tool state. It intentionally does not read `~/.codex` or `~/.claude`.
+The harness generates per-problem tool homes under `state/tool_state/` on launch. Authenticate once into repo-root tool dirs, and the harness will mirror only those repo-root auth files into the per-problem tool home for each run. It intentionally does not read `~/.codex` or `~/.claude`.
 
 ### Codex
 
-Preferred path: sign in once into repo-root `./.codex/`, using file-backed credentials so the harness can copy `auth.json` into `state/config/codex/` on launch.
+Preferred path: sign in once into repo-root `./.codex/`, using file-backed credentials so the harness can copy `auth.json` into `state/tool_state/<run>/level_<n>/problem_<m>/codex/` on launch.
 
 ```bash
 mkdir -p .codex
@@ -119,7 +119,7 @@ export OPENAI_API_KEY=...
 
 ### Claude Code
 
-Preferred path: sign in once into repo-root `./.claude/`. The harness copies only `./.claude/.credentials.json` into `state/config/claude/` on launch. If a fresh `claude login` works in your normal shell but the harness does not, refresh the repo-root `./.claude/.credentials.json` file; the harness intentionally ignores `~/.claude`.
+Preferred path: sign in once into repo-root `./.claude/`. The harness copies only `./.claude/.credentials.json` into `state/tool_state/<run>/level_<n>/problem_<m>/claude/` on launch. If a fresh `claude login` works in your normal shell but the harness does not, refresh the repo-root `./.claude/.credentials.json` file; the harness intentionally ignores `~/.claude`.
 
 ```bash
 mkdir -p .claude
@@ -138,7 +138,7 @@ export CLAUDE_CODE_OAUTH_TOKEN=...
 
 ## Command broker smoke test
 
-The active launcher path uses the command broker rather than the old file-access MCP server. A lightweight smoke is to prepare one workspace, start `python -m kernel_bench_experiment_agents.command_broker` with a temporary Unix socket, and call `bin/goal_status.sh` with `PYTHON` and `KBH_COMMAND_SOCKET` exported.
+The active launcher path uses the command broker rather than a file-access MCP server. A lightweight smoke is to prepare one workspace, start `python -m kernel_bench_experiment_agents.command_broker` with a state-local Unix socket, and call the generated workspace wrappers with `PYTHON` and `KBH_COMMAND_SOCKET` exported.
 
 ```bash
 TOOL=codex \
@@ -155,7 +155,9 @@ HARDWARE_NAME=H100 \
 
 The full smoke path is a real `./kb run`, because that exercises workspace preparation, Landrun, the command broker, trace materialization, and completion handling together.
 
-The shared helper agents `runner` and `profiler` are also loaded from `state/config/` when the client runtime supports them.
+For a broker-only smoke without launching a model, run `scripts/test_command_broker.sh` with `KERNELBENCH_ROOT` and `HARDWARE_NAME` set.
+
+The helper agents `runner` and `profiler` are generated into each per-problem tool home when the client runtime supports them.
 
 ## Most common runs
 
@@ -289,7 +291,7 @@ The only durable copy-out root is:
 archive/<run_name>/
 ```
 
-Live workspaces, locks, shared tool config, per-problem scratch directories, and build products live under `state/` and are disposable once no run is active.
+Live workspaces, locks, per-problem tool config/runtime dirs, broker sockets, and build products live under `state/` and are disposable once no run is active.
 
 ## Lower-level entrypoints
 
@@ -310,6 +312,6 @@ Read `ARCHITECTURE.md` for:
 
 - archive contents and file meanings
 - workspace contents and solver boundaries
-- shared Codex / Claude config layout under `state/config/`
+- per-problem Codex / Claude config layout under `state/tool_state/`
 - the direct-workspace plus broker local tool surface
 - how profiling, attempts, traces, and summaries are recorded

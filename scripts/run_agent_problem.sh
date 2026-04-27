@@ -37,29 +37,32 @@ DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
-KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
+KERNELBENCH_ROOT="$(resolve_kernelbench_root "${REPO_ROOT}" "${KERNELBENCH_ROOT:-}")"
+export KERNELBENCH_ROOT
 
 STATE_ROOT="${DATA_ROOT}/state"
 ARCHIVE_ROOT="${DATA_ROOT}/archive"
-TOOL_CONFIG_ROOT="${STATE_ROOT}/config"
-CODEX_SHARED_HOME="${TOOL_CONFIG_ROOT}/codex"
-CLAUDE_SHARED_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
 KBHARNESS_CLI="kbharness"
 
-prepare_shared_tool_state() {
-  local shared_tool_state_lock_dir="${STATE_ROOT}/locks/shared_tool_state"
-  local shared_tool_state_lock_path="${shared_tool_state_lock_dir}/config.lock"
+prepare_tool_state() {
+  local tool_state_lock_dir="${STATE_ROOT}/locks/tool_state"
+  local tool_state_lock_path="${tool_state_lock_dir}/${RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
 
-  mkdir -p "${shared_tool_state_lock_dir}"
-  exec 8>"${shared_tool_state_lock_path}"
+  mkdir -p "${tool_state_lock_dir}"
+  exec 8>"${tool_state_lock_path}"
   flock 8
 
+  TOOL_CONFIG_ROOT="${TOOL_CONFIG_ROOT}" \
+  REPO_ROOT="${REPO_ROOT}" \
   "${PYTHON_BIN}" - <<'PY'
 from pathlib import Path
-from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
-from kernel_bench_experiment_agents.runtime.project import state_dir
+import os
+from kernel_bench_experiment_agents.runtime.policy import write_tool_state
 
-write_shared_tool_state(state_dir() / "config")
+write_tool_state(
+    Path(os.environ["TOOL_CONFIG_ROOT"]),
+    repo_root=Path(os.environ["REPO_ROOT"]),
+)
 PY
   flock -u 8
   exec 8>&-
@@ -121,9 +124,6 @@ require_harness_command() {
 
 require_kernelbench_checkout() {
   if [[ -n "${KERNELBENCH_ROOT:-}" ]]; then
-    return
-  fi
-  if [[ -d "./third_party/KernelBench" ]]; then
     return
   fi
   echo "KernelBench checkout not found. Run ${BOOTSTRAP_HINT} or set KERNELBENCH_ROOT=/path/to/KernelBench." >&2
@@ -189,18 +189,26 @@ if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "RUN_NAME may contain only ASCII letters, digits, dot, underscore, and hyphen." >&2
   exit 1
 fi
+if [[ ! "${LEVEL}" =~ ^[0-9]+$ ]]; then
+  echo "LEVEL must be a non-negative integer." >&2
+  exit 1
+fi
+if [[ ! "${PROBLEM_ID}" =~ ^[0-9]+$ ]]; then
+  echo "PROBLEM_ID must be a non-negative integer." >&2
+  exit 1
+fi
 if [[ -z "${HARDWARE_NAME}" ]]; then
   echo "HARDWARE_NAME must name the KernelBench timings subdirectory to use." >&2
   exit 1
 fi
+TOOL_CONFIG_ROOT="${STATE_ROOT}/tool_state/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+CODEX_RUN_HOME="${TOOL_CONFIG_ROOT}/codex"
+CLAUDE_RUN_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
 
 require_command flock
 require_harness_command "${KBHARNESS_CLI}"
 require_kernelbench_checkout
-if [[ "${SHARED_TOOL_STATE_PREPARED:-0}" != "1" ]]; then
-  prepare_shared_tool_state
-fi
-export SHARED_TOOL_STATE_PREPARED=1
+prepare_tool_state
 
 ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
@@ -226,27 +234,27 @@ fi
 
 if [[ "${TOOL}" == "codex" ]]; then
   require_command codex
-  export CODEX_HOME="${CODEX_SHARED_HOME}"
+  export CODEX_HOME="${CODEX_RUN_HOME}"
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
   elif ! codex login status >/dev/null 2>&1; then
     echo "Codex needs either repo-root .codex/auth.json or OPENAI_API_KEY before launch." >&2
     echo "Preferred: CODEX_HOME=\"./.codex\" codex -c cli_auth_credentials_store=file login --device-auth" >&2
-    echo "The harness copies only ./.codex/auth.json into ${CODEX_SHARED_HOME} on launch." >&2
+    echo "The harness copies only ./.codex/auth.json into ${CODEX_RUN_HOME} for this problem launch." >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
 else
   require_command claude
-  export CLAUDE_CONFIG_DIR="${CLAUDE_SHARED_CONFIG_DIR}"
+  export CLAUDE_CONFIG_DIR="${CLAUDE_RUN_CONFIG_DIR}"
   if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     :
-  elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" ]]; then
+  elif [[ -f "${CLAUDE_RUN_CONFIG_DIR}/.credentials.json" ]]; then
     :
   else
     echo "Claude Code needs either repo-root .claude/.credentials.json or exported API credentials before launch." >&2
     echo "Preferred: CLAUDE_CONFIG_DIR=\"./.claude\" claude login" >&2
-    echo "The harness copies only ./.claude/.credentials.json into ${CLAUDE_SHARED_CONFIG_DIR} on launch." >&2
+    echo "The harness copies only ./.claude/.credentials.json into ${CLAUDE_RUN_CONFIG_DIR} for this problem launch." >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
   fi
@@ -292,17 +300,20 @@ COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
 WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
 TOOL_CWD="${WORKSPACE}"
-RUNTIME_DIR="$(mktemp -d -p /tmp "kbh-runtime.${TOOL}.XXXXXX")"
+RUNTIME_DIR="${TOOL_CONFIG_ROOT}/runtime"
 RUNTIME_TMP_DIR="${RUNTIME_DIR}/tmp"
-LANDRUN_HOME_DIR="$(mktemp -d -p /tmp "kbh-home.${TOOL}.XXXXXX")"
-COMMAND_SOCKET_DIR="$(mktemp -d -p /tmp "kbh-broker.${TOOL}.XXXXXX")"
-COMMAND_SOCKET_PATH="${COMMAND_SOCKET_DIR}/command.sock"
+LANDRUN_HOME_DIR="${RUNTIME_DIR}/home"
+COMMAND_SOCKET_ROOT="${STATE_ROOT}/s"
+mkdir -p "${COMMAND_SOCKET_ROOT}"
+COMMAND_SOCKET_DIR="$(mktemp -d -p "${COMMAND_SOCKET_ROOT}" "b.${TOOL}.XXXXXX")"
+COMMAND_SOCKET_PATH="${COMMAND_SOCKET_DIR}/c"
 COMMAND_MCP_CONFIG_PATH="${RUNTIME_DIR}/command-mcp.json"
 COMMAND_BROKER_STDOUT_PATH="${AGENT_ARTIFACT_DIR}/command_broker.stdout.txt"
 COMMAND_BROKER_STDERR_PATH="${AGENT_ARTIFACT_DIR}/command_broker.stderr.txt"
 RUNTIME_FINAL_MESSAGE_PATH="${RUNTIME_DIR}/final_message.txt"
 COMMAND_BROKER_PID=""
-mkdir -p "${RUNTIME_TMP_DIR}"
+rm -rf "${RUNTIME_DIR}"
+mkdir -p "${RUNTIME_TMP_DIR}" "${LANDRUN_HOME_DIR}"
 trap cleanup_runtime EXIT
 
 start_command_broker() {
@@ -395,19 +406,21 @@ LANDRUN_ARGS=(
   --best-effort
   --unrestricted-network
   --ro /etc
-  --rw /proc
-  --rw /sys
   --ro /run
   --ro /var
   --rwx /dev
-  --rwx /tmp
   --ro "${WORKSPACE}"
   --rw "${WORKSPACE_CANDIDATE_PATH}"
   --rw "${RUNTIME_DIR}"
+  --rwx "${RUNTIME_TMP_DIR}"
   --rwx "${LANDRUN_HOME_DIR}"
   --rw "${COMMAND_SOCKET_DIR}"
-  --rw "${TOOL_RUNTIME_HOME}"
 )
+if [[ "${TOOL}" == "codex" ]]; then
+  LANDRUN_ARGS+=(--ro "${TOOL_RUNTIME_HOME}")
+else
+  LANDRUN_ARGS+=(--rw "${TOOL_RUNTIME_HOME}")
+fi
 for path in \
   "/bin" \
   "/usr" \
@@ -449,6 +462,8 @@ LANDRUN_ENV_ARGS=(
   --env PYTHON="${PYTHON_BIN}"
   --env PYTHONPATH="${PYTHONPATH}"
   --env KBH_COMMAND_SOCKET="${COMMAND_SOCKET_PATH}"
+  --env KBH_WORKSPACE="${WORKSPACE}"
+  --env KBH_CANDIDATE_PATH="${WORKSPACE_CANDIDATE_PATH}"
   --env LANG="${LANG:-C.UTF-8}"
 )
 if [[ "${TOOL}" == "codex" ]]; then
@@ -471,9 +486,9 @@ else
 fi
 
 if [[ "${TOOL}" == "codex" ]]; then
-  echo "Launching Codex from ${TOOL_CWD} under Landrun with shared CODEX_HOME=${CODEX_HOME} and a launcher-owned command broker" >&2
+  echo "Launching Codex from ${TOOL_CWD} under Landrun with per-problem CODEX_HOME=${CODEX_HOME} and a launcher-owned command broker" >&2
 else
-  echo "Launching Claude Code from ${TOOL_CWD} under Landrun with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and a launcher-owned command broker" >&2
+  echo "Launching Claude Code from ${TOOL_CWD} under Landrun with per-problem CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and a launcher-owned command broker" >&2
 fi
 
 rm -f "${EVENTS_PATH}" "${ACTIVITY_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}" "${COMMAND_BROKER_STDOUT_PATH}" "${COMMAND_BROKER_STDERR_PATH}" "${RUNTIME_FINAL_MESSAGE_PATH}"
@@ -539,12 +554,14 @@ set +e
 if [[ "${TOOL}" == "codex" ]]; then
   CODEX_ARGS=(
     -a never
+    --search
     exec
     --sandbox "workspace-write"
     --cd "${TOOL_CWD}"
     --skip-git-repo-check
     --model "${MODEL}"
     --json
+    --ephemeral
   )
   (
     cd "${TOOL_CWD}" && \

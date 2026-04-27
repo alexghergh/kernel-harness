@@ -66,7 +66,7 @@ For one `(run_name, level, problem_id)` tuple, the harness does this:
 1. resolves the problem and baseline information from the KernelBench checkout
 2. prepares a fresh self-contained workspace
 3. renders solver-facing docs and compatibility wrapper scripts into that workspace
-4. prepares the shared tool-private config under `state/config/`
+4. prepares per-problem tool-private config and runtime dirs under `state/tool_state/`
 5. launches Codex or Claude in the prepared workspace under Landrun
 6. gives the model direct workspace reads, a single writable candidate file, and direct-command access to the launcher-owned broker for privileged actions
 7. records attempts, traces, completion state, and optional profiles
@@ -98,16 +98,14 @@ archive/<run_name>/level_<level>/problem_<problem_id>/
 - `state/workspaces/`
 - `state/build/`
 - `state/locks/`
-- `state/config/codex/`
-- `state/config/claude/`
-- `state/cwd/codex/`
-- `state/cwd/claude/`
+- `state/tool_state/`
+- `state/s/`
 
 It is safe to delete `state/` only when no run is active.
 
 `DATA_ROOT` controls where `archive/` and `state/` are written. It does **not** decide where repository source files live.
 
-## Shared tool-private config
+## Tool-Private Config
 
 The workspace is solver-visible. Tool-private config and auth live outside it.
 
@@ -119,24 +117,27 @@ After `./kb setup`, the chosen interpreter is recorded in repo-root `./.kb-pytho
 
 At the moment, the effective Python floor and ceiling come from vendored KernelBench, whose current `pyproject.toml` pins `requires-python = "==3.10.*"`.
 
-- Codex uses `CODEX_HOME=state/config/codex/`
-- Claude uses `CLAUDE_CONFIG_DIR=state/config/claude/`
+Each solver launch gets a per-problem tool-home root:
 
-Those shared tool dirs are where the harness writes:
+- Codex uses `CODEX_HOME=state/tool_state/<run>/level_<n>/problem_<m>/codex/`
+- Claude uses `CLAUDE_CONFIG_DIR=state/tool_state/<run>/level_<n>/problem_<m>/claude/`
+
+Those per-problem tool dirs are where the harness writes:
 
 - generated Codex `config.toml`
 - generated Claude `settings.json`
-- generated per-run Claude command-MCP registration for the launcher-owned broker
 - Claude's own shell sandbox stays disabled on this cluster-oriented setup, but the Bash tool itself is not exposed to the solver; Landrun and the command broker are the active local guardrails
 - generated helper-agent definitions for both tools
 - tool-managed local state such as auth/session/history files
 
-The harness mirrors shared auth only from repo-root tool dirs:
+The launcher still writes a separate private `command-mcp.json` under its run-contained runtime dir because that file carries the current problem socket path.
 
-- `./.codex/auth.json` -> `state/config/codex/auth.json`
-- `./.claude/.credentials.json` -> `state/config/claude/.credentials.json`
+The harness mirrors auth only from repo-root tool dirs into the per-problem tool home:
 
-That keeps `state/config/` disposable while leaving repo-root login state under user control. The harness intentionally does not read `~/.codex` or `~/.claude`.
+- `./.codex/auth.json` -> `state/tool_state/<run>/level_<n>/problem_<m>/codex/auth.json`
+- `./.claude/.credentials.json` -> `state/tool_state/<run>/level_<n>/problem_<m>/claude/.credentials.json`
+
+That keeps `state/tool_state/` disposable and run-contained while leaving repo-root login state under user control. The harness intentionally does not read `~/.codex` or `~/.claude`.
 
 This split is deliberate:
 
@@ -151,30 +152,31 @@ The two tool runtimes expose their native controls differently.
 
 ### Codex
 
-Codex keeps its shared user/runtime config under `CODEX_HOME`. The harness generates:
+Codex keeps its per-problem user/runtime config under `CODEX_HOME`. The harness generates:
 
-- `state/config/codex/config.toml`
-- `state/config/codex/agents/*.toml`
+- `state/tool_state/<run>/level_<n>/problem_<m>/codex/config.toml`
+- `state/tool_state/<run>/level_<n>/problem_<m>/codex/agents/*.toml`
 
-Codex launches from the prepared problem workspace under Landrun. The shared `state/config/codex/config.toml` disables the shell tool and registers only the tiny command MCP server for privileged harness actions.
+Codex launches from the prepared problem workspace under Landrun. The generated `config.toml` disables the shell tool and registers only the tiny command MCP server for privileged harness actions.
 
 ### Claude
 
-Claude keeps its shared user/runtime config under `CLAUDE_CONFIG_DIR`. The harness generates:
+Claude keeps its per-problem user/runtime config under `CLAUDE_CONFIG_DIR`. The harness generates:
 
-- `state/config/claude/settings.json`
-- `state/config/claude/.claude.json`
-- `state/config/claude/agents/*.md`
+- `state/tool_state/<run>/level_<n>/problem_<m>/claude/settings.json`
+- `state/tool_state/<run>/level_<n>/problem_<m>/claude/.claude.json`
+- `state/tool_state/<run>/level_<n>/problem_<m>/claude/agents/*.md`
 
-Claude also launches from the prepared problem workspace under Landrun. The shared Claude config carries web/search and helper-agent policy, while the launcher writes a per-run `command-mcp.json` that exposes only the command broker tools (`run_candidate`, `profile_ncu`, `goal_status`, `best_result`, `complete_problem`) for the current problem socket.
+Claude also launches from the prepared problem workspace under Landrun. The generated Claude config carries web/search, file-tool, and helper-agent policy, while the launcher writes a per-run `command-mcp.json` that exposes only the command broker tools (`run_candidate`, `profile_ncu`, `research_nvidia_docs`, `goal_status`, `best_result`, `complete_problem`) for the current problem socket.
 
 The practical result is the same for both tools **with respect to the actual problem environment**:
 
 - no tool auth/config files in the workspace
 - the real workspace is directly visible but intentionally small and self-contained
 - Landrun mounts the workspace read-only except for `candidate_model_new.py`
-- hosted web access stays native to each client and is restricted separately from local actions
-- shared web-search policy and helper-agent definitions
+- Claude file-tool hooks also deny reads outside the assigned workspace and writes outside `candidate_model_new.py`
+- hosted web access stays native to each client and is restricted separately from local actions; brokered `research_nvidia_docs` is the normalized auditable docs path
+- web-search policy and helper-agent definitions are generated for each problem launch
 - `goal_status` is the live structured status query (remaining budget, attempt counts, best sample, baseline progress)
 - `best_result` is the narrow structured query for the current best measured correct attempt
 
@@ -183,7 +185,7 @@ The enforcement mechanism differs:
 - **Codex** gets native file/edit tools in the prepared workspace, with the shell tool disabled and privileged actions exposed only through the command MCP server.
 - **Claude** gets native file tools in the prepared workspace, with Bash not exposed and privileged actions exposed only through the command MCP server.
 
-Implementation note: the legacy file-access MCP server under `src/kernel_bench_experiment_agents/mcp/` remains for compatibility and tests, but the active launcher path does not use it for workspace reads/writes. The active command MCP server is intentionally tiny and forwards only to the Unix-socket broker.
+Implementation note: the legacy file-access MCP server has been removed from the active codebase. Old archives may still contain `mcp_ir_events.jsonl`; the harness keeps only a legacy loader for those records. The active command MCP server is intentionally tiny and forwards only to the Unix-socket broker.
 
 ## Archive contents
 
@@ -287,7 +289,7 @@ Notably absent from the workspace:
 - Claude credential files
 - tool-private helper-agent config
 
-Those live under `state/config/` instead.
+Those live under per-problem `state/tool_state/` dirs instead.
 
 ## Local Tool Surface
 

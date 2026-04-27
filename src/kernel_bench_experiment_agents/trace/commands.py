@@ -14,8 +14,15 @@ from kernel_bench_experiment_agents.summary.completion import (
     apply_trace_audit_to_completion,
 )
 from kernel_bench_experiment_agents.activity_trace import load_activity_ir_events
-from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
-from kernel_bench_experiment_agents.runtime.project import now_iso, relative_path_within, write_json, write_text
+from kernel_bench_experiment_agents.trace.legacy_mcp import load_mcp_ir_events
+from kernel_bench_experiment_agents.runtime.project import (
+    archive_problem_dir,
+    now_iso,
+    relative_path_within,
+    write_json,
+    write_text,
+)
+from kernel_bench_experiment_agents.runtime.solver_sanitize import sanitize_solver_value
 from kernel_bench_experiment_agents.trace.analysis import audit_trace, trace_cost_usd, trace_counts, trace_usage_summary, web_searches_from_ir
 from kernel_bench_experiment_agents.trace.ir import final_message_from_raw_events, load_trace_event_entries, materialize_trace_ir
 from kernel_bench_experiment_agents.workspace.archive import sample_manifest_entries
@@ -151,9 +158,26 @@ def command_materialize_agent_trace(args: argparse.Namespace) -> None:
             )
             write_json(completion_path, completion_payload)
             if args.workspace:
-                write_json(
-                    Path(args.workspace).expanduser().resolve() / "completion.json",
+                workspace = Path(args.workspace).expanduser().resolve()
+                problem_archive_root = None
+                if (
+                    completion_payload.get("run_name")
+                    and completion_payload.get("level")
+                    and completion_payload.get("problem_id")
+                ):
+                    problem_archive_root = archive_problem_dir(
+                        str(completion_payload.get("run_name") or ""),
+                        int(completion_payload.get("level") or 0),
+                        int(completion_payload.get("problem_id") or 0),
+                    )
+                workspace_completion_payload = sanitize_solver_value(
                     completion_payload,
+                    workspace=workspace,
+                    problem_archive_root=problem_archive_root,
+                )
+                write_json(
+                    workspace / "completion.json",
+                    workspace_completion_payload,
                 )
     emit_json(
         {

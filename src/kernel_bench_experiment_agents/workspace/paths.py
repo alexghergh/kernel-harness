@@ -11,6 +11,7 @@ from typing import Any
 
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, workspace_dir, write_json, write_text
+from kernel_bench_experiment_agents.runtime.solver_sanitize import sanitize_solver_value
 
 
 def workspace_path(raw: str | Path) -> Path:
@@ -165,16 +166,17 @@ def write_workspace_best_sample(
             best_result_path.unlink()
         return
 
+    metadata = load_workspace_metadata(workspace)
+    problem_archive_root = archive_problem_dir(
+        metadata["run_name"],
+        int(metadata["level"]),
+        int(metadata["problem_id"]),
+    )
     archive_kernel = payload.get("archive_kernel_path") or payload.get("official_kernel_path")
     if isinstance(archive_kernel, str):
-        metadata = load_workspace_metadata(workspace)
         kernel_path = Path(archive_kernel)
         if not kernel_path.is_absolute():
-            kernel_path = archive_problem_dir(
-                metadata["run_name"],
-                int(metadata["level"]),
-                int(metadata["problem_id"]),
-            ) / kernel_path
+            kernel_path = problem_archive_root / kernel_path
         if kernel_path.exists():
             write_text(
                 best_sample_path,
@@ -184,7 +186,14 @@ def write_workspace_best_sample(
             best_sample_path.unlink()
     elif best_sample_path.exists():
         best_sample_path.unlink()
-    write_json(best_result_path, payload)
+    write_json(
+        best_result_path,
+        sanitize_solver_value(
+            payload,
+            workspace=workspace,
+            problem_archive_root=problem_archive_root,
+        ),
+    )
 
 
 def latest_workspace_profile_paths(workspace: Path) -> dict[str, Path]:

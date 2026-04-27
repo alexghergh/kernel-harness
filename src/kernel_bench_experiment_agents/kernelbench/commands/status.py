@@ -13,7 +13,14 @@ from kernel_bench_experiment_agents.summary.completion import annotate_completio
 from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.gpu_pool import lease_problem_artifacts
 from kernel_bench_experiment_agents.agent_contract.policy import SOLVER_TERMINAL_STATES
-from kernel_bench_experiment_agents.runtime.project import archive_agent_dir, now_iso, write_json, write_text
+from kernel_bench_experiment_agents.runtime.project import (
+    archive_agent_dir,
+    archive_problem_dir,
+    now_iso,
+    write_json,
+    write_text,
+)
+from kernel_bench_experiment_agents.runtime.solver_sanitize import sanitize_solver_value
 from kernel_bench_experiment_agents.kernelbench.metrics import best_correct_payload
 from kernel_bench_experiment_agents.workspace.paths import (
     validate_workspace_assignment,
@@ -110,7 +117,18 @@ def _write_completion_payload(
             sample_entries=sample_manifest_entries(args.run_name, args.level, args.problem_id),
         )
         write_json(completion_path, payload)
-        write_json(workspace / "completion.json", payload)
+        write_json(
+            workspace / "completion.json",
+            sanitize_solver_value(
+                payload,
+                workspace=workspace,
+                problem_archive_root=archive_problem_dir(
+                    args.run_name,
+                    args.level,
+                    args.problem_id,
+                ),
+            ),
+        )
         candidate_path = workspace_candidate_path(workspace)
         if candidate_path.exists():
             write_text(

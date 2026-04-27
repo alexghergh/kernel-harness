@@ -1,7 +1,7 @@
-"""Render helper-agent specs from the shared harness policy.
+"""Render helper-agent specs from the harness policy.
 
-The live tool homes under `state/config/` load these helper-agent definitions, while the archive keeps
-frozen copies under `contract/helper_agents/` for inspection.
+The per-problem tool homes under `state/tool_state/...` load these helper-agent definitions, while
+the archive keeps frozen copies under `contract/helper_agents/` for inspection.
 """
 
 from __future__ import annotations
@@ -123,8 +123,14 @@ def write_archive_helper_agent_specs(*, archive_contract_dir: Path) -> list[Path
 
 def describe_helper_spec_paths() -> dict[str, list[str]]:
     return {
-        "shared_codex": [f"state/config/codex/agents/{spec.name}.toml" for spec in HELPER_SPECS],
-        "shared_claude": [f"state/config/claude/agents/{spec.name}.md" for spec in HELPER_SPECS],
+        "tool_state_codex": [
+            f"state/tool_state/<run>/level_<n>/problem_<m>/codex/agents/{spec.name}.toml"
+            for spec in HELPER_SPECS
+        ],
+        "tool_state_claude": [
+            f"state/tool_state/<run>/level_<n>/problem_<m>/claude/agents/{spec.name}.md"
+            for spec in HELPER_SPECS
+        ],
         "archive_codex": [f"contract/helper_agents/codex/{spec.name}.toml" for spec in HELPER_SPECS],
         "archive_claude": [f"contract/helper_agents/claude/{spec.name}.md" for spec in HELPER_SPECS],
     }

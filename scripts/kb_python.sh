@@ -51,3 +51,24 @@ resolve_repo_landrun() {
 
   printf '%s\n' "${landrun_bin}"
 }
+
+resolve_kernelbench_root() {
+  local repo_root="$1"
+  local explicit_root="${2:-}"
+
+  if [[ -n "${explicit_root}" ]]; then
+    if [[ ! -d "${explicit_root}" ]]; then
+      echo "KERNELBENCH_ROOT does not exist: ${explicit_root}" >&2
+      exit 1
+    fi
+    (cd "${explicit_root}" && pwd)
+    return
+  fi
+
+  if [[ -d "${repo_root}/third_party/KernelBench" ]]; then
+    (cd "${repo_root}/third_party/KernelBench" && pwd)
+    return
+  fi
+
+  printf '\n'
+}

@@ -21,7 +21,11 @@ from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     create_live_gpu_wait_marker,
     settle_live_gpu_wait_marker,
 )
-from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
+from kernel_bench_experiment_agents.runtime.gpu_pool import (
+    isolated_gpu_environment,
+    lease_gpu_slot,
+    lease_problem_artifacts,
+)
 from kernel_bench_experiment_agents.runtime.project import (
     archive_problem_dir,
     build_problem_dir,
@@ -33,7 +37,13 @@ from kernel_bench_experiment_agents.runtime.project import (
     write_text,
 )
 from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, load_json_object, run_subprocess_capture, serialize_exception
+from kernel_bench_experiment_agents.runtime.solver_sanitize import (
+    PathReplacement,
+    sanitize_solver_text,
+    sanitize_solver_value,
+)
 from kernel_bench_experiment_agents.workspace.paths import (
+    latest_workspace_sample_paths,
     load_workspace_metadata,
     validate_workspace_assignment,
     workspace_candidate_path,
@@ -41,6 +51,7 @@ from kernel_bench_experiment_agents.workspace.paths import (
     workspace_relpath,
     write_workspace_sample_copy,
     write_workspace_sample_mirrors,
+    workspace_sample_paths,
 )
 
 
@@ -106,6 +117,35 @@ def _read_text_if_exists(path: Path | None) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _sample_solver_replacements(
+    *,
+    sample_id: int | None,
+    sample_json_path: Path | None,
+    stdout_path: Path | None,
+    stderr_path: Path | None,
+    runner_work_dir: Path | None,
+    runner_output_path: Path | None,
+) -> tuple[PathReplacement, ...]:
+    if sample_id is None:
+        return ()
+    return (
+        PathReplacement(sample_json_path, f"samples/sample_{sample_id}.json"),
+        PathReplacement(stdout_path, f"samples/sample_{sample_id}.stdout.txt"),
+        PathReplacement(stderr_path, f"samples/sample_{sample_id}.stderr.txt"),
+        PathReplacement(runner_work_dir, f"state/build/sample_{sample_id}"),
+        PathReplacement(
+            runner_output_path,
+            f"state/build/sample_{sample_id}/evaluation_result.json",
+        ),
+    )
+
+
+def _workspace_attempt_stderr(sample_id: int | None) -> str:
+    if sample_id is None:
+        return "samples/latest.stderr.txt"
+    return f"samples/sample_{sample_id}.stderr.txt"
+
+
 
 def command_run_candidate(args: argparse.Namespace) -> None:
     """Evaluate one frozen candidate snapshot and persist the measured attempt payload."""
@@ -118,6 +158,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     sample_json_path: Path | None = None
     stdout_path: Path | None = None
     stderr_path: Path | None = None
+    runner_work_dir: Path | None = None
+    runner_output_path: Path | None = None
     candidate_src: str | None = None
     emit_payload: dict[str, Any] | None = None
     live_gpu_wait_marker = None
@@ -273,14 +315,34 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             payload["gpu_wait_seconds"] = lease.wait_seconds
 
         if completed.returncode != 0:
+            diagnostic_path = (
+                _workspace_attempt_stderr(sample_id) if workspace is not None else str(stderr_path)
+            )
+            sample_replacements = _sample_solver_replacements(
+                sample_id=sample_id,
+                sample_json_path=sample_json_path,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                runner_work_dir=runner_work_dir,
+                runner_output_path=runner_output_path,
+            )
+            sanitized_excerpt = sanitize_solver_text(
+                excerpt(completed.stderr or completed.stdout),
+                workspace=workspace,
+                problem_archive_root=problem_archive_root,
+                extra_paths=sample_replacements,
+                extra_roots=(runner_work_dir,),
+            )
             raise RuntimeError(
                 "Candidate evaluation subprocess failed "
-                f"(return code {completed.returncode}); see {stderr_path}.\n"
-                f"stderr excerpt:\n{excerpt(completed.stderr or completed.stdout)}"
+                f"(return code {completed.returncode}); inspect {diagnostic_path} "
+                "or samples/latest.stderr.txt.\n"
+                f"stderr excerpt:\n{sanitized_excerpt}"
             )
         if not runner_output_path.exists():
             raise RuntimeError(
-                f"Candidate evaluation subprocess produced no result payload at {runner_output_path}."
+                "Candidate evaluation subprocess produced no structured result payload. "
+                "Inspect samples/latest.stdout.txt and samples/latest.stderr.txt."
             )
         result = _normalize_evaluation_result(
             load_json_object(runner_output_path),
@@ -313,14 +375,12 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     clear_live_gpu_wait_marker(live_gpu_wait_marker)
                     live_gpu_wait_marker = None
                     if workspace is not None:
-                        mirror_paths = write_workspace_sample_mirrors(
-                            workspace=workspace,
-                            sample_id=sample_id,
-                            payload=payload,
-                            stdout_text=_read_text_if_exists(stdout_path),
-                            stderr_text=_read_text_if_exists(stderr_path),
-                            candidate_src=candidate_src,
-                        )
+                        sample_paths = workspace_sample_paths(workspace, sample_id)
+                        latest_paths = latest_workspace_sample_paths(workspace)
+                        mirror_paths = {
+                            **sample_paths,
+                            **{f"latest_{key}": value for key, value in latest_paths.items()},
+                        }
                         emit_payload = dict(payload)
                         emit_payload.update(
                             {
@@ -354,12 +414,43 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                                 ),
                             }
                         )
+                        raw_stdout = _read_text_if_exists(stdout_path)
+                        raw_stderr = _read_text_if_exists(stderr_path)
+                        sample_replacements = _sample_solver_replacements(
+                            sample_id=sample_id,
+                            sample_json_path=sample_json_path,
+                            stdout_path=stdout_path,
+                            stderr_path=stderr_path,
+                            runner_work_dir=runner_work_dir,
+                            runner_output_path=runner_output_path,
+                        )
+                        sanitized_stdout = sanitize_solver_text(
+                            raw_stdout,
+                            workspace=workspace,
+                            problem_archive_root=problem_archive_root,
+                            extra_paths=sample_replacements,
+                            extra_roots=(runner_work_dir,),
+                        )
+                        sanitized_stderr = sanitize_solver_text(
+                            raw_stderr,
+                            workspace=workspace,
+                            problem_archive_root=problem_archive_root,
+                            extra_paths=sample_replacements,
+                            extra_roots=(runner_work_dir,),
+                        )
+                        emit_payload = sanitize_solver_value(
+                            emit_payload,
+                            workspace=workspace,
+                            problem_archive_root=problem_archive_root,
+                            extra_paths=sample_replacements,
+                            extra_roots=(runner_work_dir,),
+                        )
                         write_workspace_sample_mirrors(
                             workspace=workspace,
                             sample_id=sample_id,
                             payload=emit_payload,
-                            stdout_text=_read_text_if_exists(stdout_path),
-                            stderr_text=_read_text_if_exists(stderr_path),
+                            stdout_text=sanitized_stdout,
+                            stderr_text=sanitized_stderr,
                             candidate_src=candidate_src,
                         )
                         write_goal_status_files(
@@ -380,8 +471,22 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 f"warning: artifact persistence also failed for sample {sample_id}: {persist_failure}",
                 file=sys.stderr,
             )
+        failure_message = sanitize_solver_text(
+            str(failure),
+            workspace=workspace,
+            problem_archive_root=problem_archive_root,
+            extra_paths=_sample_solver_replacements(
+                sample_id=sample_id,
+                sample_json_path=sample_json_path,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                runner_work_dir=runner_work_dir,
+                runner_output_path=runner_output_path,
+            ),
+            extra_roots=(runner_work_dir,),
+        )
         raise SystemExit(
-            f"Candidate evaluation failed for sample {sample_id}: {failure}"
+            f"Candidate evaluation failed for sample {sample_id}: {failure_message}"
         ) from failure
     if persist_failure is not None:
         raise SystemExit(

@@ -20,10 +20,18 @@ from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     create_live_gpu_wait_marker,
     settle_live_gpu_wait_marker,
 )
-from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
+from kernel_bench_experiment_agents.runtime.gpu_pool import (
+    isolated_gpu_environment,
+    lease_gpu_slot,
+    lease_problem_artifacts,
+)
 from kernel_bench_experiment_agents.kernelbench.profiling.summary import summarize_ncu_raw_csv
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, now_iso, relative_path_within, write_json, write_text
 from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, run_subprocess_capture, serialize_exception
+from kernel_bench_experiment_agents.runtime.solver_sanitize import (
+    PathReplacement,
+    sanitize_solver_text,
+)
 from kernel_bench_experiment_agents.workspace.paths import (
     latest_workspace_profile_paths,
     validate_workspace_assignment,
@@ -71,6 +79,30 @@ def _write_workspace_profile_mirrors(
     write_json(latest_paths["json"], payload)
 
     return {**local_paths, **{f"latest_{key}": value for key, value in latest_paths.items()}}
+
+
+def _profile_solver_replacements(
+    *,
+    profile_name: str | None,
+    report_prefix: Path | None,
+    report_path: Path | None,
+    stdout_path: Path | None,
+    stderr_path: Path | None,
+    details_path: Path | None,
+    summary_path: Path | None,
+    profile_json_path: Path | None,
+) -> tuple[PathReplacement, ...]:
+    if profile_name is None:
+        return ()
+    return (
+        PathReplacement(report_prefix, f"profiles/{profile_name}"),
+        PathReplacement(report_path, f"profiles/{profile_name}.ncu-rep"),
+        PathReplacement(stdout_path, f"profiles/{profile_name}.stdout.txt"),
+        PathReplacement(stderr_path, f"profiles/{profile_name}.stderr.txt"),
+        PathReplacement(details_path, f"profiles/{profile_name}.details.txt"),
+        PathReplacement(summary_path, f"profiles/{profile_name}.summary.txt"),
+        PathReplacement(profile_json_path, f"profiles/{profile_name}.json"),
+    )
 
 
 def _workspace_candidate_reference(candidate_path: Path, workspace: Path | None) -> str:
@@ -361,20 +393,58 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                     live_gpu_wait_marker = None
 
                     if workspace is not None:
+                        profile_replacements = _profile_solver_replacements(
+                            profile_name=profile_name,
+                            report_prefix=report_prefix,
+                            report_path=report_path,
+                            stdout_path=stdout_path,
+                            stderr_path=stderr_path,
+                            details_path=details_path,
+                            summary_path=summary_path,
+                            profile_json_path=profile_json_path,
+                        )
                         if (
                             emit_payload is not None
                             and completed is not None
                             and details_completed is not None
                             and summary_text is not None
                         ):
+                            sanitized_completed_stdout = sanitize_solver_text(
+                                completed.stdout,
+                                workspace=workspace,
+                                problem_archive_root=problem_archive_root,
+                                extra_paths=profile_replacements,
+                                extra_roots=(report_prefix,),
+                            )
+                            sanitized_completed_stderr = sanitize_solver_text(
+                                completed.stderr,
+                                workspace=workspace,
+                                problem_archive_root=problem_archive_root,
+                                extra_paths=profile_replacements,
+                                extra_roots=(report_prefix,),
+                            )
+                            sanitized_details_stdout = sanitize_solver_text(
+                                details_completed.stdout,
+                                workspace=workspace,
+                                problem_archive_root=problem_archive_root,
+                                extra_paths=profile_replacements,
+                                extra_roots=(report_prefix,),
+                            )
+                            sanitized_summary_text = sanitize_solver_text(
+                                summary_text,
+                                workspace=workspace,
+                                problem_archive_root=problem_archive_root,
+                                extra_paths=profile_replacements,
+                                extra_roots=(report_prefix,),
+                            )
                             mirror_paths = _write_workspace_profile_mirrors(
                                 workspace=workspace,
                                 profile_name=profile_name,
                                 payload=payload,
-                                completed_stdout=completed.stdout,
-                                completed_stderr=completed.stderr,
-                                details_stdout=details_completed.stdout,
-                                summary_text=summary_text,
+                                completed_stdout=sanitized_completed_stdout,
+                                completed_stderr=sanitized_completed_stderr,
+                                details_stdout=sanitized_details_stdout,
+                                summary_text=sanitized_summary_text,
                             )
                             emit_payload = {
                                 "timestamp": payload["timestamp"],
@@ -417,28 +487,81 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         ) from persist_failure
 
     if failure is not None:
+        profile_replacements = _profile_solver_replacements(
+            profile_name=profile_name,
+            report_prefix=report_prefix,
+            report_path=report_path,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            details_path=details_path,
+            summary_path=summary_path,
+            profile_json_path=profile_json_path,
+        )
+        failure_message = sanitize_solver_text(
+            str(failure),
+            workspace=workspace,
+            problem_archive_root=problem_archive_root,
+            extra_paths=profile_replacements,
+            extra_roots=(report_prefix,),
+        )
         raise SystemExit(
-            f"ncu profiling failed before completion for {profile_name}: {failure}"
+            f"ncu profiling failed before completion for {profile_name}: {failure_message}"
         ) from failure
 
     if completed.returncode != 0:
+        stderr_reference = "profiles/latest.stderr.txt" if workspace is not None else str(stderr_path)
         raise SystemExit(
             "ncu profiling failed "
-            f"(return code {completed.returncode}); see {stderr_path}"
+            f"(return code {completed.returncode}); inspect {stderr_reference}"
         )
     if details_completed.returncode != 0:
+        profile_replacements = _profile_solver_replacements(
+            profile_name=profile_name,
+            report_prefix=report_prefix,
+            report_path=report_path,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            details_path=details_path,
+            summary_path=summary_path,
+            profile_json_path=profile_json_path,
+        )
+        details_stderr = sanitize_solver_text(
+            excerpt(details_completed.stderr),
+            workspace=workspace,
+            problem_archive_root=problem_archive_root,
+            extra_paths=profile_replacements,
+            extra_roots=(report_prefix,),
+        )
         raise SystemExit(
             "ncu details export failed "
-            f"(return code {details_completed.returncode}); details stderr: {excerpt(details_completed.stderr)}"
+            f"(return code {details_completed.returncode}); details stderr: {details_stderr}"
         )
     if raw_csv_completed.returncode != 0:
+        profile_replacements = _profile_solver_replacements(
+            profile_name=profile_name,
+            report_prefix=report_prefix,
+            report_path=report_path,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            details_path=details_path,
+            summary_path=summary_path,
+            profile_json_path=profile_json_path,
+        )
+        raw_csv_stderr = sanitize_solver_text(
+            excerpt(raw_csv_completed.stderr),
+            workspace=workspace,
+            problem_archive_root=problem_archive_root,
+            extra_paths=profile_replacements,
+            extra_roots=(report_prefix,),
+        )
         raise SystemExit(
             "ncu raw metric export failed "
-            f"(return code {raw_csv_completed.returncode}); stderr: {excerpt(raw_csv_completed.stderr)}"
+            f"(return code {raw_csv_completed.returncode}); stderr: {raw_csv_stderr}"
         )
     if not details_completed.stdout.strip():
+        details_reference = "profiles/latest.details.txt" if workspace is not None else str(details_path)
         raise SystemExit(
-            f"ncu details export produced no readable output; see {details_path}"
+            f"ncu details export produced no readable output; inspect {details_reference}"
         )
     if not raw_csv_completed.stdout.strip():
         raise SystemExit(

@@ -11,7 +11,6 @@ from pathlib import Path
 
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 
-MCP_SERVER_NAME = "kernelbench"
 COMMAND_MCP_SERVER_NAME = "kernelbench_commands"
 
 
@@ -36,24 +35,12 @@ class SolverCommandSpec:
 
 
 @dataclass(frozen=True)
-class McpToolSpec:
-    """Describes one solver-visible MCP tool."""
-
-    name: str
-    purpose: str
-    uses_gpu: bool = False
-    read_only: bool = False
-    destructive: bool = False
-
-
-@dataclass(frozen=True)
 class HelperAgentSpec:
     """Captures the shared intent for rendered Codex and Claude helper agents."""
 
     name: str
     description: str
     commands: tuple[str, ...]
-    mcp_tools: tuple[str, ...]
     read_paths: tuple[str, ...]
     summary_focus: str
 
@@ -116,59 +103,6 @@ SOLVER_COMMAND_SPECS: tuple[SolverCommandSpec, ...] = tuple(
     )
     for spec in WORKSPACE_COMMAND_SPECS
     if spec.name != "hardware_info"
-)
-
-MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
-    McpToolSpec(
-        name="workspace_overview",
-        purpose="workspace_overview() -> JSON overview of the assigned problem, the fixed read-only resources, the allowed history directories, and the available MCP action tools",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="list_workspace_dir",
-        purpose="list_workspace_dir(path='samples'|'profiles') -> JSON directory listing for one allowed history directory only",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="read_workspace_file",
-        purpose="read_workspace_file(path) -> file text for one fixed resource or one listed text artifact under `samples/` or `profiles/`",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="write_candidate",
-        purpose=f"write_candidate(content) -> validate and overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
-        destructive=True,
-    ),
-    McpToolSpec(
-        name="run_candidate",
-        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
-        uses_gpu=True,
-    ),
-    McpToolSpec(
-        name="profile_ncu",
-        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
-        uses_gpu=True,
-    ),
-    McpToolSpec(
-        name="goal_status",
-        purpose="goal_status() -> live JSON status snapshot (remaining budget, attempt counts, baseline progress, best sample); takes no arguments",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="research_nvidia_docs",
-        purpose="research_nvidia_docs(query, url, max_results, max_chars) -> official docs.nvidia.com search or fetch result through the broker",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="best_result",
-        purpose="best_result() -> JSON for the best measured correct attempt so far, including sample_id and archive-relative artifact paths; takes no arguments",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="complete_problem",
-        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
-        destructive=True,
-    ),
 )
 
 WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
@@ -234,7 +168,6 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Use proactively to run measured evaluations and summarize results without polluting the main context."
         ),
         commands=("./bin/run_candidate.sh", "./bin/goal_status.sh", "./bin/best_result.sh"),
-        mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -257,7 +190,6 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Use proactively to run Nsight Compute profiling and summarize bottlenecks and likely next steps."
         ),
         commands=("./bin/profile_ncu.sh", "./bin/research_nvidia_docs.sh", "./bin/goal_status.sh"),
-        mcp_tools=("read_workspace_file", "profile_ncu", "research_nvidia_docs", "goal_status"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -281,14 +213,6 @@ WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
 GPU_WRAPPER_PATHS: tuple[str, ...] = tuple(
     spec.path for spec in WORKSPACE_COMMAND_SPECS if spec.uses_gpu
 )
-
-
-def mcp_tool_names() -> tuple[str, ...]:
-    return tuple(spec.name for spec in MCP_TOOL_SPECS)
-
-
-def claude_mcp_tool_names() -> tuple[str, ...]:
-    return tuple(f"mcp__{MCP_SERVER_NAME}__{name}" for name in mcp_tool_names())
 
 
 def command_mcp_tool_names() -> tuple[str, ...]:

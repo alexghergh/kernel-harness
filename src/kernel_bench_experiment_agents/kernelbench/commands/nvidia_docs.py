@@ -234,12 +234,6 @@ def _extract_links(index: DocsFetch) -> list[DocsLink]:
     return links
 
 
-def _contains_term(haystack: str, token: str) -> bool:
-    if len(token) <= 3:
-        return re.search(rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])", haystack) is not None
-    return token in haystack
-
-
 def _score_link(link: DocsLink, query_tokens: list[str]) -> int:
     haystacks = {
         "title": link.title.lower(),
@@ -255,6 +249,12 @@ def _score_link(link: DocsLink, query_tokens: list[str]) -> int:
         if _contains_term(haystacks["context"], token):
             score += 1
     return score
+
+
+def _contains_term(haystack: str, token: str) -> bool:
+    if len(token) <= 3:
+        return re.search(rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])", haystack) is not None
+    return token in haystack
 
 
 def _search_indexes(query: str, *, max_results: int) -> tuple[list[dict[str, Any]], list[str]]:

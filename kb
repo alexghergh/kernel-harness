@@ -344,11 +344,14 @@ def find_submit_command() -> str:
 
 def build_ybatch_jobscript(base_script: Path, resource: str) -> Path:
     original = base_script.read_text(encoding="utf-8")
+    submit_tmp_dir = REPO_ROOT / "state" / "submit"
+    submit_tmp_dir.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         suffix=".sh",
         prefix="kb-ybatch-",
+        dir=submit_tmp_dir,
         delete=False,
     )
     with handle:

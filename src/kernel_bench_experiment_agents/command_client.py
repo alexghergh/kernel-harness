@@ -11,21 +11,28 @@ from typing import Any
 
 
 def send_request(*, socket_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
-        client.sendall((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
-        client.shutdown(socket.SHUT_WR)
-        response = b""
-        while True:
-            chunk = client.recv(65536)
-            if not chunk:
-                break
-            response += chunk
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(socket_path))
+            client.sendall((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+            client.shutdown(socket.SHUT_WR)
+            response = b""
+            while True:
+                chunk = client.recv(65536)
+                if not chunk:
+                    break
+                response += chunk
+    except OSError as exc:
+        reason = exc.strerror or exc.__class__.__name__
+        raise SystemExit(f"command broker request failed: {reason}") from exc
     if not response.strip():
-        raise SystemExit(f"command broker at {socket_path} returned an empty response")
-    decoded = json.loads(response.decode("utf-8"))
+        raise SystemExit("command broker returned an empty response")
+    try:
+        decoded = json.loads(response.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit("command broker returned an invalid JSON response") from exc
     if not isinstance(decoded, dict):
-        raise SystemExit(f"command broker at {socket_path} returned a non-object response")
+        raise SystemExit("command broker returned a non-object response")
     return decoded
 
 
