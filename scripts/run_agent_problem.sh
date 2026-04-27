@@ -34,7 +34,6 @@ ARCHIVE_ROOT="${DATA_ROOT}/archive"
 TOOL_CONFIG_ROOT="${STATE_ROOT}/config"
 CODEX_SHARED_HOME="${TOOL_CONFIG_ROOT}/codex"
 CLAUDE_SHARED_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
-KBHARNESS_CLI="kbharness"
 
 prepare_shared_tool_state() {
   python - <<'PY'
@@ -142,7 +141,7 @@ fi
 
 require_command python
 require_command flock
-require_command "${KBHARNESS_CLI}"
+require_command kbharness
 if [[ "${SHARED_TOOL_STATE_PREPARED:-0}" != "1" ]]; then
   prepare_shared_tool_state
 fi
@@ -202,7 +201,7 @@ else
 fi
 
 PREP_OUTPUT="$({
-  "${KBHARNESS_CLI}" prepare-problem-workspace \
+  kbharness prepare-problem-workspace \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
@@ -251,7 +250,7 @@ fi
 rm -f "${EVENTS_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
-  "${KBHARNESS_CLI}" goal-status \
+  kbharness goal-status \
     --run-name "${RUN_NAME}" \
     --level "${LEVEL}" \
     --problem-id "${PROBLEM_ID}" \
@@ -349,7 +348,7 @@ set -e
 if [[ ! -f "${COMPLETION_PATH}" ]]; then
   mark_budget_exhausted_if_needed >/dev/null 2>&1 || true
   if [[ -f "${BUDGET_EXHAUSTED_MARKER_PATH}" ]]; then
-    "${KBHARNESS_CLI}" record-launcher-completion \
+    kbharness record-launcher-completion \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -358,7 +357,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
       --summary "launcher stopped ${TOOL} after the corrected remaining budget reached zero without a solver-written completion" \
       --allow-overwrite >/dev/null
   else
-    "${KBHARNESS_CLI}" record-launcher-completion \
+    kbharness record-launcher-completion \
       --run-name "${RUN_NAME}" \
       --level "${LEVEL}" \
       --problem-id "${PROBLEM_ID}" \
@@ -369,7 +368,7 @@ if [[ ! -f "${COMPLETION_PATH}" ]]; then
   fi
 fi
 
-if ! "${KBHARNESS_CLI}" materialize-agent-trace \
+if ! kbharness materialize-agent-trace \
   --tool "${TOOL}" \
   --events-path "${EVENTS_PATH}" \
   --mcp-events-path "${MCP_EVENTS_PATH}" \
