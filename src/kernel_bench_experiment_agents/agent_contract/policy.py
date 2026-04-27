@@ -34,6 +34,17 @@ class McpToolSpec:
     read_only: bool = False
     destructive: bool = False
 
+    @property
+    def annotations(self) -> dict[str, bool | str]:
+        """Return MCP client safety hints for this tool."""
+        return {
+            "title": self.name,
+            "readOnlyHint": self.read_only,
+            "destructiveHint": self.destructive,
+            "idempotentHint": self.read_only,
+            "openWorldHint": False,
+        }
+
 
 @dataclass(frozen=True)
 class HelperAgentSpec:

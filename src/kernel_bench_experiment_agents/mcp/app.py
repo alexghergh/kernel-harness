@@ -36,6 +36,23 @@ def tool_spec(name: str) -> McpToolSpec:
     raise KeyError(name)
 
 
+def mcp_tool(name: str):
+    """Register a solver-facing tool with MCP safety annotations when supported."""
+    spec = tool_spec(name)
+    kwargs = {
+        "name": name,
+        "description": spec.purpose,
+        "annotations": spec.annotations,
+    }
+    try:
+        return mcp.tool(**kwargs)
+    except TypeError as exc:
+        if "annotations" not in str(exc):
+            raise
+        kwargs.pop("annotations")
+        return mcp.tool(**kwargs)
+
+
 def tool_result(payload: dict[str, Any]) -> types.CallToolResult:
     content: list[
         types.TextContent
@@ -98,74 +115,47 @@ def read_workspace_resource(path: str) -> str:
     return text
 
 
-@mcp.tool(
-    name="workspace_overview",
-    description=tool_spec("workspace_overview").purpose,
-)
+@mcp_tool("workspace_overview")
 def workspace_overview() -> types.CallToolResult:
     return invoke_tool("workspace_overview")
 
 
-@mcp.tool(
-    name="list_workspace_dir",
-    description=tool_spec("list_workspace_dir").purpose,
-)
+@mcp_tool("list_workspace_dir")
 def list_workspace_dir(path: str = "samples") -> types.CallToolResult:
     return invoke_tool("list_workspace_dir", {"path": path})
 
 
-@mcp.tool(
-    name="read_workspace_file",
-    description=tool_spec("read_workspace_file").purpose,
-)
+@mcp_tool("read_workspace_file")
 def read_workspace_file(path: str) -> types.CallToolResult:
     return invoke_tool("read_workspace_file", {"path": path})
 
 
-@mcp.tool(
-    name="write_candidate",
-    description=tool_spec("write_candidate").purpose,
-)
+@mcp_tool("write_candidate")
 def write_candidate(content: str) -> types.CallToolResult:
     return invoke_tool("write_candidate", {"content": content})
 
 
-@mcp.tool(
-    name="run_candidate",
-    description=tool_spec("run_candidate").purpose,
-)
+@mcp_tool("run_candidate")
 def run_candidate() -> types.CallToolResult:
     return invoke_tool("run_candidate")
 
 
-@mcp.tool(
-    name="profile_ncu",
-    description=tool_spec("profile_ncu").purpose,
-)
+@mcp_tool("profile_ncu")
 def profile_ncu() -> types.CallToolResult:
     return invoke_tool("profile_ncu")
 
 
-@mcp.tool(
-    name="goal_status",
-    description=tool_spec("goal_status").purpose,
-)
+@mcp_tool("goal_status")
 def goal_status() -> types.CallToolResult:
     return invoke_tool("goal_status")
 
 
-@mcp.tool(
-    name="best_result",
-    description=tool_spec("best_result").purpose,
-)
+@mcp_tool("best_result")
 def best_result() -> types.CallToolResult:
     return invoke_tool("best_result")
 
 
-@mcp.tool(
-    name="complete_problem",
-    description=tool_spec("complete_problem").purpose,
-)
+@mcp_tool("complete_problem")
 def complete_problem(summary: str) -> types.CallToolResult:
     return invoke_tool("complete_problem", {"summary": summary})
 
