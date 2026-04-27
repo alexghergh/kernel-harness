@@ -89,13 +89,6 @@ def artifact_lock_path(run_name: str, level: int, problem_id: int) -> Path:
     )
 
 
-def solver_lock_path(run_name: str, level: int, problem_id: int) -> Path:
-    run_name = validate_run_name(run_name)
-    return solver_lock_dir() / (
-        f"{_lock_slug(run_name)}_level_{level}_problem_{problem_id}.lock"
-    )
-
-
 def workspace_dir(run_name: str, level: int, problem_id: int) -> Path:
     run_name = validate_run_name(run_name)
     return ensure_dir(
@@ -195,10 +188,6 @@ def append_jsonl(path: Path, payload: Any) -> None:
     ensure_dir(path.parent)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
-
-
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
 
 
 def write_text(path: Path, content: str) -> None:
