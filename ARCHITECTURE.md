@@ -15,7 +15,7 @@ The harness is responsible for:
 - recording attempts, traces, status, completion, and profiler outputs
 - aggregating archived results through `summarize-run`
 
-The harness is **not** responsible for installing KernelBench itself. KernelBench setup belongs to the official KernelBench repository and the active environment you choose to run this harness in.
+The harness initializes the vendored KernelBench checkout during `./kb setup` and installs it into the configured Python environment. The same setup step builds `third_party/bin/landrun` for the later direct-runtime sandbox. Operators may still override KernelBench with an explicit external `KERNELBENCH_ROOT`.
 
 ## Documentation audiences
 
@@ -190,7 +190,7 @@ Important files:
 - `HARDWARE.md` — human-readable hardware facts and guidance
 - `INITIAL_PROMPT.md` — the exact initial launch prompt
 - `problem_reference.py` — local copy of the reference PyTorch problem code
-- `candidate_model_new.py` — initial solver scaffold shown at workspace creation
+- `candidate_model_new.py` — initial free-form solver stub shown at workspace creation
 - `candidate_final.py` — final captured candidate when completion exists
 - `problem.json` — machine-readable problem metadata, embedded eager/compile baseline runtimes, budget, and run identifiers
 - `hardware.json` — machine-readable hardware facts
