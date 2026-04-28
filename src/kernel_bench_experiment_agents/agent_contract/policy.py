@@ -12,16 +12,24 @@ from pathlib import Path
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 
 MCP_SERVER_NAME = "kernelbench"
+COMMAND_MCP_SERVER_NAME = "kernelbench_commands"
 
 
 @dataclass(frozen=True)
-class WrapperCommandSpec:
-    """Describes one backend wrapper command that the harness still records in traces."""
+class CommandToolSpec:
+    """Describes one brokered privileged command available to the solver."""
 
     name: str
-    path: str
+    cli_name: str
+    wrapper_name: str
     purpose: str
     uses_gpu: bool = False
+    read_only: bool = False
+    destructive: bool = False
+
+    @property
+    def wrapper_path(self) -> str:
+        return f"./bin/{self.wrapper_name}"
 
 
 @dataclass(frozen=True)
@@ -53,40 +61,43 @@ LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
     "failed_to_generate",
 )
 
-# These wrapper paths remain the backend command surface used by the harness itself. Synthetic MCP
-# trace events refer to them so the existing counting/audit logic can stay stable.
-WORKSPACE_COMMAND_SPECS: tuple[WrapperCommandSpec, ...] = (
-    WrapperCommandSpec(
-        name="hardware_info",
-        path="./bin/hardware_info.sh",
-        purpose="print frozen hardware facts for this workspace",
-    ),
-    WrapperCommandSpec(
+COMMAND_TOOL_SPECS: tuple[CommandToolSpec, ...] = (
+    CommandToolSpec(
         name="run_candidate",
-        path="./bin/run_candidate.sh",
-        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
+        cli_name="run-candidate",
+        wrapper_name="run_candidate.sh",
+        purpose="evaluate correctness and runtime for the current candidate",
         uses_gpu=True,
+        destructive=True,
     ),
-    WrapperCommandSpec(
+    CommandToolSpec(
         name="profile_ncu",
-        path="./bin/profile_ncu.sh",
-        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
+        cli_name="profile-ncu",
+        wrapper_name="profile_ncu.sh",
+        purpose="profile the current candidate with Nsight Compute",
         uses_gpu=True,
+        destructive=True,
     ),
-    WrapperCommandSpec(
+    CommandToolSpec(
         name="goal_status",
-        path="./bin/goal_status.sh",
+        cli_name="goal-status",
+        wrapper_name="goal_status.sh",
         purpose="refresh and print live goal status",
+        read_only=True,
     ),
-    WrapperCommandSpec(
+    CommandToolSpec(
         name="best_result",
-        path="./bin/best_result.sh",
+        cli_name="best-result",
+        wrapper_name="best_result.sh",
         purpose="print the best measured correct result so far",
+        read_only=True,
     ),
-    WrapperCommandSpec(
+    CommandToolSpec(
         name="complete_problem",
-        path="./bin/complete_problem.sh",
-        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
+        cli_name="complete-problem",
+        wrapper_name="complete_problem.sh",
+        purpose="record the final solver summary and end the run",
+        destructive=True,
     ),
 )
 
@@ -111,30 +122,15 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
         purpose=f"write_candidate(content) -> validate and overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
         destructive=True,
     ),
-    McpToolSpec(
-        name="run_candidate",
-        purpose="run_candidate() -> JSON result for the current candidate (status, sample_id, correctness/runtime info, and archive-relative outputs); takes no arguments",
-        uses_gpu=True,
-    ),
-    McpToolSpec(
-        name="profile_ncu",
-        purpose="profile_ncu() -> JSON result plus new profiler artifacts for the current candidate; takes no arguments",
-        uses_gpu=True,
-    ),
-    McpToolSpec(
-        name="goal_status",
-        purpose="goal_status() -> live JSON status snapshot (remaining budget, attempt counts, baseline progress, best sample); takes no arguments",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="best_result",
-        purpose="best_result() -> JSON for the best measured correct attempt so far, including sample_id and archive-relative artifact paths; takes no arguments",
-        read_only=True,
-    ),
-    McpToolSpec(
-        name="complete_problem",
-        purpose="complete_problem(summary) -> record the final solver summary and end the run; the only valid solver exit path",
-        destructive=True,
+    *(
+        McpToolSpec(
+            name=spec.name,
+            purpose=spec.purpose,
+            uses_gpu=spec.uses_gpu,
+            read_only=spec.read_only,
+            destructive=spec.destructive,
+        )
+        for spec in COMMAND_TOOL_SPECS
     ),
 )
 
@@ -142,8 +138,8 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "Act as the planner-manager for this problem. Keep the main context focused on strategy, debugging, and choosing the next branch.",
     "Work independently. There is no human approval, acceptance, or confirmation step during the run.",
     "Do not ask whether to proceed. Pick the next reasonable action yourself.",
-    "Do not end with a plain assistant message. The only valid exit is the `complete_problem` MCP tool.",
-    "Never start a second harness MCP call while another one is still running.",
+    "Do not end with a plain assistant message. The only valid exit is the `complete_problem` command tool.",
+    "Never start a second harness command while another one is still running.",
     "WHEN you want a measured evaluation, spawn the `runner` helper if available; use direct `run_candidate` yourself only when helper spawning is unavailable.",
     "WHEN you want Nsight Compute output or profile interpretation, spawn the `profiler` helper if available; use direct `profile_ncu` yourself only when helper spawning is unavailable.",
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
@@ -168,6 +164,10 @@ FIXED_WORKSPACE_RESOURCE_PATHS: tuple[str, ...] = (
     "SPEC.md",
     "HARDWARE.md",
     "GOAL_STATUS.md",
+    "goal_status.json",
+    "problem.json",
+    "hardware.json",
+    "workspace_contract.json",
     "problem_reference.py",
     CANDIDATE_FILENAME,
 )
@@ -191,7 +191,7 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Execution-focused helper for one assigned optimization problem. "
             "The main solver should delegate measured evaluations to this helper by default so the main context stays focused on planning."
         ),
-        mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
+        mcp_tools=("run_candidate", "goal_status", "best_result"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -212,7 +212,7 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Profiling helper for one assigned optimization problem. "
             "The main solver should delegate Nsight Compute work to this helper by default so the main context stays focused on planning."
         ),
-        mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
+        mcp_tools=("profile_ncu", "goal_status"),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -231,10 +231,10 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
 
 
 WORKSPACE_WRAPPER_TRACE_KEYS: dict[str, str] = {
-    spec.path: f"{spec.name}_calls" for spec in WORKSPACE_COMMAND_SPECS
+    spec.wrapper_path: f"{spec.name}_calls" for spec in COMMAND_TOOL_SPECS
 }
 GPU_WRAPPER_PATHS: tuple[str, ...] = tuple(
-    spec.path for spec in WORKSPACE_COMMAND_SPECS if spec.uses_gpu
+    spec.wrapper_path for spec in COMMAND_TOOL_SPECS if spec.uses_gpu
 )
 
 
@@ -244,6 +244,21 @@ def mcp_tool_names() -> tuple[str, ...]:
 
 def claude_mcp_tool_names() -> tuple[str, ...]:
     return tuple(f"mcp__{MCP_SERVER_NAME}__{name}" for name in mcp_tool_names())
+
+
+def command_tool_names() -> tuple[str, ...]:
+    return tuple(spec.name for spec in COMMAND_TOOL_SPECS)
+
+
+def claude_command_mcp_tool_names() -> tuple[str, ...]:
+    return tuple(f"mcp__{COMMAND_MCP_SERVER_NAME}__{name}" for name in command_tool_names())
+
+
+def command_tool_spec(name: str) -> CommandToolSpec:
+    for spec in COMMAND_TOOL_SPECS:
+        if spec.name == name:
+            return spec
+    raise KeyError(name)
 
 
 def _resolve_workspace_surface(
