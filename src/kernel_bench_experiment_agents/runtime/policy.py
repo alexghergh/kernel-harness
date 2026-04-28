@@ -126,6 +126,11 @@ def render_codex_config() -> str:
     allowed_domains = ", ".join(f'"{domain}"' for domain in ALLOWED_WEB_DOMAINS)
     env_vars = ", ".join(f'"{name}"' for name in MCP_SERVER_ENV_VARS)
     enabled_tools = ", ".join(json.dumps(spec.name) for spec in MCP_TOOL_SPECS)
+    mcp_tool_overrides = "".join(
+        f"[mcp_servers.{MCP_SERVER_NAME}.tools.{spec.name}]\n"
+            'approval_mode = "approve"\n'
+        for spec in MCP_TOOL_SPECS
+    )
     python_command = json.dumps(_python_command())
     payload = (
         '# Generated from src/kernel_bench_experiment_agents/runtime/policy.py\n'
@@ -143,19 +148,16 @@ def render_codex_config() -> str:
         '[agents]\n'
         'max_threads = 6\n'
         'max_depth = 1\n\n'
-        f'[apps.{MCP_SERVER_NAME}]\n'
-        'default_tools_approval_mode = "approve"\n'
-        'default_tools_enabled = true\n'
-        'destructive_enabled = true\n'
-        'open_world_enabled = false\n\n'
         f'[mcp_servers.{MCP_SERVER_NAME}]\n'
         f'command = {python_command}\n'
         'args = ["-m", "kernel_bench_experiment_agents.mcp"]\n'
         f'env_vars = [{env_vars}]\n'
         f'enabled_tools = [{enabled_tools}]\n'
+        'default_tool_approval_mode = "approve"\n'
         'required = true\n'
         'startup_timeout_sec = 20\n'
         'tool_timeout_sec = 600\n\n'
+        '{mcp_tool_overrides}\n'
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )
