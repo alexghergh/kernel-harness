@@ -14,14 +14,22 @@ Short rolling maintainer handoff for the KernelBench harness.
   - `./.codex/auth.json`
   - `./.claude/.credentials.json`
 - Codex should use one shared `state/config/codex/config.toml` with MCP `env_vars`; do not reintroduce per-problem `CODEX_HOME` unless a concrete client bug forces it.
+- Keep the `v4` tag moved to the current reviewed base before handing back an archive.
 
-## Fixed in the current pass
+## Current pass notes
 
-- strengthened the planner/manager wording so the main agent is told WHEN to use `runner`, WHEN to use `profiler`, WHEN to inspect old `samples/` / `profiles/`, and WHEN to use hosted NVIDIA docs
-- suspicious or validation-blocked `run_candidate` results are now excluded from progress by derived rules, and the MCP response tells the solver plainly why the run does not count
-- suspicious/blocked runs leave GOAL_STATUS on the previous counted result and no longer count as progress when goal status or best-result helpers are recomputed
-- the Slurm wrapper no longer redefines the full variable set that `run_agent_range.sh` already owns
-- README/ARCHITECTURE now explain where the solver policy lives and that `agent/events.jsonl` is the exact live client trace while `trace_ir.json` is the normalized merged view
+- Codex MCP failures showed `user cancelled MCP tool call` on `write_candidate`, after the model had already emitted the MCP call.
+- Codex MCP approval config belongs under `[mcp_servers.kernelbench]`, not `[apps.kernelbench]`; keep server-level and per-tool `approval_mode = "approve"` so headless `codex exec` can call both read-only and destructive harness tools.
+- Keep Codex in `workspace-write` because it runs from an empty scratch cwd and accesses the actual problem workspace only through MCP.
+- The previous small cleanup removed the unused MCP smoke script, stale helper functions, and solver-facing wrapper-command advertising.
+
+## Active TODOs
+
+- rerun traces after this Codex MCP approval fix
+- then ask for the full review pass
+- sandbox integration replacing most MCP
+- later optional PTX exposure
+- later second workload surface like `hpc-code/`
 
 ## Still on the radar
 
@@ -35,10 +43,3 @@ Short rolling maintainer handoff for the KernelBench harness.
 - after live runs, inspect `archive/.../agent/events.jsonl`, `mcp_ir_events.jsonl`, and `trace_ir.json` together
 - manually inspect final kernels for forbidden escapes (vendor libraries, ATen compute helpers, Triton, dynamic loader monkeypatches, etc.)
 - if Codex or Claude behavior drifts, prefer narrowing the advertised surface and sharpening the docs before adding more enforcement layers
-
-## Current behavior review notes
-
-- helper agents are correctly loaded for both clients and have narrow MCP scopes, but the old wording was too weak; this pass makes helper use a default behavior rather than an optional suggestion
-- suspicious KernelBench warnings and static validation failures should now feed back to the model as “not counted toward progress” instead of silently letting the model think the run advanced the goal
-- the exact raw model trace is `agent/events.jsonl`; use that first when you want to understand what the model actually did, and use `trace_ir.json` mainly for counts, audit, and compact summaries
-- next likely maintainer step after another live run: rebase onto `main`, then move `v3` once the current head is verified in-cluster
