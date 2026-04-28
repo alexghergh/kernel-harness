@@ -157,7 +157,7 @@ def render_codex_config() -> str:
         'required = true\n'
         'startup_timeout_sec = 20\n'
         'tool_timeout_sec = 600\n\n'
-        '{mcp_tool_overrides}\n'
+        f'{mcp_tool_overrides}\n'
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'
     )

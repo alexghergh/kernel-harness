@@ -30,10 +30,6 @@ DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
 
 STATE_ROOT="${DATA_ROOT}/state"
-ARCHIVE_ROOT="${DATA_ROOT}/archive"
-TOOL_CONFIG_ROOT="${STATE_ROOT}/config"
-CODEX_SHARED_HOME="${TOOL_CONFIG_ROOT}/codex"
-CLAUDE_SHARED_CONFIG_DIR="${TOOL_CONFIG_ROOT}/claude"
 
 prepare_shared_tool_state() {
   python - <<'PY'
@@ -109,16 +105,15 @@ case "${TOOL}" in
     ;;
 esac
 
-DEFAULT_MODEL="gpt-5.4"
-if [[ "${TOOL}" == "claude" ]]; then
-  DEFAULT_MODEL="claude-opus-4-7"
-fi
-
 RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v4}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
-MODEL="${MODEL:-${DEFAULT_MODEL}}"
+if [[ "${TOOL}" == "claude" ]]; then
+  MODEL="${MODEL:-claude-opus-4-7}"
+else
+  MODEL="${MODEL:-gpt-5.4}"
+fi
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
@@ -147,20 +142,16 @@ if [[ "${SHARED_TOOL_STATE_PREPARED:-0}" != "1" ]]; then
 fi
 export SHARED_TOOL_STATE_PREPARED=1
 
-ARCHIVE_PROBLEM_DIR="${ARCHIVE_ROOT}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
+ARCHIVE_PROBLEM_DIR="${DATA_ROOT}/archive/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 AGENT_ARTIFACT_DIR="${ARCHIVE_PROBLEM_DIR}/agent"
 SOLVER_LOCK_DIR="${STATE_ROOT}/locks/solver"
-PROBLEM_STATE_LOCK_DIR="${STATE_ROOT}/locks/problem_state"
-GPU_LOCK_DIR="${STATE_ROOT}/locks/gpu"
 
 mkdir -p \
-  "${ARCHIVE_PROBLEM_DIR}" \
   "${AGENT_ARTIFACT_DIR}" \
-  "${STATE_ROOT}" \
-  "${TOOL_CONFIG_ROOT}" \
+  "${STATE_ROOT}/config" \
   "${SOLVER_LOCK_DIR}" \
-  "${PROBLEM_STATE_LOCK_DIR}" \
-  "${GPU_LOCK_DIR}"
+  "${STATE_ROOT}/locks/problem_state" \
+  "${STATE_ROOT}/locks/gpu"
 
 SOLVER_LOCK_PATH="${SOLVER_LOCK_DIR}/${RUN_NAME}_level_${LEVEL}_problem_${PROBLEM_ID}.lock"
 exec 9>"${SOLVER_LOCK_PATH}"
@@ -172,28 +163,28 @@ fi
 # Validate authentication before mutating workspace state.
 if [[ "${TOOL}" == "codex" ]]; then
   require_command codex
-  export CODEX_HOME="${CODEX_SHARED_HOME}"
+  export CODEX_HOME="${STATE_ROOT}/config/codex"
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     :
   elif ! codex login status >/dev/null 2>&1; then
     echo "Codex needs either repo-root .codex/auth.json or OPENAI_API_KEY before launch." >&2
     echo "Preferred: CODEX_HOME=\"./.codex\" codex -c cli_auth_credentials_store=file login --device-auth" >&2
-    echo "The harness copies only ./.codex/auth.json into ${CODEX_SHARED_HOME} on launch." >&2
+    echo "The harness copies only ./.codex/auth.json into ${CODEX_HOME} on launch." >&2
     echo "If regular codex works but the harness does not, refresh repo-root ./.codex/auth.json; the harness intentionally ignores ~/.codex." >&2
     echo "Alternative: export OPENAI_API_KEY=..." >&2
     exit 1
   fi
 else
   require_command claude
-  export CLAUDE_CONFIG_DIR="${CLAUDE_SHARED_CONFIG_DIR}"
+  export CLAUDE_CONFIG_DIR="${STATE_ROOT}/config/claude"
   if [[ -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
     :
-  elif [[ -f "${CLAUDE_SHARED_CONFIG_DIR}/.credentials.json" ]]; then
+  elif [[ -f "${CLAUDE_CONFIG_DIR}/.credentials.json" ]]; then
     :
   else
     echo "Claude Code needs either repo-root .claude/.credentials.json or exported API credentials before launch." >&2
     echo "Preferred: CLAUDE_CONFIG_DIR=\"./.claude\" claude login" >&2
-    echo "The harness copies only ./.claude/.credentials.json into ${CLAUDE_SHARED_CONFIG_DIR} on launch." >&2
+    echo "The harness copies only ./.claude/.credentials.json into ${CLAUDE_CONFIG_DIR} on launch." >&2
     echo "If regular claude works but the harness does not, refresh repo-root ./.claude/.credentials.json; the harness intentionally ignores ~/.claude." >&2
     echo "Alternatives: export ANTHROPIC_API_KEY=..., ANTHROPIC_AUTH_TOKEN=..., or CLAUDE_CODE_OAUTH_TOKEN=..." >&2
     exit 1
@@ -231,7 +222,6 @@ MCP_EVENTS_PATH="${AGENT_ARTIFACT_DIR}/mcp_ir_events.jsonl"
 FINAL_MESSAGE_PATH="${AGENT_ARTIFACT_DIR}/final_message.txt"
 TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
 COMPLETION_PATH="${AGENT_ARTIFACT_DIR}/completion.json"
-WORKSPACE_COMPLETION_PATH="${WORKSPACE}/completion.json"
 BUDGET_EXHAUSTED_MARKER_PATH="${AGENT_ARTIFACT_DIR}/budget_exhausted_goal_status.json"
 TOOL_CWD="${STATE_ROOT}/cwd/${TOOL}/${RUN_NAME}/level_${LEVEL}/problem_${PROBLEM_ID}"
 rm -rf "${TOOL_CWD}"
@@ -247,7 +237,7 @@ else
   echo "Launching Claude Code from ${TOOL_CWD} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and MCP-backed workspace access" >&2
 fi
 
-rm -f "${EVENTS_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE_COMPLETION_PATH}" "${BUDGET_EXHAUSTED_MARKER_PATH}"
+rm -f "${EVENTS_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE}/completion.json" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
   kbharness goal-status \

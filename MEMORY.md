@@ -18,6 +18,7 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Current pass notes
 
+- Parallel range runs prepare shared tool state once in the parent again, with only `SHARED_TOOL_STATE_PREPARED=1` exported to child problem launches.
 - Codex MCP failures showed `user cancelled MCP tool call` on `write_candidate`, after the model had already emitted the MCP call.
 - Codex MCP approval config belongs under `[mcp_servers.kernelbench]`, not `[apps.kernelbench]`; keep server-level and per-tool `approval_mode = "approve"` so headless `codex exec` can call both read-only and destructive harness tools.
 - Keep Codex in `workspace-write` because it runs from an empty scratch cwd and accesses the actual problem workspace only through MCP.

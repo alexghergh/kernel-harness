@@ -79,16 +79,8 @@ trap report_elapsed_time EXIT
 
 echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
 prepare_shared_tool_state
-export SHARED_TOOL_STATE_PREPARED=1
 
-export DATA_ROOT TOOL RUN_NAME LEVEL
-export DATASET_SRC="${DATASET_SRC:-local}"
-export MODEL="${MODEL:-}"
-export TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
-export HARDWARE_NAME="${HARDWARE_NAME:-}"
-export KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
-export KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
-export PRECISION="${PRECISION:-bf16}"
+export TOOL RUN_NAME LEVEL SHARED_TOOL_STATE_PREPARED=1
 
 action_run_one() {
   local pid="$1"
