@@ -24,7 +24,9 @@ from kernel_bench_experiment_agents.kernelbench.metrics import (
     best_correct_payload,
     blocked_run_reason,
     candidate_runtime,
+    payload_execution_failed,
     payload_counts_toward_progress,
+    result_is_correct_with_runtime,
     sum_numeric_field,
 )
 from kernel_bench_experiment_agents.trace.analysis import trace_counts, web_searches_from_ir
@@ -120,16 +122,17 @@ def goal_status_snapshot(
         1
         for payload in progress_entries
         if isinstance(payload.get("result"), dict)
-        and bool(payload["result"].get("correctness"))
+        and result_is_correct_with_runtime(payload["result"])
     )
     num_incorrect_attempts = sum(
         1
         for payload in progress_entries
         if isinstance(payload.get("result"), dict)
+        and not payload_execution_failed(payload)
         and payload["result"].get("correctness") is False
     )
     num_execution_failed_attempts = sum(
-        1 for payload in progress_entries if payload.get("status") == "failed"
+        1 for payload in progress_entries if payload_execution_failed(payload)
     )
     num_other_attempts = max(
         0,

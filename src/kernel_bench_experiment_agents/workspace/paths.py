@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from kernel_bench_experiment_agents.kernelbench.attempt_summary import solver_attempt_summary
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, workspace_dir, write_json, write_text
 
@@ -137,7 +138,7 @@ def write_workspace_best_sample(
             best_sample_path.unlink()
     elif best_sample_path.exists():
         best_sample_path.unlink()
-    write_json(best_result_path, payload)
+    write_json(best_result_path, solver_attempt_summary(payload))
 
 
 def latest_workspace_profile_paths(workspace: Path) -> dict[str, Path]:

@@ -14,6 +14,7 @@ from kernel_bench_experiment_agents.workspace.archive import sample_manifest_pat
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_run_candidate_snapshot
 from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError
+from kernel_bench_experiment_agents.kernelbench.metrics import result_runtime_error
 from kernel_bench_experiment_agents.runtime.common import as_float, emit_json
 from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
@@ -253,10 +254,16 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 f"Candidate evaluation subprocess produced no result payload at {runner_output_path}."
             )
         result = load_json_object(runner_output_path)
-        payload["status"] = "succeeded"
+        runtime_error = result_runtime_error(result)
+        payload["status"] = "execution_failed" if runtime_error else "succeeded"
         payload["updated_at"] = now_iso()
         payload["result"] = result
         payload["warnings"] = _result_warnings(result, workspace, stdout_text=completed.stdout)
+        if runtime_error:
+            payload["error"] = {
+                "type": "KernelBenchExecutionError",
+                "message": excerpt(runtime_error),
+            }
     except Exception as exc:
         failure = exc
         if payload is None or sample_id is None or sample_json_path is None:

@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.kernelbench.metrics import candidate_runtime, payload_counts_toward_progress
+from kernel_bench_experiment_agents.kernelbench.metrics import (
+    candidate_runtime,
+    payload_execution_failed,
+    payload_counts_toward_progress,
+    result_is_correct_with_runtime,
+)
 from kernel_bench_experiment_agents.workspace.paths import read_json_file
 
 
@@ -23,14 +28,20 @@ def _load_samples(problem_dir: Path) -> list[dict[str, Any]]:
     ):
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         result = payload.get("result", {})
+        runtime_ms = candidate_runtime(result)
+        execution_failed = payload_execution_failed(payload)
+        status = payload.get("status")
+        if execution_failed and status == "succeeded":
+            status = "execution_failed"
         samples.append(
             {
                 "sample_id": payload.get("sample_id"),
-                "status": payload.get("status"),
+                "status": status,
                 "counts_toward_progress": payload_counts_toward_progress(payload),
-                "compiled": bool(result.get("compiled")),
-                "correct": bool(result.get("correctness")),
-                "runtime_ms": candidate_runtime(result),
+                "compiled": bool(result.get("compiled")) and not execution_failed,
+                "correct": result_is_correct_with_runtime(result),
+                "execution_failed": execution_failed,
+                "runtime_ms": runtime_ms,
             }
         )
     return samples

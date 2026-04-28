@@ -17,23 +17,49 @@ COMPILE_BASELINE_FILENAME = "baseline_time_torch_compile_inductor_default.json"
 
 def candidate_runtime(result: dict[str, Any]) -> float | None:
     runtime = as_float(result.get("runtime"))
-    if runtime is not None:
+    if runtime is not None and runtime > 0:
         return runtime
 
     runtime_stats = result.get("runtime_stats")
     if isinstance(runtime_stats, dict):
         for key in ("mean", "mean_runtime_ms", "runtime_ms"):
             value = as_float(runtime_stats.get(key))
-            if value is not None:
+            if value is not None and value > 0:
                 return value
 
     metadata = result.get("metadata")
     if isinstance(metadata, dict):
         for key in ("runtime_ms", "mean_runtime_ms"):
             value = as_float(metadata.get(key))
-            if value is not None:
+            if value is not None and value > 0:
                 return value
     return None
+
+
+def result_runtime_error(result: dict[str, Any]) -> str | None:
+    metadata = result.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    runtime_error = metadata.get("runtime_error")
+    if runtime_error in (None, ""):
+        return None
+    return str(runtime_error)
+
+
+def payload_execution_failed(payload: dict[str, Any]) -> bool:
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else None
+    if isinstance(error, dict) and error.get("type") == "CandidateValidationError":
+        return False
+    if payload.get("status") in {"failed", "execution_failed"}:
+        return True
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return False
+    return result_runtime_error(result) is not None
+
+
+def result_is_correct_with_runtime(result: dict[str, Any]) -> bool:
+    return result.get("correctness") is True and candidate_runtime(result) is not None
 
 
 def timings_dir_for_hardware(*, kernelbench_root: str, timings_dir: str | None, hardware_name: str) -> Path:

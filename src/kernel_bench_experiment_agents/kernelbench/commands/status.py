@@ -14,6 +14,7 @@ from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal
 from kernel_bench_experiment_agents.runtime.gpu_pool import lease_problem_artifacts
 from kernel_bench_experiment_agents.agent_contract.policy import SOLVER_TERMINAL_STATES
 from kernel_bench_experiment_agents.runtime.project import archive_agent_dir, now_iso, write_json, write_text
+from kernel_bench_experiment_agents.kernelbench.attempt_summary import solver_attempt_summary
 from kernel_bench_experiment_agents.kernelbench.metrics import best_correct_payload
 from kernel_bench_experiment_agents.workspace.paths import (
     validate_workspace_assignment,
@@ -30,7 +31,7 @@ def command_best_result(args: argparse.Namespace) -> None:
     best_payload = best_correct_payload(entries)
     if best_payload is None:
         raise SystemExit("No correct runtime-bearing results were found in the attempt manifests.")
-    emit_json(best_payload)
+    emit_json(solver_attempt_summary(best_payload))
 
 
 # Goal status is regenerated under the per-problem artifact lock so the solver sees

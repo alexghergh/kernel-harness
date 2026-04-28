@@ -12,6 +12,7 @@ from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import co
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
 from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError, validate_candidate_source
 from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
+from kernel_bench_experiment_agents.kernelbench.attempt_summary import solver_attempt_summary
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
 from kernel_bench_experiment_agents.runtime.project import write_text
 from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_message, blocked_run_reason
@@ -94,7 +95,6 @@ def invoke_command(handler: Any, namespace: argparse.Namespace) -> dict[str, Any
     return json.loads(output)
 
 
-
 def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> dict[str, Any]:
     metadata = load_workspace_metadata(ctx.workspace)
     append_trace_event(
@@ -125,9 +125,8 @@ def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> 
         "Act as the planner-manager for this problem. Read the fixed workspace resources first: AGENTS.md, INITIAL_PROMPT.md, SPEC.md, HARDWARE.md, and GOAL_STATUS.md. "
         "For past attempts or profiler outputs, use `list_workspace_dir` only on `samples` or `profiles`, then `read_workspace_file` on those listed files. "
         "Use only the kernelbench MCP tools for candidate edits, measured runs, profiling, status refreshes, best-result lookup, and completion. "
-        "WHEN you want a measured evaluation, spawn `runner` if available; WHEN you want Nsight Compute work, spawn `profiler` if available. "
-        "Do not request a full-history fork for these helpers; spawn the named helper with only the task prompt. "
-        "Use direct MCP run/profile calls yourself only when helper spawning is unavailable."
+        "WHEN helper agents are available and you want a measured evaluation, spawn `runner`; WHEN helper agents are available and you want Nsight Compute work, spawn `profiler`. "
+        "When spawning these helpers, avoid full-history forks and other extra spawn options; pass only the task prompt."
     )
     return text_result(text, structured=overview)
 
@@ -256,12 +255,20 @@ def handle_run_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dict[
         command="./bin/run_candidate.sh",
         metadata={"status": payload.get("status"), "sample_id": payload.get("sample_id")},
     )
+    solver_payload = solver_attempt_summary(payload)
     notice = blocked_run_reason(payload)
     summary = blocked_run_message(payload)
-    text = json.dumps(payload, indent=2, sort_keys=True)
+    if solver_payload.get("execution_failed"):
+        summary = (
+            "Candidate execution failed. This attempt counts toward progress but is not a correct timed kernel. "
+            "Fix the reported error and try another run."
+        )
+    text = json.dumps(solver_payload, indent=2, sort_keys=True)
     if summary and notice:
         text = f"{summary}\nReason: {notice}\n\n{text}"
-    return text_result(text, structured=payload)
+    elif summary:
+        text = f"{summary}\n\n{text}"
+    return text_result(text, structured=solver_payload)
 
 
 
