@@ -300,6 +300,7 @@ if [[ "${TOOL}" == "codex" ]]; then
   )
   CODEX_ARGS+=(
     exec
+    --ephemeral
     --sandbox "workspace-write" # should always be write, since Codex runs in empty cwd anyway
                                 # it also accesses the real cwd through MCP
     --cd "${TOOL_CWD}"

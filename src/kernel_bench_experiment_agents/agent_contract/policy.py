@@ -126,6 +126,7 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "Never start a second harness MCP call while another one is still running.",
     "WHEN you want a measured evaluation, spawn the `runner` helper if available; use direct `run_candidate` yourself only when helper spawning is unavailable.",
     "WHEN you want Nsight Compute output or profile interpretation, spawn the `profiler` helper if available; use direct `profile_ncu` yourself only when helper spawning is unavailable.",
+    "When spawning `runner` or `profiler`, do not request a full-history fork; spawn the named helper with only the task prompt, or fall back to the direct MCP tool if helper spawning is unavailable.",
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
     "Stay inside the benchmark contract: no cuBLAS, CUTLASS, Triton, ATen compute helpers, or extra CUDA streams.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
