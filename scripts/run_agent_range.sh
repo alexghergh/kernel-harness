@@ -14,19 +14,16 @@ if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]];
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
 DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
-
-prepare_shared_tool_state() {
-  python - <<'PY'
-from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
-from kernel_bench_experiment_agents.runtime.project import state_dir
-
-write_shared_tool_state(state_dir() / "config")
-PY
-}
+KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-${REPO_ROOT}/third_party/KernelBench}"
+export KERNELBENCH_ROOT
 
 TOOL="${TOOL:-codex}"
 case "${TOOL}" in
@@ -37,11 +34,16 @@ case "${TOOL}" in
     ;;
 esac
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v4}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-$(date -u +%Y%m%dT%H%M%SZ)}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 RUN_STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 RUN_STARTED_EPOCH="$(date +%s)"
+
+if [[ ! "${MAX_PARALLEL_SOLVERS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MAX_PARALLEL_SOLVERS must be a positive integer." >&2
+  exit 1
+fi
 
 if [[ -n "${PROBLEM_IDS:-}" ]]; then
   IFS=',' read -r -a PROBLEM_ID_LIST <<< "${PROBLEM_IDS}"
@@ -78,15 +80,13 @@ report_elapsed_time() {
 trap report_elapsed_time EXIT
 
 echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
-prepare_shared_tool_state
-export SHARED_TOOL_STATE_PREPARED=1
 
 export DATA_ROOT TOOL RUN_NAME LEVEL
 export DATASET_SRC="${DATASET_SRC:-local}"
 export MODEL="${MODEL:-}"
 export TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 export HARDWARE_NAME="${HARDWARE_NAME:-}"
-export KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
+export KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-${REPO_ROOT}/third_party/KernelBench}"
 export KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 export PRECISION="${PRECISION:-bf16}"
 
