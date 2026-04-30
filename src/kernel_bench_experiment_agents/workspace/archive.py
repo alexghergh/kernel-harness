@@ -144,6 +144,7 @@ def build_archive_problem_manifest(run_name: str, level: int, problem_id: int) -
             {"path": "contract/INITIAL_PROMPT.md", "purpose": "exact initial solver prompt"},
             {"path": "contract/helper_agents/", "purpose": "rendered helper-agent specs for the chosen tool runtime"},
             {"path": "agent/events.jsonl", "purpose": "raw streamed agent trace"},
+            {"path": "agent/events_stderr.txt", "purpose": "raw agent client stderr for debugging"},
             {"path": "agent/trace_ir.json", "purpose": "normalized trace IR"},
             {"path": "agent/mcp_ir_events.jsonl", "purpose": "synthetic MCP tool events merged into trace counts and audit"},
             {"path": "agent/completion.json", "purpose": "final terminal state plus measured outcome"},

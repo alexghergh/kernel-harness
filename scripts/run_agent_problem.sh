@@ -218,6 +218,7 @@ PY
 
 INITIAL_PROMPT_PATH="${WORKSPACE}/INITIAL_PROMPT.md"
 EVENTS_PATH="${AGENT_ARTIFACT_DIR}/events.jsonl"
+EVENTS_STDERR_PATH="${AGENT_ARTIFACT_DIR}/events_stderr.txt"
 MCP_EVENTS_PATH="${AGENT_ARTIFACT_DIR}/mcp_ir_events.jsonl"
 FINAL_MESSAGE_PATH="${AGENT_ARTIFACT_DIR}/final_message.txt"
 TRACE_PATH="${AGENT_ARTIFACT_DIR}/trace_ir.json"
@@ -237,7 +238,7 @@ else
   echo "Launching Claude Code from ${TOOL_CWD} with shared CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} and MCP-backed workspace access" >&2
 fi
 
-rm -f "${EVENTS_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE}/completion.json" "${BUDGET_EXHAUSTED_MARKER_PATH}"
+rm -f "${EVENTS_PATH}" "${EVENTS_STDERR_PATH}" "${MCP_EVENTS_PATH}" "${FINAL_MESSAGE_PATH}" "${TRACE_PATH}" "${COMPLETION_PATH}" "${WORKSPACE}/completion.json" "${BUDGET_EXHAUSTED_MARKER_PATH}"
 
 refresh_goal_status() {
   kbharness goal-status \
@@ -311,7 +312,8 @@ if [[ "${TOOL}" == "codex" ]]; then
   (
     codex "${CODEX_ARGS[@]}" \
       --output-last-message "${FINAL_MESSAGE_PATH}" \
-      "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
+      "$(cat "${INITIAL_PROMPT_PATH}")" \
+      2> >(tee "${EVENTS_STDERR_PATH}" >&2) | tee "${EVENTS_PATH}"
   ) &
 else
   CLAUDE_ARGS=(
@@ -324,7 +326,8 @@ else
   )
   (
     cd "${TOOL_CWD}" && claude "${CLAUDE_ARGS[@]}" \
-      "$(cat "${INITIAL_PROMPT_PATH}")" | tee "${EVENTS_PATH}"
+      "$(cat "${INITIAL_PROMPT_PATH}")" \
+      2> >(tee "${EVENTS_STDERR_PATH}" >&2) | tee "${EVENTS_PATH}"
   ) &
 fi
 AGENT_PIPE_PID=$!
