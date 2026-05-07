@@ -10,10 +10,10 @@
 #
 # Common overrides:
 #   DATA_ROOT=/path/for/archive-and-state   (defaults to ./ from the launch directory)
-#   RUN_NAME=kernelbench-codex-h100-v4
+#   RUN_NAME=kernelbench-codex-h100-v5
 #   LEVEL=1
 #   PROBLEM_ID=1
-#   MODEL=gpt-5.4|claude-opus-4-7
+#   MODEL=gpt-5.5|claude-opus-4-7
 #   TIME_BUDGET_MINUTES=180
 #   PRECISION=bf16
 #   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>  # optional override
@@ -112,14 +112,14 @@ case "${TOOL}" in
     ;;
 esac
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v4}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v5}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 if [[ "${TOOL}" == "claude" ]]; then
   MODEL="${MODEL:-claude-opus-4-7}"
 else
-  MODEL="${MODEL:-gpt-5.4}"
+  MODEL="${MODEL:-gpt-5.5}"
 fi
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 HARDWARE_NAME="${HARDWARE_NAME:-}"

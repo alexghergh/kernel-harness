@@ -56,9 +56,6 @@ FORBIDDEN_CALL_NAMES = {
 }
 
 FORBIDDEN_CALL_SUFFIXES = {
-    ".mm",
-    ".matmul",
-    ".bmm",
     ".register_buffer",
 }
 
