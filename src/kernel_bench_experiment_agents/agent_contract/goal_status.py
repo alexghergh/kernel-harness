@@ -163,7 +163,7 @@ def goal_status_snapshot(
         remaining_minutes = None
 
     tool = str(metadata.get("tool") or "codex")
-    live_trace_counts, live_web_searches = live_trace_counts_for_problem(
+    _, live_web_searches = live_trace_counts_for_problem(
         run_name,
         level,
         problem_id,
@@ -235,7 +235,6 @@ def goal_status_snapshot(
         "latest_attempt_sample_id": latest_attempt_sample_id,
         "latest_attempt_counts_toward_progress": latest_attempt_counts_toward_progress,
         "latest_attempt_blocked_reason": latest_attempt_blocked_reason,
-        "trace_counts": live_trace_counts,
         "web_searches": live_web_searches,
         "static_docs": ["AGENTS.md", "SPEC.md", "HARDWARE.md"],
         "live_docs": ["GOAL_STATUS.md", "goal_status.json"],

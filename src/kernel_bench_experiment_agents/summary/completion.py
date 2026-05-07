@@ -40,9 +40,6 @@ def apply_trace_audit_to_completion(
     audit: dict[str, Any],
 ) -> dict[str, Any]:
     completion_payload["audit"] = audit
-    trace_counts = audit.get("trace_counts")
-    if isinstance(trace_counts, dict):
-        completion_payload["trace_counts"] = trace_counts
     if audit.get("valid", True):
         return completion_payload
 
