@@ -330,22 +330,23 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         emit_payload = dict(payload)
     except Exception as exc:
         failure = exc
-        if payload is not None:
-            payload.update(
-                {
-                    "status": "failed",
-                    "timestamp": now_iso(),
-                    "gpu_id": gpu_id,
-                    "gpu_device_selector": gpu_device_selector,
-                    "gpu_visible_devices": gpu_visible_devices,
-                    "gpu_logical_id": gpu_logical_id,
-                    "gpu_selector_source": gpu_selector_source,
-                    "gpu_wait_seconds": gpu_wait_seconds,
-                    "artifact_reservation_wait_seconds": reservation_wait_seconds,
-                    "artifact_commit_wait_seconds": None,
-                    "error": serialize_exception(exc),
-                }
-            )
+        if payload is None or profile_json_path is None:
+            raise
+        payload.update(
+            {
+                "status": "failed",
+                "timestamp": now_iso(),
+                "gpu_id": gpu_id,
+                "gpu_device_selector": gpu_device_selector,
+                "gpu_visible_devices": gpu_visible_devices,
+                "gpu_logical_id": gpu_logical_id,
+                "gpu_selector_source": gpu_selector_source,
+                "gpu_wait_seconds": gpu_wait_seconds,
+                "artifact_reservation_wait_seconds": reservation_wait_seconds,
+                "artifact_commit_wait_seconds": None,
+                "error": serialize_exception(exc),
+            }
+        )
     finally:
         if payload is not None and profile_json_path is not None:
             try:
@@ -411,6 +412,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         else:
             clear_live_gpu_wait_marker(live_gpu_wait_marker)
 
+    emit_json(emit_payload if emit_payload is not None else payload)
+
     if persist_failure is not None:
         raise SystemExit(
             f"Failed to persist profiling metadata for {profile_name}: {persist_failure}"
@@ -444,4 +447,3 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         raise SystemExit(
             "ncu raw metric export produced no readable output for summary generation"
         )
-    emit_json(emit_payload)

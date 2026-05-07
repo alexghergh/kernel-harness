@@ -164,6 +164,10 @@ class _CandidateValidator(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
+            if alias.name == "torch.nn.functional" or alias.name.startswith("torch.nn.functional."):
+                raise CandidateValidationError(
+                    "Importing torch.nn.functional is forbidden; ATen compute helpers must not be used in candidate_model_new.py."
+                )
             root = alias.name.split(".", 1)[0]
             if root in FORBIDDEN_IMPORT_ROOTS:
                 raise CandidateValidationError(
@@ -173,6 +177,14 @@ class _CandidateValidator(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
+        if module == "torch.nn.functional" or module.startswith("torch.nn.functional."):
+            raise CandidateValidationError(
+                "Importing from torch.nn.functional is forbidden; ATen compute helpers must not be used in candidate_model_new.py."
+            )
+        if module == "torch.nn" and any(a.name == "functional" for a in node.names):
+            raise CandidateValidationError(
+                "Importing torch.nn.functional is forbidden; ATen compute helpers must not be used in candidate_model_new.py."
+            )
         root = module.split(".", 1)[0]
         if root in FORBIDDEN_IMPORT_ROOTS:
             raise CandidateValidationError(
@@ -227,6 +239,10 @@ class _CandidateValidator(ast.NodeVisitor):
             if call_name.startswith("torch.backends."):
                 raise CandidateValidationError(
                     "Mutating or querying torch backend flags is forbidden in candidate_model_new.py."
+                )
+            if call_name.startswith("torch.nn.functional."):
+                raise CandidateValidationError(
+                    f"Calling {call_name!r} is forbidden; ATen compute helpers must not be used in candidate_model_new.py."
                 )
             if any(call_name.endswith(suffix) for suffix in FORBIDDEN_CALL_SUFFIXES):
                 raise CandidateValidationError(

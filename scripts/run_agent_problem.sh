@@ -41,20 +41,27 @@ write_shared_tool_state(state_dir() / "config")
 PY
 }
 
+# Walk the descendant tree post-order so leaves print before their parent.
+_descendant_pids() {
+  local p="$1"
+  local c
+  for c in $(pgrep -P "$p" 2>/dev/null); do
+    _descendant_pids "$c"
+  done
+  echo "$p"
+}
+
 # Stop the launched agent process tree when the budget watcher fires.
 terminate_agent_pipeline() {
   local parent_pid="$1"
+  local pids
 
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -TERM -P "${parent_pid}" 2>/dev/null || true
-  fi
-  kill -TERM "${parent_pid}" 2>/dev/null || true
+  pids=$(_descendant_pids "${parent_pid}")
+  echo "${pids}" | xargs -r kill -TERM 2>/dev/null || true
   sleep 5
   if kill -0 "${parent_pid}" 2>/dev/null; then
-    if command -v pkill >/dev/null 2>&1; then
-      pkill -KILL -P "${parent_pid}" 2>/dev/null || true
-    fi
-    kill -KILL "${parent_pid}" 2>/dev/null || true
+    pids=$(_descendant_pids "${parent_pid}")
+    echo "${pids}" | xargs -r kill -KILL 2>/dev/null || true
   fi
 }
 

@@ -607,6 +607,7 @@ def audit_trace(
     return {
         "valid": not violations,
         "violations": violations,
+        "summary": ", ".join(v.get("kind", "violation") for v in violations) if violations else "ok",
         "trace_counts": counts,
         "web_searches": web_searches,
     }

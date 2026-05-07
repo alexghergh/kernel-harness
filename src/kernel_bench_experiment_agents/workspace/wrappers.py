@@ -119,6 +119,7 @@ def generate_complete_wrapper(*, run_name: str, level: int, problem_id: int) -> 
     common = workspace_wrapper_common()
     validation = dedent(
         """
+        FORWARD_ARGS=("$@")
         HAVE_SUMMARY=false
         while [[ $# -gt 0 ]]; do
           case "$1" in
@@ -149,7 +150,7 @@ def generate_complete_wrapper(*, run_name: str, level: int, problem_id: int) -> 
     ).lstrip()
     command_lines = [
         'kbharness complete-problem',
-        '  "$@"',
+        '  "${FORWARD_ARGS[@]}"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
