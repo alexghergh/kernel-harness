@@ -182,7 +182,7 @@ def goal_status_snapshot(
             )
     if resolved:
         recommended_actions.append(
-            "Re-check SPEC.md once, then end via the `complete_problem` MCP tool with a short success summary."
+            "STOP NOW. Both baselines are beaten. Call `complete_problem(summary='both baselines beaten')` immediately and exit. Do not submit any more candidates or profile runs — remaining budget time is irrelevant."
         )
     else:
         recommended_actions.extend(

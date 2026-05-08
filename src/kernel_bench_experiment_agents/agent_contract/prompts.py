@@ -310,16 +310,24 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- `run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
         ]
     else:
-        heading = "# Goal Status: RESOLVED — both baselines beaten; complete with success"
+        heading = "# Goal Status: RESOLVED — STOP NOW. Call `complete_problem` and exit."
         standing_orders = [
-            "- Re-check `SPEC.md` once, then end through `complete_problem(summary='both baselines beaten')`.",
+            "- STOP NOW. Both baselines are beaten. Your job is done.",
+            "- Do NOT submit another candidate. Do NOT call `run_candidate` or `profile_ncu` again.",
+            "- Call `complete_problem(summary='both baselines beaten')` IMMEDIATELY and exit.",
+            "- Remaining budget time is IRRELEVANT once both baselines are beaten. Continuing past this point wastes compute for no measured benefit.",
+            "- A plain assistant message is NEVER a valid exit. The ONLY valid exit is `complete_problem`.",
         ]
 
     if remaining_minutes is None:
         remaining_line = "unknown"
-    elif substantial_budget_remains:
+    elif unresolved and substantial_budget_remains:
         remaining_line = (
             f"{remaining_minutes} (most of your budget remains — stopping now wastes it)"
+        )
+    elif not unresolved:
+        remaining_line = (
+            f"{remaining_minutes} (irrelevant — both baselines already beaten; STOP NOW)"
         )
     else:
         remaining_line = str(remaining_minutes)
@@ -339,10 +347,15 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
     )
     if snapshot.get("num_other_attempts"):
         attempt_breakdown += f", {snapshot['num_other_attempts']} other"
+    orders_header = (
+        "Standing orders (active until both baselines are beaten):"
+        if unresolved
+        else "Final orders (both baselines beaten — exit now):"
+    )
     lines = [
         heading,
         "",
-        "Standing orders (active until both baselines are beaten):",
+        orders_header,
         "",
         *standing_orders,
         "",
