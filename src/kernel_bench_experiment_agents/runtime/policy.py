@@ -136,6 +136,7 @@ def render_codex_config() -> str:
         '# Generated from src/kernel_bench_experiment_agents/runtime/policy.py\n'
         'personality = "pragmatic"\n'
         'approval_policy = "never"\n'
+        'model_reasoning_effort = "xhigh"\n'
         'sandbox_mode = "workspace-write"\n'
         'project_root_markers = []\n'
         'allow_login_shell = false\n'
@@ -224,6 +225,7 @@ def claude_settings_payload(*, websearch_hook_path: Path) -> dict[str, object]:
     ]
     return {
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
+        "effortLevel": "max",
         "permissions": {
             "allow": allow_tools,
             "deny": list(CLAUDE_DENIED_TOOLS),
