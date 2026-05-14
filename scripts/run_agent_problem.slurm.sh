@@ -29,6 +29,26 @@
 # Replace `ybatch` with `sbatch` on clusters that use plain Slurm submission.
 set -euo pipefail
 
+# Banner: print the run config at the top of the slurm output so `head -20`
+# is enough to identify what this job is. Auth credentials are intentionally
+# never echoed.
+echo "=================================================================="
+echo "Slurm job ${SLURM_JOB_ID:-<no-slurm>} on host $(hostname)"
+echo "Submitted from: ${SLURM_SUBMIT_DIR:-?}"
+echo "Started at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "------------------------------------------------------------------"
+for var in TOOL RUN_NAME LEVEL PROBLEM_IDS START_PROBLEM_ID END_PROBLEM_ID \
+           MODEL TIME_BUDGET_MINUTES PRECISION KERNELBENCH_ROOT HARDWARE_NAME \
+           MAX_PARALLEL_SOLVERS DATA_ROOT PYENV_VIRTUALENV; do
+  raw="${!var:-}"
+  if [[ -z "$raw" ]]; then
+    printf '  %-22s (unset)\n' "$var"
+  else
+    printf '  %-22s %s\n' "$var" "$raw"
+  fi
+done
+echo "=================================================================="
+
 if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]]; then
   echo "Submit scripts/run_agent_problem.slurm.sh from the harness repo root." >&2
   exit 1
