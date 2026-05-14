@@ -18,6 +18,7 @@ from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     clear_live_gpu_wait_marker,
     create_live_gpu_wait_marker,
+    mark_live_gpu_wait_operation_started,
     settle_live_gpu_wait_marker,
 )
 from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
@@ -189,6 +190,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             lease_name=lease_name,
         ) as lease:
             settle_live_gpu_wait_marker(live_gpu_wait_marker, wait_seconds=lease.wait_seconds)
+            mark_live_gpu_wait_operation_started(live_gpu_wait_marker)
 
             isolated_env = isolated_gpu_environment(device_selector=lease.device_selector)
             command = [

@@ -4,6 +4,11 @@ Run and profile wrappers create short-lived marker files under `state/locks/live
 waiting for a GPU slot. Once a lease is acquired, the marker is converted into a fixed wait-duration
 record and kept alive until the command persists its normal archive payload, so the budget view never
 "gives back" the queued time in the middle of a long run or profile.
+
+The marker also doubles as a "live operation" indicator after the lease is settled. Once a wrapper
+calls `mark_live_gpu_wait_operation_started`, `active_live_operations` reports the operation name and
+elapsed work time, so an agent that calls `goal_status` while a long subprocess (ncu, eval) is in
+flight can tell that the harness is still busy rather than guessing from tool-call timeouts.
 """
 
 from __future__ import annotations
@@ -71,6 +76,22 @@ def settle_live_gpu_wait_marker(marker_path: Path | None, *, wait_seconds: float
 
 
 
+def mark_live_gpu_wait_operation_started(marker_path: Path | None) -> None:
+    """Record the moment the lease-holder starts the real work (subprocess, ncu, etc.).
+
+    The wait phase has its own `settled_at` / `settled_wait_seconds`. This second timestamp lets
+    `active_live_operations` distinguish "queued for a slot" from "currently executing" so an agent
+    polling `goal_status` while a long ncu run holds the lease can tell the harness is still busy.
+    """
+    if marker_path is None:
+        return
+    payload = _load_json_object(marker_path) or {}
+    payload["operation_started_at"] = now_iso()
+    payload["operation_started_epoch_seconds"] = time.time()
+    write_json(marker_path, payload)
+
+
+
 def clear_live_gpu_wait_marker(marker_path: Path | None) -> None:
     if marker_path is None:
         return
@@ -78,6 +99,45 @@ def clear_live_gpu_wait_marker(marker_path: Path | None) -> None:
         marker_path.unlink()
     except FileNotFoundError:
         return
+
+
+
+def active_live_operations(run_name: str, level: int, problem_id: int) -> list[dict[str, Any]]:
+    """Return one descriptor per live marker that has entered its execution phase.
+
+    Each descriptor reports the operation name, when it started executing, and the elapsed wall
+    seconds since then. Stale markers from dead PIDs are dropped (and removed from disk) so a
+    crashed wrapper does not advertise itself as still running.
+    """
+    descriptors: list[dict[str, Any]] = []
+    prefix = _problem_prefix(run_name, level, problem_id)
+    for marker_path in live_gpu_wait_dir().glob(f"{prefix}_*.json"):
+        payload = _load_json_object(marker_path)
+        if payload is None:
+            continue
+        pid = payload.get("pid")
+        if isinstance(pid, int) and pid > 0 and not _pid_is_alive(pid):
+            clear_live_gpu_wait_marker(marker_path)
+            continue
+
+        operation = payload.get("operation")
+        if not isinstance(operation, str) or not operation:
+            continue
+        started_epoch = payload.get("operation_started_epoch_seconds")
+        if not isinstance(started_epoch, (int, float)):
+            continue
+
+        elapsed_seconds = max(0.0, time.time() - float(started_epoch))
+        descriptors.append(
+            {
+                "operation": operation,
+                "started_at": payload.get("operation_started_at"),
+                "elapsed_seconds": elapsed_seconds,
+                "pid": pid,
+            }
+        )
+    descriptors.sort(key=lambda item: item.get("started_at") or "")
+    return descriptors
 
 
 

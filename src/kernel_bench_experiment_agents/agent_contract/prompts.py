@@ -339,6 +339,19 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
             f"{best_runtime} ms (must be below {eager_baseline} ms and {compile_baseline} ms)"
         )
 
+    active_operations = snapshot.get("active_operations") or []
+    if active_operations:
+        active_ops_lines = []
+        for entry in active_operations:
+            operation = str(entry.get("operation") or "?")
+            elapsed = entry.get("elapsed_seconds")
+            if isinstance(elapsed, (int, float)):
+                active_ops_lines.append(f"`{operation}` in progress for {elapsed / 60.0:.2f} minutes")
+            else:
+                active_ops_lines.append(f"`{operation}` in progress")
+        active_ops_line = "; ".join(active_ops_lines)
+    else:
+        active_ops_line = "none"
     profiler_line = str(snapshot["num_profile_runs"])
     attempt_breakdown = (
         f"{snapshot['num_correct_attempts']} correct, "
@@ -377,6 +390,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
         f"- wall-clock minutes since workspace creation: {wall_clock_elapsed_minutes}",
         f"- completed gpu wait minutes excluded from budget: {recorded_gpu_wait_minutes}",
         f"- currently active gpu queue-wait minutes excluded from budget: {live_gpu_wait_minutes}",
+        f"- in-flight harness operations: {active_ops_line}",
         f"- total gpu wait minutes excluded from budget: {gpu_wait_minutes_total}",
         f"- elapsed minutes counted against budget: {elapsed_minutes}",
         f"- remaining minutes: {remaining_line}",
