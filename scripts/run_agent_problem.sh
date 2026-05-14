@@ -10,7 +10,7 @@
 #
 # Common overrides:
 #   DATA_ROOT=/path/for/archive-and-state   (defaults to ./ from the launch directory)
-#   RUN_NAME=kernelbench-codex-h100-v5
+#   RUN_NAME=kernelbench-codex-h100-v6
 #   LEVEL=1
 #   PROBLEM_ID=1
 #   MODEL=gpt-5.5|claude-opus-4-7
@@ -125,7 +125,7 @@ case "${TOOL}" in
     ;;
 esac
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v5}"
+RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v6}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
