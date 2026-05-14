@@ -15,7 +15,7 @@
 # Example (export the run config in the calling shell so Slurm propagates it
 # under `--export=ALL`; some `ybatch` wrappers do not pass `--export=` through):
 #   TOOL=codex \
-#   RUN_NAME=kernelbench-codex-h100-v5 \
+#   RUN_NAME=kernelbench-codex-h100-v6 \
 #   LEVEL=1 \
 #   START_PROBLEM_ID=1 \
 #   END_PROBLEM_ID=10 \
