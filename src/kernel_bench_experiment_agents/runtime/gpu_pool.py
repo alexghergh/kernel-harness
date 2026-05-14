@@ -232,9 +232,31 @@ def _read_lock_payload(lock_path: Path) -> dict[str, object] | None:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         return {"raw": raw}
-    if isinstance(payload, dict):
-        return payload
-    return {"raw": raw}
+    if not isinstance(payload, dict):
+        return {"raw": raw}
+    # fcntl flock auto-releases when a holder dies, but the file contents
+    # are left behind. Tag the read as stale when the recorded pid is no
+    # longer alive so timeout snapshots stop blaming a dead writer.
+    pid = payload.get("pid")
+    if isinstance(pid, int) and pid > 0 and not _pid_is_alive(pid):
+        return {
+            "status": "stale_holder_dead",
+            "former_pid": pid,
+            "former_payload": payload,
+        }
+    return payload
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _gpu_lock_path(lock_root: Path, device_selector: str) -> Path:
