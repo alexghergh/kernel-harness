@@ -17,7 +17,10 @@ from kernel_bench_experiment_agents.workspace.archive import (
     trace_events_path,
 )
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.runtime.live_gpu_wait import active_live_gpu_wait_seconds
+from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
+    active_live_gpu_wait_seconds,
+    active_live_operations,
+)
 from kernel_bench_experiment_agents.mcp.trace import load_mcp_ir_events
 from kernel_bench_experiment_agents.runtime.project import now_iso, write_json, write_text
 from kernel_bench_experiment_agents.kernelbench.metrics import (
@@ -152,6 +155,7 @@ def goal_status_snapshot(
         active_live_gpu_wait_seconds(run_name, level, problem_id) / 60.0
     )
     gpu_wait_minutes_total = recorded_gpu_wait_minutes + live_gpu_wait_minutes
+    in_flight_operations = active_live_operations(run_name, level, problem_id)
     started_at = metadata.get("created_at")
     wall_clock_elapsed_minutes = _elapsed_minutes_since(started_at)
     budget_minutes = as_float(metadata.get("time_budget_minutes"))
@@ -213,6 +217,7 @@ def goal_status_snapshot(
         "recorded_gpu_wait_minutes": recorded_gpu_wait_minutes,
         "live_gpu_wait_minutes": live_gpu_wait_minutes,
         "gpu_wait_minutes_total": gpu_wait_minutes_total,
+        "active_operations": in_flight_operations,
         "remaining_minutes": remaining_minutes,
         "status_mode": "resolved" if resolved else "unresolved",
         "solver_should_continue": not resolved,

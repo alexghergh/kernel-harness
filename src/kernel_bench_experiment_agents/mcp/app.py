@@ -7,6 +7,8 @@ command helpers into SDK-managed resources and tools.
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Any
 
@@ -22,6 +24,15 @@ from .resources import RESOURCE_PATHS, workspace_resource_name, workspace_resour
 
 
 mcp = FastMCP(SERVER_NAME)
+
+
+# A dedicated worker pool for tool calls that may run for many minutes
+# (`run_candidate`, `profile_ncu`). Keeping them off FastMCP's default executor
+# ensures short reads like `goal_status` always have a free thread to respond
+# on even when several heavy calls are in flight. Capacity is small on purpose:
+# the per-problem artifact lease already serializes real work, the extra slots
+# only absorb client-side retries while the original call is still running.
+_HEAVY_TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="kb-heavy")
 
 
 @lru_cache(maxsize=1)
@@ -136,13 +147,15 @@ def write_candidate(content: str) -> types.CallToolResult:
 
 
 @mcp_tool("run_candidate")
-def run_candidate() -> types.CallToolResult:
-    return invoke_tool("run_candidate")
+async def run_candidate() -> types.CallToolResult:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_HEAVY_TOOL_EXECUTOR, invoke_tool, "run_candidate")
 
 
 @mcp_tool("profile_ncu")
-def profile_ncu() -> types.CallToolResult:
-    return invoke_tool("profile_ncu")
+async def profile_ncu() -> types.CallToolResult:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_HEAVY_TOOL_EXECUTOR, invoke_tool, "profile_ncu")
 
 
 @mcp_tool("goal_status")
