@@ -137,7 +137,7 @@ Run these scripts from the harness repo root.
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v5 \
+RUN_NAME=kernelbench-codex-h100-v6 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=gpt-5.5 \
@@ -152,7 +152,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v5 \
+RUN_NAME=kernelbench-claude-h100-v6 \
 LEVEL=1 \
 PROBLEM_ID=1 \
 MODEL=claude-opus-4-7 \
@@ -167,7 +167,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v5 \
+RUN_NAME=kernelbench-codex-h100-v6 \
 LEVEL=1 \
 START_PROBLEM_ID=1 \
 END_PROBLEM_ID=10 \
@@ -183,7 +183,7 @@ HARDWARE_NAME=H100 \
 
 ```bash
 TOOL=claude \
-RUN_NAME=kernelbench-claude-h100-v5 \
+RUN_NAME=kernelbench-claude-h100-v6 \
 LEVEL=1 \
 PROBLEM_IDS=1,4,9 \
 MODEL=claude-opus-4-7 \
@@ -200,7 +200,7 @@ Submit from the harness repo root. The script carries the default `#SBATCH` / `#
 
 ```bash
 TOOL=codex \
-RUN_NAME=kernelbench-codex-h100-v5 \
+RUN_NAME=kernelbench-codex-h100-v6 \
 LEVEL=1 \
 START_PROBLEM_ID=1 \
 END_PROBLEM_ID=10 \
@@ -217,7 +217,7 @@ Override those scheduler defaults in the script header or on the submit command 
 ### Summarize one archived run
 
 ```bash
-kbharness summarize-run --run-name kernelbench-codex-h100-v5
+kbharness summarize-run --run-name kernelbench-codex-h100-v6
 ```
 
 This scans only `archive/<run_name>/` and writes `archive/<run_name>/run_summary.json`. Summary beat-rates and best-runtime fields exclude suspicious or otherwise non-counting attempts.
