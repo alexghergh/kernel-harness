@@ -24,6 +24,19 @@ if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]];
   exit 1
 fi
 
+# Scope the harness GPU lock file to this launcher invocation. Re-use a parent's
+# UUID when invoked from run_agent_range.sh so all problems in one range share
+# the same lock file; otherwise mint a fresh one. The harness reads
+# KBHARNESS_LAUNCHER_UUID without knowing or caring about Slurm.
+if [[ -z "${KBHARNESS_LAUNCHER_UUID:-}" ]]; then
+  KBHARNESS_LAUNCHER_UUID="$(python - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+fi
+export KBHARNESS_LAUNCHER_UUID
+
 DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"

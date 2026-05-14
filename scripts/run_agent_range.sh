@@ -14,6 +14,18 @@ if [[ ! -f "./pyproject.toml" || ! -d "./src/kernel_bench_experiment_agents" ]];
   exit 1
 fi
 
+# Scope the harness GPU lock file to this launcher invocation so concurrent
+# launcher runs (different Slurm allocations, different shells) cannot collide
+# on a shared DATA_ROOT. run_agent_problem.sh inherits this value.
+if [[ -z "${KBHARNESS_LAUNCHER_UUID:-}" ]]; then
+  KBHARNESS_LAUNCHER_UUID="$(python - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+fi
+export KBHARNESS_LAUNCHER_UUID
+
 DATA_ROOT="${DATA_ROOT:-.}"
 mkdir -p "${DATA_ROOT}"
 DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"

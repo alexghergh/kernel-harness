@@ -29,6 +29,20 @@
 # Replace `ybatch` with `sbatch` on clusters that use plain Slurm submission.
 set -euo pipefail
 
+# Mint the launcher UUID before the banner so the run config printed at the
+# top of the slurm output identifies which lock-file slug this job will use.
+# Prefer the kernel UUID source / `uuidgen` here because pyenv has not been
+# activated yet, so `python` may not be on PATH. run_agent_range.sh inherits
+# this value and falls back to python when invoked outside Slurm.
+if [[ -z "${KBHARNESS_LAUNCHER_UUID:-}" ]]; then
+  if [[ -r /proc/sys/kernel/random/uuid ]]; then
+    KBHARNESS_LAUNCHER_UUID="$(cat /proc/sys/kernel/random/uuid)"
+  elif command -v uuidgen >/dev/null 2>&1; then
+    KBHARNESS_LAUNCHER_UUID="$(uuidgen)"
+  fi
+fi
+export KBHARNESS_LAUNCHER_UUID
+
 # Banner: print the run config at the top of the slurm output so `head -20`
 # is enough to identify what this job is. Auth credentials are intentionally
 # never echoed.
@@ -39,7 +53,8 @@ echo "Started at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "------------------------------------------------------------------"
 for var in TOOL RUN_NAME LEVEL PROBLEM_IDS START_PROBLEM_ID END_PROBLEM_ID \
            MODEL TIME_BUDGET_MINUTES PRECISION KERNELBENCH_ROOT HARDWARE_NAME \
-           MAX_PARALLEL_SOLVERS DATA_ROOT PYENV_VIRTUALENV; do
+           MAX_PARALLEL_SOLVERS DATA_ROOT PYENV_VIRTUALENV \
+           KBHARNESS_LAUNCHER_UUID; do
   raw="${!var:-}"
   if [[ -z "$raw" ]]; then
     printf '  %-22s (unset)\n' "$var"

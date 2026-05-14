@@ -241,7 +241,14 @@ def _gpu_lock_path(lock_root: Path, device_selector: str) -> Path:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", device_selector)
     if not slug:
         raise RuntimeError(f"GPU device selector {device_selector!r} is not usable as a lock key")
-    return lock_root / f"gpu_selector_{slug}.lock"
+    # Slurm cgroups mask physical GPUs to logical indices (CUDA_VISIBLE_DEVICES=0
+    # inside any single-GPU allocation), so the device selector alone cannot
+    # tell two concurrent jobs that share DATA_ROOT apart. The launcher mints a
+    # per-invocation UUID and exports it as KBHARNESS_LAUNCHER_UUID; falling
+    # back to "local" keeps single-shell experimentation working.
+    scope = (os.environ.get("KBHARNESS_LAUNCHER_UUID") or "").strip()
+    scope_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", scope) if scope else "local"
+    return lock_root / f"gpu_selector_{scope_slug}_{slug}.lock"
 
 
 def _gpu_lock_snapshot(selectors: list[str], slot_ids: list[int]) -> list[dict[str, object]]:
