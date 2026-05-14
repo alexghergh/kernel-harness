@@ -1,0 +1,50 @@
+diff --git a/src/kernelbench/eval.py b/src/kernelbench/eval.py
+index 3557dc9..834376f 100644
+--- a/src/kernelbench/eval.py
++++ b/src/kernelbench/eval.py
+@@ -383,12 +383,15 @@ def _process_input_tensor(input, device, backend="cuda", precision=torch.float32
+     # sometimes things like init inputs are floats (like in the case of labels / targets, classification losses, etc.)
+     if not isinstance(input, torch.Tensor):
+         return input
+-
+-    # cast to the desired percision dtype for activations
+-    input_tensor = input.to(dtype=precision)
+-
+-    # Default for all other backends and float types
+-    return input_tensor.to(device=device)
++
++    # Only cast floating-point tensors to the activation precision. Integer
++    # tensors (class indices for cross_entropy / nll_loss, gather indices,
++    # mask labels, etc.) must keep their original dtype - converting them to
++    # bf16/fp16 breaks downstream ops that dispatch on target dtype.
++    if input.is_floating_point():
++        input = input.to(dtype=precision)
++
++    return input.to(device=device)
+
+
+ def eval_kernel_against_ref(
+@@ -909,4 +918,4 @@ def check_metadata_serializable_all_types(metadata: dict):
+ # if __name__ == "__main__":
+ # fetch_kernel_from_database("kernelbench_prompt_v2_level_2", 1, 1, "http://localhost:9091")
+ # print(fetch_ref_arch_from_level_problem_id("2", 1, with_name=True))
+-# Note: fetch_baseline_time is available in kernelbench.timing module
+\ No newline at end of file
++# Note: fetch_baseline_time is available in kernelbench.timing module
+diff --git a/src/kernelbench/timing.py b/src/kernelbench/timing.py
+index f22920b..46b41c6 100644
+--- a/src/kernelbench/timing.py
++++ b/src/kernelbench/timing.py
+@@ -61,11 +61,11 @@ def measure_ref_program_time(
+
+             # set model weights and inputs to specified precision
+             inputs = [
+-                x.to(device=device, dtype=precision_dtype) if isinstance(x, torch.Tensor) else x
++                (x.to(device=device, dtype=precision_dtype) if x.is_floating_point() else x.to(device=device)) if isinstance(x, torch.Tensor) else x
+                 for x in inputs
+             ]
+             init_inputs = [
+-                x.to(device=device, dtype=precision_dtype) if isinstance(x, torch.Tensor) else x
++                (x.to(device=device, dtype=precision_dtype) if x.is_floating_point() else x.to(device=device)) if isinstance(x, torch.Tensor) else x
+                 for x in init_inputs
+             ]
