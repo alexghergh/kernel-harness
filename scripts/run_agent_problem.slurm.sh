@@ -56,11 +56,10 @@ for var in TOOL RUN_NAME LEVEL PROBLEM_IDS START_PROBLEM_ID END_PROBLEM_ID \
            MAX_PARALLEL_SOLVERS DATA_ROOT PYENV_VIRTUALENV \
            KBHARNESS_LAUNCHER_UUID; do
   raw="${!var:-}"
-  if [[ -z "$raw" ]]; then
-    printf '  %-22s (unset)\n' "$var"
-  else
-    printf '  %-22s %s\n' "$var" "$raw"
-  fi
+  [[ -z "$raw" ]] && raw="(unset)"
+  # use printf only for column padding; echo emits the actual newline so the
+  # banner is robust against printf implementations that don't interpret \n
+  echo "  $(printf '%-22s' "$var") $raw"
 done
 echo "=================================================================="
 
