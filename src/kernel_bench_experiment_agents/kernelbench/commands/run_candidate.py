@@ -31,9 +31,18 @@ from kernel_bench_experiment_agents.runtime.project import (
     official_kernel_path,
     relative_path_within,
     write_json,
-    write_text,
 )
-from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, load_json_object, run_subprocess_capture, serialize_exception
+from kernel_bench_experiment_agents.runtime.subprocess_tools import (
+    SubprocessStart,
+    SubprocessTimeoutError,
+    excerpt,
+    load_json_object,
+    run_subprocess_streaming,
+    serialize_exception,
+    subprocess_result_metadata,
+    subprocess_start_metadata,
+    timeout_seconds_from_env,
+)
 from kernel_bench_experiment_agents.workspace.paths import (
     load_workspace_metadata,
     validate_workspace_assignment,
@@ -96,6 +105,10 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     live_gpu_wait_marker = None
     failure: Exception | None = None
     persist_failure: Exception | None = None
+    subprocess_timeout_seconds = timeout_seconds_from_env(
+        "KBHARNESS_RUN_CANDIDATE_TIMEOUT_SECONDS",
+        540.0,
+    )
 
     try:
         with lease_problem_artifacts(
@@ -158,6 +171,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "result": {},
                 "warnings": [],
                 "error": None,
+                "subprocess": None,
             }
 
             candidate_src = read_validated_candidate_source(candidate_path)
@@ -230,18 +244,31 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             if args.timing_method is not None:
                 command.extend(["--timing-method", args.timing_method])
 
-            completed = run_subprocess_capture(
-                command,
-                env=isolated_gpu_environment(device_selector=lease.device_selector),
+            payload.update(
+                {
+                    "gpu_id": lease.slot_id,
+                    "gpu_device_selector": lease.device_selector,
+                    "gpu_visible_devices": lease.isolated_visible_devices,
+                    "gpu_logical_id": lease.logical_gpu_id,
+                    "gpu_selector_source": lease.selector_source,
+                    "gpu_wait_seconds": lease.wait_seconds,
+                }
             )
-            write_text(stdout_path, completed.stdout)
-            write_text(stderr_path, completed.stderr)
-            payload["gpu_id"] = lease.slot_id
-            payload["gpu_device_selector"] = lease.device_selector
-            payload["gpu_visible_devices"] = lease.isolated_visible_devices
-            payload["gpu_logical_id"] = lease.logical_gpu_id
-            payload["gpu_selector_source"] = lease.selector_source
-            payload["gpu_wait_seconds"] = lease.wait_seconds
+
+            def record_subprocess_start(start: SubprocessStart) -> None:
+                payload["subprocess"] = subprocess_start_metadata(start)
+                payload["updated_at"] = now_iso()
+                write_json(sample_json_path, payload)
+
+            completed = run_subprocess_streaming(
+                command,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                env=isolated_gpu_environment(device_selector=lease.device_selector),
+                timeout_seconds=subprocess_timeout_seconds,
+                on_start=record_subprocess_start,
+            )
+            payload["subprocess"] = subprocess_result_metadata(completed)
 
         if completed.returncode != 0:
             raise RuntimeError(
@@ -270,6 +297,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
             raise
         payload["status"] = "failed"
         payload["updated_at"] = now_iso()
+        if isinstance(exc, SubprocessTimeoutError):
+            payload["subprocess"] = subprocess_result_metadata(exc.result)
         payload["error"] = serialize_exception(exc)
     finally:
         if payload is not None and sample_json_path is not None:

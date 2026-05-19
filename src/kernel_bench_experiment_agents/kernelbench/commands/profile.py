@@ -23,7 +23,17 @@ from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
 from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
 from kernel_bench_experiment_agents.kernelbench.profiling.summary import summarize_ncu_raw_csv
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, now_iso, relative_path_within, write_json, write_text
-from kernel_bench_experiment_agents.runtime.subprocess_tools import excerpt, run_subprocess_capture, serialize_exception
+from kernel_bench_experiment_agents.runtime.subprocess_tools import (
+    SubprocessStart,
+    SubprocessTimeoutError,
+    excerpt,
+    run_subprocess_capture,
+    run_subprocess_streaming,
+    serialize_exception,
+    subprocess_result_metadata,
+    subprocess_start_metadata,
+    timeout_seconds_from_env,
+)
 from kernel_bench_experiment_agents.workspace.paths import (
     latest_workspace_profile_paths,
     validate_workspace_assignment,
@@ -131,6 +141,14 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     live_gpu_wait_marker = None
     failure: Exception | None = None
     persist_failure: Exception | None = None
+    ncu_timeout_seconds = timeout_seconds_from_env(
+        "KBHARNESS_PROFILE_NCU_TIMEOUT_SECONDS",
+        480.0,
+    )
+    ncu_import_timeout_seconds = timeout_seconds_from_env(
+        "KBHARNESS_NCU_IMPORT_TIMEOUT_SECONDS",
+        60.0,
+    )
 
     with lease_problem_artifacts(
         run_name=args.run_name,
@@ -166,6 +184,13 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "sample_id": args.sample_id,
             "candidate_path": candidate_ref,
             "archive_candidate_path": archive_candidate_path,
+            "details_path": relative_path_within(details_path, problem_archive_root),
+            "summary_path": relative_path_within(summary_path, problem_archive_root),
+            "stdout_path": relative_path_within(stdout_path, problem_archive_root),
+            "stderr_path": relative_path_within(stderr_path, problem_archive_root),
+            "subprocess": None,
+            "details_subprocess": None,
+            "raw_csv_subprocess": None,
             "artifact_reservation_wait_seconds": reservation_wait_seconds,
             "artifact_commit_wait_seconds": None,
             "error": None,
@@ -222,16 +247,37 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             ]
             if args.kernelbench_root:
                 command.extend(["--kernelbench-root", args.kernelbench_root])
-            completed = run_subprocess_capture(command, env=isolated_env)
             gpu_id = lease.slot_id
             gpu_device_selector = lease.device_selector
             gpu_visible_devices = lease.isolated_visible_devices
             gpu_logical_id = lease.logical_gpu_id
             gpu_selector_source = lease.selector_source
             gpu_wait_seconds = lease.wait_seconds
+            payload.update(
+                {
+                    "gpu_id": gpu_id,
+                    "gpu_device_selector": gpu_device_selector,
+                    "gpu_visible_devices": gpu_visible_devices,
+                    "gpu_logical_id": gpu_logical_id,
+                    "gpu_selector_source": gpu_selector_source,
+                    "gpu_wait_seconds": gpu_wait_seconds,
+                }
+            )
 
-        write_text(stdout_path, completed.stdout)
-        write_text(stderr_path, completed.stderr)
+            def record_subprocess_start(start: SubprocessStart) -> None:
+                payload["subprocess"] = subprocess_start_metadata(start)
+                payload["timestamp"] = now_iso()
+                write_json(profile_json_path, payload)
+
+            completed = run_subprocess_streaming(
+                command,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                env=isolated_env,
+                timeout_seconds=ncu_timeout_seconds,
+                on_start=record_subprocess_start,
+            )
+            payload["subprocess"] = subprocess_result_metadata(completed)
 
         details_command = [
             "ncu",
@@ -240,7 +286,11 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "--page",
             "details",
         ]
-        details_completed = run_subprocess_capture(details_command)
+        details_completed = run_subprocess_capture(
+            details_command,
+            timeout_seconds=ncu_import_timeout_seconds,
+        )
+        payload["details_subprocess"] = subprocess_result_metadata(details_completed)
         write_text(details_path, details_completed.stdout)
 
         raw_csv_command = [
@@ -251,7 +301,11 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "raw",
             "--csv",
         ]
-        raw_csv_completed = run_subprocess_capture(raw_csv_command)
+        raw_csv_completed = run_subprocess_capture(
+            raw_csv_command,
+            timeout_seconds=ncu_import_timeout_seconds,
+        )
+        payload["raw_csv_subprocess"] = subprocess_result_metadata(raw_csv_completed)
         summary_text = summarize_ncu_raw_csv(raw_csv_completed.stdout)
         write_text(summary_path, summary_text)
 
@@ -317,6 +371,9 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "raw_summary_source": "generated from a transient ncu --page raw --csv export; the raw CSV is not archived",
             "raw_csv_returncode": raw_csv_completed.returncode,
             "raw_csv_error_excerpt": excerpt(raw_csv_completed.stderr),
+            "subprocess": subprocess_result_metadata(completed),
+            "details_subprocess": subprocess_result_metadata(details_completed),
+            "raw_csv_subprocess": subprocess_result_metadata(raw_csv_completed),
             "gpu_id": gpu_id,
             "gpu_device_selector": gpu_device_selector,
             "gpu_visible_devices": gpu_visible_devices,
@@ -332,6 +389,14 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         failure = exc
         if payload is None or profile_json_path is None:
             raise
+        if isinstance(exc, SubprocessTimeoutError):
+            timeout_metadata = subprocess_result_metadata(exc.result)
+            if completed is None:
+                payload["subprocess"] = timeout_metadata
+            elif details_completed is None:
+                payload["details_subprocess"] = timeout_metadata
+            elif raw_csv_completed is None:
+                payload["raw_csv_subprocess"] = timeout_metadata
         payload.update(
             {
                 "status": "failed",
