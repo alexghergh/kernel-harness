@@ -21,7 +21,12 @@ from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
     mark_live_gpu_wait_operation_started,
     settle_live_gpu_wait_marker,
 )
-from kernel_bench_experiment_agents.runtime.gpu_pool import isolated_gpu_environment, lease_gpu_slot, lease_problem_artifacts
+from kernel_bench_experiment_agents.runtime.gpu_pool import (
+    isolated_gpu_environment,
+    lease_gpu_slot,
+    lease_problem_artifacts,
+    quarantine_gpu_slot,
+)
 from kernel_bench_experiment_agents.kernelbench.profiling.summary import summarize_ncu_raw_csv
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, now_iso, relative_path_within, write_json, write_text
 from kernel_bench_experiment_agents.runtime.subprocess_tools import (
@@ -31,6 +36,7 @@ from kernel_bench_experiment_agents.runtime.subprocess_tools import (
     run_subprocess_capture,
     run_subprocess_streaming,
     serialize_exception,
+    subprocess_cleanup_incomplete,
     subprocess_result_metadata,
     subprocess_start_metadata,
     timeout_seconds_from_env,
@@ -194,6 +200,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "raw_csv_subprocess": None,
             "artifact_reservation_wait_seconds": reservation_wait_seconds,
             "artifact_commit_wait_seconds": None,
+            "gpu_quarantine_path": None,
+            "gpu_quarantine_reason": None,
             "error": None,
         }
         write_json(profile_json_path, payload)
@@ -271,14 +279,26 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 payload["timestamp"] = now_iso()
                 write_json(profile_json_path, payload)
 
-            completed = run_subprocess_streaming(
-                command,
-                stdout_path=stdout_path,
-                stderr_path=stderr_path,
-                env=isolated_env,
-                timeout_seconds=ncu_timeout_seconds,
-                on_start=record_subprocess_start,
-            )
+            try:
+                completed = run_subprocess_streaming(
+                    command,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    env=isolated_env,
+                    timeout_seconds=ncu_timeout_seconds,
+                    on_start=record_subprocess_start,
+                )
+            except SubprocessTimeoutError as exc:
+                if subprocess_cleanup_incomplete(exc.result):
+                    payload["gpu_quarantine_reason"] = "subprocess_cleanup_incomplete"
+                    payload["gpu_quarantine_path"] = quarantine_gpu_slot(
+                        lease,
+                        reason="subprocess_cleanup_incomplete",
+                        metadata=subprocess_result_metadata(exc.result),
+                    )
+                    payload["timestamp"] = now_iso()
+                    write_json(profile_json_path, payload)
+                raise
             payload["subprocess"] = subprocess_result_metadata(completed)
 
         details_command = [
@@ -384,6 +404,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             "gpu_wait_seconds": gpu_wait_seconds,
             "artifact_reservation_wait_seconds": reservation_wait_seconds,
             "artifact_commit_wait_seconds": None,
+            "gpu_quarantine_path": payload.get("gpu_quarantine_path"),
+            "gpu_quarantine_reason": payload.get("gpu_quarantine_reason"),
             "error": None,
         }
         emit_payload = dict(payload)

@@ -19,6 +19,8 @@ from kernel_bench_experiment_agents.runtime.project import now_iso
 
 
 PROCESS_TERMINATION_GRACE_SECONDS = 10.0
+PROCESS_KILL_GRACE_SECONDS = 10.0
+PROCESS_OUTPUT_DRAIN_GRACE_SECONDS = 1.0
 
 
 @dataclass
@@ -42,6 +44,7 @@ class SubprocessResult:
     duration_seconds: float
     timeout_seconds: float | None
     timed_out: bool = False
+    cleanup: dict[str, Any] | None = None
 
 
 class SubprocessTimeoutError(RuntimeError):
@@ -90,8 +93,8 @@ def run_subprocess_capture(
             timeout_seconds=timeout_seconds,
         )
     except subprocess.TimeoutExpired:
-        _terminate_process_group(process, start.pgid)
-        stdout, stderr = process.communicate()
+        cleanup = _terminate_process_group(process, start.pgid)
+        stdout, stderr = _communicate_after_timeout(process, cleanup)
         result = SubprocessResult(
             args=command,
             returncode=process.returncode,
@@ -104,6 +107,7 @@ def run_subprocess_capture(
             duration_seconds=time.monotonic() - started_monotonic,
             timeout_seconds=timeout_seconds,
             timed_out=True,
+            cleanup=cleanup,
         )
         raise SubprocessTimeoutError(result) from None
 
@@ -142,8 +146,8 @@ def run_subprocess_streaming(
             finished_at = now_iso()
             duration_seconds = time.monotonic() - started_monotonic
         except subprocess.TimeoutExpired:
-            _terminate_process_group(process, start.pgid)
-            returncode = process.wait()
+            cleanup = _terminate_process_group(process, start.pgid)
+            returncode = process.returncode
             result = SubprocessResult(
                 args=command,
                 returncode=returncode,
@@ -156,6 +160,7 @@ def run_subprocess_streaming(
                 duration_seconds=time.monotonic() - started_monotonic,
                 timeout_seconds=timeout_seconds,
                 timed_out=True,
+                cleanup=cleanup,
             )
             raise SubprocessTimeoutError(result) from None
     return SubprocessResult(
@@ -208,7 +213,7 @@ def subprocess_start_metadata(start: SubprocessStart) -> dict[str, Any]:
 
 
 def subprocess_result_metadata(result: SubprocessResult) -> dict[str, Any]:
-    return {
+    metadata: dict[str, Any] = {
         "pid": result.pid,
         "pgid": result.pgid,
         "started_at": result.started_at,
@@ -218,6 +223,14 @@ def subprocess_result_metadata(result: SubprocessResult) -> dict[str, Any]:
         "timed_out": result.timed_out,
         "returncode": result.returncode,
     }
+    if result.cleanup is not None:
+        metadata["cleanup"] = result.cleanup
+    return metadata
+
+
+def subprocess_cleanup_incomplete(result: SubprocessResult) -> bool:
+    cleanup = result.cleanup
+    return isinstance(cleanup, dict) and cleanup.get("completed") is False
 
 
 def timeout_seconds_from_env(env_name: str, default: float) -> float | None:
@@ -247,28 +260,86 @@ def _subprocess_start(
     )
 
 
-def _terminate_process_group(process: subprocess.Popen[str], pgid: int | None) -> None:
+def _terminate_process_group(process: subprocess.Popen[str], pgid: int | None) -> dict[str, Any]:
+    cleanup: dict[str, Any] = {
+        "completed": True,
+        "status": "already_exited",
+        "pid": process.pid,
+        "pgid": pgid,
+        "terminate_grace_seconds": PROCESS_TERMINATION_GRACE_SECONDS,
+        "kill_grace_seconds": PROCESS_KILL_GRACE_SECONDS,
+    }
     if process.poll() is not None:
-        return
+        cleanup["returncode"] = process.returncode
+        return cleanup
     if pgid is not None:
         try:
             os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
-            return
+            cleanup["status"] = "process_group_missing_after_sigterm"
+            cleanup["returncode"] = process.poll()
+            return cleanup
     else:
         process.terminate()
     try:
         process.wait(timeout=PROCESS_TERMINATION_GRACE_SECONDS)
-        return
+        if pgid is None or not _process_group_is_alive(pgid):
+            cleanup["status"] = "terminated_after_sigterm"
+            cleanup["returncode"] = process.returncode
+            return cleanup
     except subprocess.TimeoutExpired:
         pass
     if pgid is not None:
         try:
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
-            return
+            cleanup["status"] = "process_group_missing_after_sigkill"
+            cleanup["returncode"] = process.poll()
+            return cleanup
     else:
         process.kill()
+    try:
+        process.wait(timeout=PROCESS_KILL_GRACE_SECONDS)
+        if pgid is not None and _process_group_is_alive(pgid):
+            cleanup["completed"] = False
+            cleanup["status"] = "process_group_alive_after_sigkill"
+        else:
+            cleanup["status"] = "killed_after_sigkill"
+        cleanup["returncode"] = process.returncode
+        return cleanup
+    except subprocess.TimeoutExpired:
+        cleanup["completed"] = False
+        cleanup["status"] = "still_alive_after_sigkill"
+        cleanup["returncode"] = process.poll()
+        return cleanup
+
+
+def _communicate_after_timeout(
+    process: subprocess.Popen[str],
+    cleanup: dict[str, Any],
+) -> tuple[str, str]:
+    if process.poll() is None:
+        cleanup["output_drain_status"] = "skipped_process_still_alive"
+        return "", ""
+    try:
+        return process.communicate(timeout=PROCESS_OUTPUT_DRAIN_GRACE_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        cleanup["output_drain_status"] = "timed_out"
+        stdout = exc.output if isinstance(exc.output, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return stdout, stderr
+
+
+def _process_group_is_alive(pgid: int) -> bool:
+    if pgid <= 0:
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _notify_start(
@@ -282,7 +353,6 @@ def _notify_start(
         on_start(start)
     except Exception:
         _terminate_process_group(process, start.pgid)
-        process.wait()
         raise
 
 

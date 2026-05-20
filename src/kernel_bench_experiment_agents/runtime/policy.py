@@ -160,7 +160,7 @@ def render_codex_config() -> str:
         'default_tool_approval_mode = "approve"\n'
         'required = true\n'
         'startup_timeout_sec = 20\n'
-        'tool_timeout_sec = 600\n\n'
+        'tool_timeout_sec = 1800\n\n'
         f'{mcp_tool_overrides}\n'
         '[tools]\n'
         f'web_search = {{ context_size = "low", allowed_domains = [{allowed_domains}] }}\n'

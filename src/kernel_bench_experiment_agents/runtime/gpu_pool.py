@@ -64,6 +64,11 @@ def lease_gpu_slot(
     while True:
         for slot_id in slot_ids:
             device_selector = selectors[slot_id]
+            quarantine = _active_gpu_quarantine_payload(
+                _gpu_quarantine_path(lock_root, device_selector)
+            )
+            if quarantine is not None:
+                continue
             lock_path = _gpu_lock_path(lock_root, device_selector)
             handle = _try_lock(
                 lock_path,
@@ -182,6 +187,28 @@ def isolated_gpu_environment(*, device_selector: str) -> dict[str, str]:
     return env
 
 
+def quarantine_gpu_slot(
+    lease: GPULease,
+    *,
+    reason: str,
+    metadata: dict[str, object] | None = None,
+) -> str:
+    lock_root = gpu_lock_dir()
+    quarantine_path = _gpu_quarantine_path(lock_root, lease.device_selector)
+    payload = {
+        "status": "quarantined",
+        "reason": reason,
+        "quarantined_at": now_iso(),
+        "slot_id": lease.slot_id,
+        "device_selector": lease.device_selector,
+        "selector_source": lease.selector_source,
+        "lease_lock_path": lease.lock_path,
+        "metadata": metadata or {},
+    }
+    quarantine_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    return str(quarantine_path)
+
+
 def _parse_gpu_selector_list(raw_value: str, *, env_name: str) -> list[str]:
     if raw_value == "-1":
         raise RuntimeError(f"{env_name} disables CUDA visibility (-1); no GPU slots are available.")
@@ -259,6 +286,18 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _pgid_is_alive(pgid: int) -> bool:
+    if pgid <= 0:
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _gpu_lock_path(lock_root: Path, device_selector: str) -> Path:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", device_selector)
     if not slug:
@@ -273,11 +312,25 @@ def _gpu_lock_path(lock_root: Path, device_selector: str) -> Path:
     return lock_root / f"gpu_selector_{scope_slug}_{slug}.lock"
 
 
+def _gpu_quarantine_path(lock_root: Path, device_selector: str) -> Path:
+    return _gpu_lock_path(lock_root, device_selector).with_suffix(".quarantine.json")
+
+
 def _gpu_lock_snapshot(selectors: list[str], slot_ids: list[int]) -> list[dict[str, object]]:
     lock_root = gpu_lock_dir()
     snapshot: list[dict[str, object]] = []
     for slot_id in slot_ids:
         device_selector = selectors[slot_id]
+        quarantine = _active_gpu_quarantine_payload(
+            _gpu_quarantine_path(lock_root, device_selector)
+        )
+        if quarantine is not None:
+            quarantine = dict(quarantine)
+            quarantine.setdefault("slot_id", slot_id)
+            quarantine.setdefault("device_selector", device_selector)
+            snapshot.append(quarantine)
+            continue
+
         payload = _read_lock_payload(_gpu_lock_path(lock_root, device_selector))
         if payload is None:
             snapshot.append(
@@ -293,6 +346,44 @@ def _gpu_lock_snapshot(selectors: list[str], slot_ids: list[int]) -> list[dict[s
         payload.setdefault("device_selector", device_selector)
         snapshot.append(payload)
     return snapshot
+
+
+def _active_gpu_quarantine_payload(quarantine_path: Path) -> dict[str, object] | None:
+    if not quarantine_path.exists():
+        return None
+    try:
+        raw = quarantine_path.read_text(encoding="utf-8").strip()
+        payload = json.loads(raw) if raw else {}
+    except (OSError, json.JSONDecodeError):
+        _unlink_quarantine(quarantine_path)
+        return None
+    if not isinstance(payload, dict):
+        _unlink_quarantine(quarantine_path)
+        return None
+
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    pid = metadata.get("pid")
+    pgid = metadata.get("pgid")
+    pid_alive = isinstance(pid, int) and _pid_is_alive(pid)
+    pgid_alive = isinstance(pgid, int) and _pgid_is_alive(pgid)
+    if pid_alive or pgid_alive:
+        payload["status"] = "quarantined_process_alive"
+        payload["pid_alive"] = pid_alive
+        payload["pgid_alive"] = pgid_alive
+        return payload
+
+    _unlink_quarantine(quarantine_path)
+    return None
+
+
+def _unlink_quarantine(quarantine_path: Path) -> None:
+    try:
+        quarantine_path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
 
 
 def _unlock(handle) -> None:
