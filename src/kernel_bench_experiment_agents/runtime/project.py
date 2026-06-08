@@ -152,8 +152,9 @@ def kernelbench_root(explicit: str | None = None) -> Path:
 
 
 def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
+    # match either ``.py`` (KernelBench) or ``.cu`` (cuda_source) archived kernel snapshots
     kernel_pattern = re.compile(
-        rf"^level_{level}_problem_{problem_id}_sample_(\d+)_kernel\.py$"
+        rf"^level_{level}_problem_{problem_id}_sample_(\d+)_kernel\.(?:py|cu)$"
     )
     artifact_pattern = re.compile(r"^sample_(\d+)\.json$")
     max_sample = -1
@@ -168,9 +169,16 @@ def next_sample_id(run_name: str, level: int, problem_id: int) -> int:
     return max_sample + 1
 
 
-def official_kernel_path(run_name: str, level: int, problem_id: int, sample_id: int) -> Path:
+def official_kernel_path(
+    run_name: str,
+    level: int,
+    problem_id: int,
+    sample_id: int,
+    extension: str = ".py",
+) -> Path:
+    suffix = extension if extension.startswith(".") else f".{extension}"
     return archive_attempt_kernel_dir(run_name, level, problem_id) / (
-        f"level_{level}_problem_{problem_id}_sample_{sample_id}_kernel.py"
+        f"level_{level}_problem_{problem_id}_sample_{sample_id}_kernel{suffix}"
     )
 
 

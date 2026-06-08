@@ -102,7 +102,7 @@ def _write_completion_payload(
             "solver_state": terminal_state if terminal_state in SOLVER_TERMINAL_STATES else None,
             "terminal_state": terminal_state,
             "measured_outcome": measured_outcome,
-            "success": measured_outcome == "beats_both",
+            "success": measured_outcome == "beats_baseline",
             "summary": summary,
             "goal_status": snapshot,
         }

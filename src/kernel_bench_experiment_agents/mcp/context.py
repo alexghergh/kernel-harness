@@ -21,6 +21,8 @@ class ServerContext:
     problem_id: int
     dataset_src: str
     kernelbench_root: str | None
+    problem_source: str
+    problem_dir: str | None
     num_gpu_slots: int
     precision: str
     client_tool: str
@@ -68,6 +70,8 @@ def load_context() -> ServerContext:
             if provenance.get("kernelbench_root")
             else None
         ),
+        problem_source=str(metadata.get("problem_source") or "kernelbench"),
+        problem_dir=str(metadata.get("problem_dir")) if metadata.get("problem_dir") else None,
         num_gpu_slots=int(metadata.get("num_gpus") or 1),
         precision=str(metadata.get("precision") or "bf16"),
         client_tool=normalize_tool_name(_env("KBH_CLIENT_TOOL", required=False, default="codex")),

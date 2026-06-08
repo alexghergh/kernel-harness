@@ -8,16 +8,19 @@ import json
 from contextlib import redirect_stdout
 from typing import Any
 
-from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError, validate_candidate_source
-from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS, MCP_TOOL_SPECS
+from kernel_bench_experiment_agents.agent_contract.policy import MCP_TOOL_SPECS, fixed_workspace_resource_paths
 from kernel_bench_experiment_agents.kernelbench.attempt_summary import solver_attempt_summary
 from kernel_bench_experiment_agents.kernelbench.commands.profile import command_profile_ncu
-from kernel_bench_experiment_agents.runtime.project import write_text
-from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_message, blocked_run_reason
+from kernel_bench_experiment_agents.kernelbench.commands.run_candidate import command_run_candidate
 from kernel_bench_experiment_agents.kernelbench.commands.status import command_best_result, command_complete_problem, command_goal_status
-from kernel_bench_experiment_agents.workspace.paths import load_workspace_metadata, workspace_candidate_path
+from kernel_bench_experiment_agents.kernelbench.metrics import blocked_run_message, blocked_run_reason
+from kernel_bench_experiment_agents.problem_source import CandidateValidationError, get_problem_source
+from kernel_bench_experiment_agents.runtime.project import write_text
+from kernel_bench_experiment_agents.workspace.paths import (
+    load_workspace_metadata,
+    workspace_candidate_path,
+    workspace_problem_source,
+)
 from . import SERVER_NAME
 from .context import ServerContext
 from .filesystem import (
@@ -97,6 +100,7 @@ def invoke_command(handler: Any, namespace: argparse.Namespace) -> dict[str, Any
 
 def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> dict[str, Any]:
     metadata = load_workspace_metadata(ctx.workspace)
+    problem_source = workspace_problem_source(ctx.workspace)
     append_trace_event(
         ctx,
         kind="tool_query",
@@ -109,13 +113,14 @@ def handle_workspace_overview(ctx: ServerContext, arguments: dict[str, Any]) -> 
             "level": ctx.level,
             "problem_id": ctx.problem_id,
             "problem_name": metadata.get("problem_name"),
+            "problem_source": problem_source.name,
             "dataset_src": ctx.dataset_src,
             "precision": metadata.get("precision") or ctx.precision,
             "time_budget_minutes": metadata.get("time_budget_minutes"),
             "gpu_name": metadata.get("gpu_name"),
             "model": metadata.get("model"),
         },
-        "resources": list(FIXED_WORKSPACE_RESOURCE_PATHS),
+        "resources": list(fixed_workspace_resource_paths(problem_source)),
         "history_dirs": [f"{directory}/" for directory in RESOURCE_LIST_DIRS],
         "mcp_tools": [spec.name for spec in MCP_TOOL_SPECS if spec.name != "workspace_overview"],
         "helper_agents": ["runner", "profiler"],
@@ -189,10 +194,11 @@ def handle_write_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dic
     content = arguments.get("content")
     if not isinstance(content, str):
         raise RuntimeError("content must be a string")
+    problem_source = workspace_problem_source(ctx.workspace)
     candidate_path = workspace_candidate_path(ctx.workspace)
     assert_allowed_edit(ctx, candidate_path)
     try:
-        validate_candidate_source(content)
+        problem_source.validate_candidate_source(content)
     except CandidateValidationError as exc:
         message = str(exc)
         append_trace_event(
@@ -206,7 +212,7 @@ def handle_write_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dic
             "Candidate rejected by harness validation. This write was not applied.\n\n"
             f"Exact violation: {message}",
             structured={
-                "path": CANDIDATE_FILENAME,
+                "path": problem_source.candidate_filename,
                 "error": {"type": "CandidateValidationError", "message": message},
             },
             is_error=True,
@@ -221,8 +227,8 @@ def handle_write_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dic
     )
     byte_count = len(content.encode("utf-8"))
     return text_result(
-        f"Wrote {CANDIDATE_FILENAME} ({byte_count} bytes).",
-        structured={"path": CANDIDATE_FILENAME, "bytes": byte_count},
+        f"Wrote {problem_source.candidate_filename} ({byte_count} bytes).",
+        structured={"path": problem_source.candidate_filename, "bytes": byte_count},
     )
 
 
@@ -246,6 +252,8 @@ def handle_run_candidate(ctx: ServerContext, arguments: dict[str, Any]) -> dict[
             num_perf_trials=100,
             prompt_path=None,
             workspace=str(ctx.workspace),
+            problem_source=ctx.problem_source,
+            problem_dir=ctx.problem_dir,
         ),
     )
     append_trace_event(
@@ -288,6 +296,8 @@ def handle_profile_ncu(ctx: ServerContext, arguments: dict[str, Any]) -> dict[st
             ncu_set="full",
             precision=ctx.precision,
             workspace=str(ctx.workspace),
+            problem_source=ctx.problem_source,
+            problem_dir=ctx.problem_dir,
         ),
     )
     append_trace_event(

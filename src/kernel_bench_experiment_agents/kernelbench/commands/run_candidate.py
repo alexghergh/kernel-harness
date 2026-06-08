@@ -11,10 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.workspace.archive import sample_manifest_path
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_run_candidate_snapshot
-from kernel_bench_experiment_agents.kernelbench.candidate.validation import CandidateValidationError
 from kernel_bench_experiment_agents.kernelbench.metrics import result_runtime_error
+from kernel_bench_experiment_agents.problem_source import (
+    CandidateValidationError,
+    DEFAULT_PROBLEM_SOURCE,
+    EvalContext,
+    get_problem_source,
+)
 from kernel_bench_experiment_agents.runtime.common import as_float, emit_json
 from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
@@ -104,6 +107,18 @@ def command_run_candidate(args: argparse.Namespace) -> None:
     """Evaluate one frozen candidate snapshot and persist the measured attempt payload."""
     candidate_path = Path(args.candidate).resolve()
     workspace = workspace_path(args.workspace) if args.workspace else None
+    workspace_metadata: dict[str, Any] = {}
+    if workspace is not None:
+        from kernel_bench_experiment_agents.workspace.paths import load_workspace_metadata as _load_workspace_metadata
+
+        workspace_metadata = _load_workspace_metadata(workspace)
+    source_name = (
+        getattr(args, "problem_source", None)
+        or workspace_metadata.get("problem_source")
+        or DEFAULT_PROBLEM_SOURCE
+    )
+    problem_source = get_problem_source(str(source_name))
+    problem_dir_arg = getattr(args, "problem_dir", None) or workspace_metadata.get("problem_dir")
     problem_archive_root = archive_problem_dir(args.run_name, args.level, args.problem_id)
     lease_name = f"artifacts:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     sample_id: int | None = None
@@ -130,6 +145,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 args.level,
                 args.problem_id,
                 sample_id,
+                extension=problem_source.extension,
             )
             sample_json_path = sample_manifest_path(
                 args.run_name,
@@ -149,7 +165,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 expected_candidate_path = workspace_candidate_path(workspace)
                 if candidate_path != expected_candidate_path:
                     raise CandidateValidationError(
-                        f"Only {CANDIDATE_FILENAME} may be evaluated from the problem workspace."
+                        f"Only {problem_source.candidate_filename} may be evaluated from the problem workspace."
                     )
 
             candidate_ref = _workspace_candidate_reference(candidate_path, workspace)
@@ -167,6 +183,7 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "stderr_path": relative_path_within(stderr_path, problem_archive_root),
                 "backend": args.backend,
                 "precision": args.precision,
+                "problem_source": problem_source.name,
                 "artifact_reservation_wait_seconds": artifact_lease.wait_seconds,
                 "artifact_commit_wait_seconds": None,
                 "gpu_id": None,
@@ -183,13 +200,14 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 "subprocess": None,
             }
 
-            candidate_src = read_validated_candidate_source(candidate_path)
-            kernel_path = write_run_candidate_snapshot(
+            candidate_src = problem_source.read_validated_candidate_source(candidate_path)
+            kernel_path = problem_source.write_run_candidate_snapshot(
+                snapshot_path=kernel_path,
+                candidate_src=candidate_src,
                 run_name=args.run_name,
                 level=args.level,
                 problem_id=args.problem_id,
                 sample_id=sample_id,
-                candidate_src=candidate_src,
             )
             if workspace is not None:
                 write_workspace_sample_copy(workspace, sample_id, candidate_src)
@@ -220,39 +238,26 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                 args.problem_id,
                 f"sample_{sample_id}",
             ) / "evaluation_result.json"
-            command = [
-                sys.executable,
-                "-m",
-                "kernel_bench_experiment_agents.kernelbench.runners.evaluation",
-                "--candidate",
-                str(kernel_path),
-                "--output-path",
-                str(runner_output_path),
-                "--level",
-                str(args.level),
-                "--problem-id",
-                str(args.problem_id),
-                "--dataset-src",
-                args.dataset_src,
-                "--gpu-id",
-                str(lease.logical_gpu_id),
-                "--run-name",
-                args.run_name,
-                "--sample-id",
-                str(sample_id),
-                "--backend",
-                args.backend,
-                "--precision",
-                args.precision,
-                "--num-correct-trials",
-                str(args.num_correct_trials),
-                "--num-perf-trials",
-                str(args.num_perf_trials),
-            ]
-            if args.kernelbench_root:
-                command.extend(["--kernelbench-root", args.kernelbench_root])
-            if args.timing_method is not None:
-                command.extend(["--timing-method", args.timing_method])
+            command = problem_source.build_eval_command(
+                EvalContext(
+                    candidate_path=str(kernel_path),
+                    output_path=str(runner_output_path),
+                    run_name=args.run_name,
+                    level=args.level,
+                    problem_id=args.problem_id,
+                    sample_id=sample_id,
+                    gpu_id=lease.logical_gpu_id,
+                    workspace=str(workspace) if workspace else None,
+                    problem_dir=problem_dir_arg,
+                    precision=args.precision,
+                    kernelbench_root=args.kernelbench_root,
+                    dataset_src=args.dataset_src,
+                    backend=args.backend,
+                    num_correct_trials=args.num_correct_trials,
+                    num_perf_trials=args.num_perf_trials,
+                    timing_method=args.timing_method,
+                )
+            )
 
             payload.update(
                 {

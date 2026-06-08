@@ -13,19 +13,29 @@ from kernel_bench_experiment_agents.agent_contract.policy import (
     LAUNCHER_TERMINAL_STATES,
     MCP_TOOL_SPECS,
     SOLVER_TERMINAL_STATES,
-    WORKSPACE_EDIT_PATHS,
-    WORKSPACE_READ_PATHS,
     WORKSPACE_STANDING_ORDERS,
     WORKSPACE_STUCK_PROTOCOL,
+    workspace_edit_paths,
+    workspace_read_paths,
 )
 from kernel_bench_experiment_agents.agent_contract.prompts import (
     render_initial_prompt,
     render_workspace_agents_md,
     render_workspace_spec_md,
 )
+from kernel_bench_experiment_agents.problem_source import (
+    DEFAULT_PROBLEM_SOURCE,
+    ProblemSource,
+    get_problem_source,
+)
 
 
-def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
+def build_workspace_contract(
+    *,
+    metadata: dict[str, Any],
+    problem_source: ProblemSource | None = None,
+) -> dict[str, Any]:
+    problem_source = problem_source if problem_source is not None else get_problem_source(DEFAULT_PROBLEM_SOURCE)
     return {
         "assignment": {
             "run_name": metadata["run_name"],
@@ -33,14 +43,15 @@ def build_workspace_contract(*, metadata: dict[str, Any]) -> dict[str, Any]:
             "problem_id": metadata["problem_id"],
             "dataset_src": metadata["dataset_src"],
             "problem_name": metadata.get("problem_name"),
+            "problem_source": problem_source.name,
             "gpu_name": metadata.get("gpu_name"),
             "num_gpus": metadata.get("num_gpus"),
             "time_budget_minutes": metadata.get("time_budget_minutes"),
             "model": metadata.get("model"),
             "precision": metadata.get("precision", "bf16"),
         },
-        "reads": list(WORKSPACE_READ_PATHS),
-        "edits": list(WORKSPACE_EDIT_PATHS),
+        "reads": list(workspace_read_paths(problem_source)),
+        "edits": list(workspace_edit_paths(problem_source)),
         "mcp_tools": [
             {
                 "name": spec.name,

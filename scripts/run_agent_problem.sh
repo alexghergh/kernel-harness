@@ -45,12 +45,13 @@ export DATA_ROOT
 STATE_ROOT="${DATA_ROOT}/state"
 
 prepare_shared_tool_state() {
-  python - <<'PY'
+  PROBLEM_SOURCE="${PROBLEM_SOURCE:-kernelbench}" python - <<'PY'
+import os
 from pathlib import Path
 from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
 from kernel_bench_experiment_agents.runtime.project import state_dir
 
-write_shared_tool_state(state_dir() / "config")
+write_shared_tool_state(state_dir() / "config", problem_source=os.environ.get("PROBLEM_SOURCE") or None)
 PY
 }
 
@@ -125,7 +126,17 @@ case "${TOOL}" in
     ;;
 esac
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v6}"
+PROBLEM_SOURCE="${PROBLEM_SOURCE:-kernelbench}"
+export PROBLEM_SOURCE
+case "${PROBLEM_SOURCE}" in
+  kernelbench|cuda_source) ;;
+  *)
+    echo "Unsupported PROBLEM_SOURCE=${PROBLEM_SOURCE}. Expected kernelbench or cuda_source." >&2
+    exit 1
+    ;;
+esac
+
+RUN_NAME="${RUN_NAME:-${PROBLEM_SOURCE}-${TOOL}-h100-v6}"
 LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
@@ -137,6 +148,7 @@ fi
 TIME_BUDGET_MINUTES="${TIME_BUDGET_MINUTES:-180}"
 HARDWARE_NAME="${HARDWARE_NAME:-}"
 KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
+PROBLEM_DIR="${PROBLEM_DIR:-}"
 PRECISION="${PRECISION:-bf16}"
 NUM_GPU_SLOTS="$(visible_gpu_slot_count)"
 BUDGET_POLL_SECONDS=30
@@ -145,12 +157,19 @@ if [[ ! "${RUN_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "RUN_NAME may contain only ASCII letters, digits, dot, underscore, and hyphen." >&2
   exit 1
 fi
-if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
-  echo "KERNELBENCH_ROOT must point to the official KernelBench checkout." >&2
-  exit 1
+if [[ "${PROBLEM_SOURCE}" == "kernelbench" ]]; then
+  if [[ -z "${KERNELBENCH_ROOT:-}" ]]; then
+    echo "KERNELBENCH_ROOT must point to the official KernelBench checkout (kernelbench source)." >&2
+    exit 1
+  fi
+else
+  if [[ -z "${PROBLEM_DIR}" ]]; then
+    echo "PROBLEM_DIR must point to the cuda_source problem directory (cuda_source source)." >&2
+    exit 1
+  fi
 fi
 if [[ -z "${HARDWARE_NAME}" ]]; then
-  echo "HARDWARE_NAME must name the KernelBench timings subdirectory to use." >&2
+  echo "HARDWARE_NAME must name the hardware profile to render in HARDWARE.md." >&2
   exit 1
 fi
 
@@ -211,20 +230,31 @@ else
   fi
 fi
 
+PREP_ARGS=(
+  --run-name "${RUN_NAME}"
+  --level "${LEVEL}"
+  --problem-id "${PROBLEM_ID}"
+  --dataset-src "${DATASET_SRC}"
+  --hardware-name "${HARDWARE_NAME}"
+  --num-gpus "${NUM_GPU_SLOTS}"
+  --tool "${TOOL}"
+  --model "${MODEL}"
+  --time-budget-minutes "${TIME_BUDGET_MINUTES}"
+  --precision "${PRECISION}"
+  --problem-source "${PROBLEM_SOURCE}"
+)
+if [[ -n "${KERNELBENCH_ROOT:-}" ]]; then
+  PREP_ARGS+=(--kernelbench-root "${KERNELBENCH_ROOT}")
+fi
+if [[ -n "${KERNELBENCH_TIMINGS_DIR:-}" ]]; then
+  PREP_ARGS+=(--timings-dir "${KERNELBENCH_TIMINGS_DIR}")
+fi
+if [[ -n "${PROBLEM_DIR:-}" ]]; then
+  PREP_ARGS+=(--problem-dir "${PROBLEM_DIR}")
+fi
+
 PREP_OUTPUT="$({
-  kbharness prepare-problem-workspace \
-    --run-name "${RUN_NAME}" \
-    --level "${LEVEL}" \
-    --problem-id "${PROBLEM_ID}" \
-    --dataset-src "${DATASET_SRC}" \
-    --kernelbench-root "${KERNELBENCH_ROOT}" \
-    --timings-dir "${KERNELBENCH_TIMINGS_DIR}" \
-    --hardware-name "${HARDWARE_NAME}" \
-    --num-gpus "${NUM_GPU_SLOTS}" \
-    --tool "${TOOL}" \
-    --model "${MODEL}" \
-    --time-budget-minutes "${TIME_BUDGET_MINUTES}" \
-    --precision "${PRECISION}"
+  kbharness prepare-problem-workspace "${PREP_ARGS[@]}"
 })"
 
 WORKSPACE="$({

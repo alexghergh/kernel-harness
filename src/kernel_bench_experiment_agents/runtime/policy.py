@@ -20,6 +20,11 @@ from kernel_bench_experiment_agents.agent_contract.policy import (
     MCP_TOOL_SPECS,
     claude_mcp_tool_names,
 )
+from kernel_bench_experiment_agents.problem_source import (
+    DEFAULT_PROBLEM_SOURCE,
+    ProblemSource,
+    get_problem_source,
+)
 from kernel_bench_experiment_agents.runtime.project import ensure_dir, make_executable, write_text
 
 
@@ -273,7 +278,18 @@ def render_claude_user_config() -> str:
     return json.dumps(claude_user_config_payload(), indent=2, sort_keys=True) + "\n"
 
 
-def write_shared_tool_state(config_root: Path, *, repo_root: Path | None = None) -> list[Path]:
+def write_shared_tool_state(
+    config_root: Path,
+    *,
+    repo_root: Path | None = None,
+    problem_source: ProblemSource | str | None = None,
+) -> list[Path]:
+    if isinstance(problem_source, str):
+        resolved_source: ProblemSource = get_problem_source(problem_source)
+    elif problem_source is None:
+        resolved_source = get_problem_source(DEFAULT_PROBLEM_SOURCE)
+    else:
+        resolved_source = problem_source
     config_root = ensure_dir(config_root.expanduser().resolve())
     codex_dir = ensure_dir(config_root / "codex")
     claude_dir = ensure_dir(config_root / "claude")
@@ -289,6 +305,10 @@ def write_shared_tool_state(config_root: Path, *, repo_root: Path | None = None)
     written = [codex_path, claude_websearch_hook, claude_settings_path, claude_user_config_path]
     written.extend(sync_repo_auth_into_shared_tool_state(config_root, repo_root=repo_root))
     written.extend(
-        write_shared_helper_agent_specs(codex_home=codex_dir, claude_config_dir=claude_dir)
+        write_shared_helper_agent_specs(
+            codex_home=codex_dir,
+            claude_config_dir=claude_dir,
+            problem_source=resolved_source,
+        )
     )
     return written

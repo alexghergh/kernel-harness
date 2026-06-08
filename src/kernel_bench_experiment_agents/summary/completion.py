@@ -16,14 +16,8 @@ def infer_measured_outcome(goal_status: dict[str, Any] | None) -> str:
         return "unknown"
     if not bool(goal_status.get("has_correct_solution")):
         return "no_correct_candidate"
-    beats_eager = bool(goal_status.get("beats_eager"))
-    beats_compile = bool(goal_status.get("beats_compile"))
-    if beats_eager and beats_compile:
-        return "beats_both"
-    if beats_eager:
-        return "beats_eager_only"
-    if beats_compile:
-        return "beats_compile_only"
+    if bool(goal_status.get("beats_baseline")):
+        return "beats_baseline"
     return "beats_none"
 
 
@@ -63,30 +57,24 @@ def annotate_completion_outcomes(
     goal_status = completion_payload.get("goal_status")
     if isinstance(goal_status, dict):
         raw_best_runtime = as_float(goal_status.get("best_correct_runtime_ms"))
-        raw_beats_eager = bool(goal_status.get("beats_eager"))
-        raw_beats_compile = bool(goal_status.get("beats_compile"))
-        raw_beats_both = bool(goal_status.get("beats_both"))
+        raw_beats_baseline = bool(goal_status.get("beats_baseline"))
     else:
         raw_best_runtime = None
-        raw_beats_eager = False
-        raw_beats_compile = False
-        raw_beats_both = False
+        raw_beats_baseline = False
 
     completion_payload["raw_best_correct_runtime_ms"] = raw_best_runtime
-    completion_payload["raw_beats_eager"] = raw_beats_eager
-    completion_payload["raw_beats_compile"] = raw_beats_compile
-    completion_payload["raw_beats_both"] = raw_beats_both
-    completion_payload["outside_harness_success"] = raw_beats_both
+    completion_payload["raw_beats_baseline"] = raw_beats_baseline
+    completion_payload["outside_harness_success"] = raw_beats_baseline
     if sample_entries is not None:
         suspicious_attempts = suspicious_attempt_count(sample_entries)
     else:
         suspicious_attempts = int(
-            completion_payload.get("kernelbench_hacked_kernel_attempt_warnings") or 0
+            completion_payload.get("hacked_kernel_attempt_warnings") or 0
         )
-    completion_payload["kernelbench_hacked_kernel_attempt_warnings"] = suspicious_attempts
+    completion_payload["hacked_kernel_attempt_warnings"] = suspicious_attempts
     completion_payload["measured_outcome"] = infer_measured_outcome(
         goal_status if isinstance(goal_status, dict) else None
     )
     if completion_payload.get("success") is None:
-        completion_payload["success"] = completion_payload["measured_outcome"] == "beats_both"
+        completion_payload["success"] = completion_payload["measured_outcome"] == "beats_baseline"
     return completion_payload

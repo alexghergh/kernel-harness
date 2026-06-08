@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 
 from kernel_bench_experiment_agents.kernelbench.candidate.contract import candidate_template, normalize_candidate_template
+from kernel_bench_experiment_agents.problem_source import CandidateValidationError as _SharedCandidateValidationError
 
 
 FORBIDDEN_IMPORT_ROOTS = {
@@ -105,7 +106,7 @@ FORBIDDEN_VENDOR_MARKERS = {
 }
 
 
-class CandidateValidationError(ValueError):
+class CandidateValidationError(_SharedCandidateValidationError):
     """Raised when a generated candidate violates the solver contract."""
 
 

@@ -4,6 +4,15 @@ Short rolling maintainer handoff for the KernelBench harness.
 
 ## Current stable baseline
 
+- Two problem sources are first-class: `kernelbench` (the original PyTorch-reference
+  KernelBench problems) and `cuda_source` (a single `.cu` file with a locked driver
+  that times a frozen vendor reference like cuBLAS against the agent's kernel).
+  The active source is selected by the `PROBLEM_SOURCE` env var; cuda_source also
+  requires `PROBLEM_DIR` pointing at the problem definition directory.
+- The unified solver goal is to beat a single `baseline_runtime_ms` recorded at
+  workspace-prep time. KernelBench mode collapses its eager/compile baselines to
+  the faster of the two; cuda_source measures the vendor reference (cuBLAS) by
+  compiling and running the locked driver once at prep time.
 - MCP-backed problem access is the intended default for both Codex and Claude.
 - The solver-visible surface is intentionally narrow:
   - fixed read-only resources: `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, `GOAL_STATUS.md`, `problem_reference.py`, `candidate_model_new.py`

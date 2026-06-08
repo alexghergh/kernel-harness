@@ -7,12 +7,26 @@ from __future__ import annotations
 
 from typing import Any
 
+from kernel_bench_experiment_agents.problem_source import (
+    BaselinePayload,
+    DEFAULT_PROBLEM_SOURCE,
+    ProblemSource,
+    get_problem_source,
+)
 from kernel_bench_experiment_agents.runtime.common import as_float
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.agent_contract.policy import LAUNCHER_TERMINAL_STATES, MCP_SERVER_NAME
+from kernel_bench_experiment_agents.agent_contract.policy import (
+    LAUNCHER_TERMINAL_STATES,
+    MCP_SERVER_NAME,
+    helper_spec_read_paths,
+)
 
 
-def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
+def _resolve_source(problem_source: ProblemSource | None) -> ProblemSource:
+    return problem_source if problem_source is not None else get_problem_source(DEFAULT_PROBLEM_SOURCE)
+
+
+def render_workspace_agents_md(*, contract: dict[str, Any], problem_source: ProblemSource | None = None) -> str:
+    problem_source = _resolve_source(problem_source)
     assignment = contract["assignment"]
     behavior = contract.get("behavior") or {}
     helper_names = ", ".join(f"`{name}`" for name in contract.get("helper_agents", []))
@@ -29,6 +43,7 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         f"- problem id: `{assignment['problem_id']}`",
         f"- dataset source: `{assignment['dataset_src']}`",
         f"- problem name: `{assignment.get('problem_name') or 'unknown'}`",
+        f"- problem source: `{problem_source.name}`",
         f"- reported GPU name: `{assignment.get('gpu_name') or 'not provided'}`",
         f"- available GPU slots for measured tool execution: `{assignment.get('num_gpus')}`",
         f"- total solver budget: `{assignment.get('time_budget_minutes')}` minutes",
@@ -47,8 +62,8 @@ def render_workspace_agents_md(*, contract: dict[str, Any]) -> str:
         f"- use only the `{MCP_SERVER_NAME}` MCP tools for local reads, candidate writes, measured runs, profiling, and completion",
         "- do not inspect repository-maintainer docs, hidden harness storage, or tool-private config state",
         "- do not inspect generated PTX, cubins, Triton output, Inductor output, or compiler-emitted kernels for solution ideas",
-        "- use `problem_reference.py` as the problem reference",
-        f"- edit only `{CANDIDATE_FILENAME}` and only through the `write_candidate` MCP tool",
+        f"- use `{problem_source.reference_filename}` as the problem reference",
+        f"- edit only `{problem_source.candidate_filename}` and only through the `write_candidate` MCP tool",
         f"- the judged path is `{precision}`; internal mixed precision is allowed only if the final candidate still passes the `{precision}` correctness checks",
         "",
         f"Allowed `{MCP_SERVER_NAME}` MCP tools:",
@@ -123,10 +138,26 @@ def render_workspace_spec_md(
     *,
     problem_name: str | None,
     metadata: dict[str, Any],
-    baseline: dict[str, Any],
+    baseline: BaselinePayload | dict[str, Any],
     hardware_markdown_name: str,
+    problem_source: ProblemSource | None = None,
 ) -> str:
+    problem_source = _resolve_source(problem_source)
     precision = metadata.get("precision", "bf16")
+    if isinstance(baseline, BaselinePayload):
+        baseline_runtime_ms = baseline.runtime_ms
+        baseline_label = baseline.label
+        baseline_extras = baseline.extras
+    else:
+        baseline_runtime_ms = baseline.get("runtime_ms")
+        baseline_label = baseline.get("label") or "baseline"
+        baseline_extras = baseline.get("extras") or {}
+    is_cuda_source = problem_source.name == "cuda_source"
+    forbidden_line = (
+        "- the evaluated implementation must be raw custom CUDA code; cuBLAS and CUTLASS are forbidden inside the editable blocks. Tensor cores via wmma/mma.h and inline PTX are allowed."
+        if is_cuda_source
+        else "- the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; cuBLAS, CUTLASS, Triton, ATen compute helpers, and extra CUDA streams are forbidden"
+    )
     lines = [
         "# Orders",
         "",
@@ -135,11 +166,11 @@ def render_workspace_spec_md(
         "## Target",
         "",
         f"- problem: `{problem_name or 'unknown'}` (level `{metadata['level']}`, problem `{metadata['problem_id']}`)",
-        f"- eager PyTorch baseline: `{baseline['eager']['runtime_ms']}` ms",
-        f"- `torch.compile` baseline: `{baseline['compile']['runtime_ms']}` ms",
-        "- the strongest outcome is to beat both baselines with one correct candidate",
-        f"- optimize `problem_reference.py` by editing only `{CANDIDATE_FILENAME}` through `write_candidate`",
-        "- the evaluated implementation must be raw custom CUDA/C++ extension code with minimal glue; cuBLAS, CUTLASS, Triton, ATen compute helpers, and extra CUDA streams are forbidden",
+        f"- baseline to beat: `{baseline_runtime_ms}` ms ({baseline_label})",
+        f"- baseline extras: `{baseline_extras}`",
+        "- the goal is one correct candidate with a measured runtime strictly below the baseline",
+        f"- optimize `{problem_source.reference_filename}` by editing only `{problem_source.candidate_filename}` through `write_candidate`",
+        forbidden_line,
         f"- correctness and runtime are evaluated on the harness `{precision}` path",
         "",
         "## Autonomy",
@@ -152,7 +183,7 @@ def render_workspace_spec_md(
         "## Tool loop",
         "",
         f"1. Read the fixed problem docs/resources through the `{MCP_SERVER_NAME}` MCP server.",
-        f"2. Overwrite `{CANDIDATE_FILENAME}` through `write_candidate`.",
+        f"2. Overwrite `{problem_source.candidate_filename}` through `write_candidate`.",
         "3. Run `run_candidate`.",
         "4. Read `GOAL_STATUS.md` again through `goal_status` or `read_workspace_file`.",
         "5. If needed, run `profile_ncu` and read `profiles/latest.summary.txt` first.",
@@ -185,8 +216,8 @@ def render_workspace_spec_md(
         "",
         "## References",
         "",
-        "- problem code: `problem_reference.py`",
-        f"- solution file: `{CANDIDATE_FILENAME}`",
+        f"- problem code: `{problem_source.reference_filename}`",
+        f"- solution file: `{problem_source.candidate_filename}`",
         f"- hardware facts: `{hardware_markdown_name}`",
         "- live status: `GOAL_STATUS.md`",
         "- local mirrors of measured attempts/profiles: `samples/` and `profiles/`",
@@ -195,9 +226,27 @@ def render_workspace_spec_md(
     return "\n".join(lines) + "\n"
 
 
-def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any]) -> str:
+def render_initial_prompt(
+    *,
+    contract: dict[str, Any],
+    baseline: BaselinePayload | dict[str, Any],
+    problem_source: ProblemSource | None = None,
+) -> str:
+    problem_source = _resolve_source(problem_source)
     assignment = contract["assignment"]
     precision = assignment.get("precision") or "bf16"
+    if isinstance(baseline, BaselinePayload):
+        baseline_runtime_ms = baseline.runtime_ms
+        baseline_label = baseline.label
+    else:
+        baseline_runtime_ms = baseline.get("runtime_ms")
+        baseline_label = baseline.get("label") or "baseline"
+    is_cuda_source = problem_source.name == "cuda_source"
+    forbidden_line = (
+        "The benchmark contract forbids cuBLAS and CUTLASS inside the editable region. Only the locked driver may call the reference. Tensor cores via wmma/mma.h and inline PTX are allowed."
+        if is_cuda_source
+        else "The benchmark contract forbids cuBLAS, CUTLASS, Triton, ATen compute helpers, and extra CUDA streams. Stay within raw custom CUDA/C++ extension code with minimal glue."
+    )
     lines = [
         "Optimize exactly one problem.",
         "",
@@ -206,17 +255,17 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
         f"- problem id: {assignment['problem_id']}",
         f"- dataset source: {assignment['dataset_src']}",
         f"- problem name: {assignment.get('problem_name') or 'unknown'}",
-        f"- eager baseline: {baseline['eager']['runtime_ms']} ms",
-        f"- compile baseline: {baseline['compile']['runtime_ms']} ms",
+        f"- problem source: {problem_source.name}",
+        f"- baseline to beat: {baseline_runtime_ms} ms ({baseline_label})",
         f"- total solver budget: {assignment.get('time_budget_minutes')} minutes",
         f"- judged precision path: {precision}",
         "",
         "Start by using `workspace_overview`, then read `AGENTS.md`, `INITIAL_PROMPT.md`, `SPEC.md`, `HARDWARE.md`, and `GOAL_STATUS.md` through the harness MCP server resources.",
-        f"Stay inside the workspace surface exposed by the `{MCP_SERVER_NAME}` MCP server. Only edit `{CANDIDATE_FILENAME}` through `write_candidate`. Use `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, and `complete_problem` for measured harness actions.",
+        f"Stay inside the workspace surface exposed by the `{MCP_SERVER_NAME}` MCP server. Only edit `{problem_source.candidate_filename}` through `write_candidate`. Use `run_candidate`, `profile_ncu`, `goal_status`, `best_result`, and `complete_problem` for measured harness actions.",
         "Act as the planner-manager. Keep the main context focused on strategy and decision-making.",
         "WHEN helper agents are available and you want a measured evaluation, spawn the `runner` helper. WHEN helper agents are available and you want profiling or profile interpretation, spawn the `profiler` helper. When spawning these helpers, avoid full-history forks and other extra spawn options; pass only the task prompt.",
         "Work independently. There is no user approval step in this run. Do not ask for permission, confirmation, or whether to continue.",
-        "The benchmark contract forbids cuBLAS, CUTLASS, Triton, ATen compute helpers, and extra CUDA streams. Stay within raw custom CUDA/C++ extension code with minimal glue.",
+        forbidden_line,
         "Hosted WebSearch/WebFetch are restricted to docs.nvidia.com only.",
         "Never overlap harness tool calls. Start a new one only after the previous one has returned.",
         "If a strategy fails, re-read the docs, profile when useful, consult allowed NVIDIA docs when needed, and start the next strategy yourself.",
@@ -228,9 +277,15 @@ def render_initial_prompt(*, contract: dict[str, Any], baseline: dict[str, Any])
     return "\n".join(lines) + "\n"
 
 
-def render_codex_helper_instructions(*, spec: Any) -> str:
+def _helper_read_list(spec: Any, problem_source: ProblemSource) -> str:
+    resolved_paths = helper_spec_read_paths(spec, problem_source)
+    return ", ".join(f"`{path}`" for path in resolved_paths)
+
+
+def render_codex_helper_instructions(*, spec: Any, problem_source: ProblemSource | None = None) -> str:
+    problem_source = _resolve_source(problem_source)
     tool_list = ", ".join(f"`{name}`" for name in spec.mcp_tools)
-    read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
+    read_list = _helper_read_list(spec, problem_source)
     return (
         f"You are a narrow delegated helper for one assigned optimization problem.\n\n"
         "The main solver should treat you as an execution-focused delegate, not as another planner.\n"
@@ -239,7 +294,7 @@ def render_codex_helper_instructions(*, spec: Any) -> str:
         "Do not inspect unrelated files, local config, or hidden harness state.\n"
         "Do not use ad hoc shell commands, Python snippets, or local file tools.\n"
         "Hosted WebSearch/WebFetch, if available at all, are restricted to docs.nvidia.com only.\n"
-        "Benchmark constraints are strict: do not propose or use cuBLAS, CUTLASS, Triton, ATen compute helpers, torch.matmul-style shortcuts, or extra CUDA streams.\n"
+        "Benchmark constraints are strict: do not propose or use forbidden vendor libraries (see SPEC.md for the exact list).\n"
         "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
         "Never start a second harness MCP call while another one is still running.\n"
         "If a measured run is flagged as suspicious, cheating, or non-counting, say so plainly and tell the main solver to discard it.\n"
@@ -250,9 +305,10 @@ def render_codex_helper_instructions(*, spec: Any) -> str:
     )
 
 
-def render_claude_helper_body(*, spec: Any) -> str:
+def render_claude_helper_body(*, spec: Any, problem_source: ProblemSource | None = None) -> str:
+    problem_source = _resolve_source(problem_source)
     tool_list = ", ".join(f"`{name}`" for name in spec.mcp_tools)
-    read_list = ", ".join(f"`{path}`" for path in spec.read_paths)
+    read_list = _helper_read_list(spec, problem_source)
     return (
         "You are a narrow delegated helper for one assigned optimization problem.\n\n"
         "The main solver should treat you as an execution-focused delegate, not as another planner.\n"
@@ -261,7 +317,7 @@ def render_claude_helper_body(*, spec: Any) -> str:
         "Do not inspect unrelated files, local config, or hidden harness state.\n"
         "Do not use shell commands or Python snippets to inspect profiler outputs or parse files.\n"
         "Hosted WebSearch/WebFetch, if available at all, are restricted to docs.nvidia.com only.\n"
-        "Benchmark constraints are strict: do not propose or use cuBLAS, CUTLASS, Triton, ATen compute helpers, torch.matmul-style shortcuts, or extra CUDA streams.\n"
+        "Benchmark constraints are strict: do not propose or use forbidden vendor libraries (see SPEC.md for the exact list).\n"
         "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
         "Never start a second harness MCP call while another one is still running.\n"
         "If a measured run is flagged as suspicious, cheating, or non-counting, say so plainly and tell the main solver to discard it.\n"
@@ -274,8 +330,8 @@ def render_claude_helper_body(*, spec: Any) -> str:
 
 def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
     best_runtime = snapshot.get("best_correct_runtime_ms")
-    eager_baseline = snapshot.get("eager_baseline_ms")
-    compile_baseline = snapshot.get("compile_baseline_ms")
+    baseline_runtime = snapshot.get("baseline_runtime_ms")
+    baseline_label = snapshot.get("baseline_label") or "baseline"
     problem_name = snapshot.get("problem_name") or "unknown"
     wall_clock_elapsed_minutes = as_float(snapshot.get("wall_clock_elapsed_minutes"))
     elapsed_minutes = as_float(snapshot.get("elapsed_minutes"))
@@ -289,7 +345,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
         and time_budget_minutes is not None
         and remaining_minutes > max(60.0, time_budget_minutes * 0.25)
     )
-    unresolved = not snapshot["beats_both"]
+    unresolved = not snapshot.get("beats_baseline", False)
     latest_attempt_blocked_reason = str(snapshot.get("latest_attempt_blocked_reason") or "").strip()
     if unresolved:
         heading = "# Goal Status: UNRESOLVED — keep working"
@@ -304,7 +360,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Harness MCP tools are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
             "- If the latest run was discarded as suspicious, cheating, or invalid, it does not count. Fix the exact reported issue and keep working.",
             "- If stuck: call `profile_ncu`, read `HARDWARE.md`, search NVIDIA docs on docs.nvidia.com only, make a new plan, and try a new branch without asking for approval.",
-            "- The benchmark contract forbids cuBLAS, CUTLASS, Triton, ATen compute helpers, and extra CUDA streams.",
+            "- The benchmark contract forbids cuBLAS and CUTLASS inside the editable region; only the locked driver may call the reference.",
             "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `complete_problem` before remaining time reaches zero.",
             "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `complete_problem(summary=...)`.",
             "- `run_candidate` and `profile_ncu` may take a while; wait for the tool result instead of treating them as hung.",
@@ -312,10 +368,10 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
     else:
         heading = "# Goal Status: RESOLVED — STOP NOW. Call `complete_problem` and exit."
         standing_orders = [
-            "- STOP NOW. Both baselines are beaten. Your job is done.",
+            f"- STOP NOW. The {baseline_label} baseline is beaten. Your job is done.",
             "- Do NOT submit another candidate. Do NOT call `run_candidate` or `profile_ncu` again.",
-            "- Call `complete_problem(summary='both baselines beaten')` IMMEDIATELY and exit.",
-            "- Remaining budget time is IRRELEVANT once both baselines are beaten. Continuing past this point wastes compute for no measured benefit.",
+            "- Call `complete_problem(summary='baseline beaten')` IMMEDIATELY and exit.",
+            "- Remaining budget time is IRRELEVANT once the baseline is beaten. Continuing past this point wastes compute for no measured benefit.",
             "- A plain assistant message is NEVER a valid exit. The ONLY valid exit is `complete_problem`.",
         ]
 
@@ -327,7 +383,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
         )
     elif not unresolved:
         remaining_line = (
-            f"{remaining_minutes} (irrelevant — both baselines already beaten; STOP NOW)"
+            f"{remaining_minutes} (irrelevant — baseline already beaten; STOP NOW)"
         )
     else:
         remaining_line = str(remaining_minutes)
@@ -335,9 +391,10 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
     if best_runtime is None:
         best_runtime_line = "none yet"
     else:
-        best_runtime_line = (
-            f"{best_runtime} ms (must be below {eager_baseline} ms and {compile_baseline} ms)"
-        )
+        if baseline_runtime is not None:
+            best_runtime_line = f"{best_runtime} ms (must be below {baseline_runtime} ms — {baseline_label})"
+        else:
+            best_runtime_line = f"{best_runtime} ms"
 
     active_operations = snapshot.get("active_operations") or []
     if active_operations:
@@ -361,9 +418,9 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
     if snapshot.get("num_other_attempts"):
         attempt_breakdown += f", {snapshot['num_other_attempts']} other"
     orders_header = (
-        "Standing orders (active until both baselines are beaten):"
+        "Standing orders (active until the baseline is beaten):"
         if unresolved
-        else "Final orders (both baselines beaten — exit now):"
+        else "Final orders (baseline beaten — exit now):"
     )
     lines = [
         heading,
@@ -376,9 +433,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
         "",
         f"- problem: level {snapshot['level']} problem {snapshot['problem_id']} ({problem_name})",
         f"- best correct runtime: {best_runtime_line}",
-        f"- beats eager ({eager_baseline} ms): {snapshot['beats_eager']}",
-        f"- beats compile ({compile_baseline} ms): {snapshot['beats_compile']}",
-        f"- beats both: {snapshot['beats_both']}",
+        f"- baseline ({baseline_label}, {baseline_runtime} ms): {snapshot.get('beats_baseline')}",
         f"- latest attempt sample: {snapshot.get('latest_attempt_sample_id')}",
         f"- latest attempt counts toward progress: {snapshot.get('latest_attempt_counts_toward_progress', True)}",
         f"- latest attempt discard reason: {snapshot.get('latest_attempt_blocked_reason') or 'none'}",

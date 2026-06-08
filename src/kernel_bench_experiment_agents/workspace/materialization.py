@@ -8,8 +8,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME, candidate_template
 from kernel_bench_experiment_agents.agent_contract.hardware import render_hardware_markdown
+from kernel_bench_experiment_agents.problem_source import (
+    BaselinePayload,
+    ProblemSource,
+    ReferencePayload,
+)
 from kernel_bench_experiment_agents.runtime.project import now_iso, write_json, write_text
 from kernel_bench_experiment_agents.agent_contract.contract import (
     build_workspace_contract,
@@ -42,7 +46,9 @@ def build_problem_metadata(
     problem_id: int,
     dataset_src: str,
     tool: str,
-    problem: Any,
+    problem_name: str,
+    problem_source: ProblemSource,
+    problem_dir: str | None,
     hardware: Any,
     hardware_name: str,
     num_gpus: int,
@@ -57,7 +63,9 @@ def build_problem_metadata(
         "problem_id": problem_id,
         "tool": tool,
         "dataset_src": dataset_src,
-        "problem_name": problem.name,
+        "problem_source": problem_source.name,
+        "problem_dir": problem_dir,
+        "problem_name": problem_name,
         "hardware_name": hardware_name,
         "gpu_name": hardware.display_name,
         "gpu_architecture": hardware.architecture,
@@ -71,19 +79,32 @@ def build_problem_metadata(
 
 def build_archive_provenance(
     *,
-    kernelbench_root_path: str,
-    timings_dir: str,
-    problem: Any,
-    eager_baseline_file: str,
-    compile_baseline_file: str,
+    problem_source_name: str,
+    reference_payload: ReferencePayload,
+    kernelbench_root_path: str | None = None,
+    timings_dir: str | None = None,
+    eager_baseline_file: str | None = None,
+    compile_baseline_file: str | None = None,
+    problem_dir: str | None = None,
 ) -> dict[str, Any]:
-    return {
-        "kernelbench_root": kernelbench_root_path,
-        "timings_dir": timings_dir,
-        "problem_source_path": getattr(problem, "path", None),
-        "eager_baseline_file": str(eager_baseline_file),
-        "compile_baseline_file": str(compile_baseline_file),
+    payload: dict[str, Any] = {
+        "problem_source": problem_source_name,
+        "problem_source_metadata": dict(reference_payload.problem_metadata),
+        "baseline_label": reference_payload.baseline.label,
+        "baseline_runtime_ms": reference_payload.baseline.runtime_ms,
+        "baseline_extras": dict(reference_payload.baseline.extras),
     }
+    if problem_dir:
+        payload["problem_dir"] = problem_dir
+    if kernelbench_root_path:
+        payload["kernelbench_root"] = kernelbench_root_path
+    if timings_dir:
+        payload["timings_dir"] = timings_dir
+    if eager_baseline_file:
+        payload["eager_baseline_file"] = str(eager_baseline_file)
+    if compile_baseline_file:
+        payload["compile_baseline_file"] = str(compile_baseline_file)
+    return payload
 
 
 def build_hardware_payload(hardware: Any) -> dict[str, Any]:
@@ -107,22 +128,22 @@ def write_contract_bundle(
     *,
     target_dir: Path,
     metadata: dict[str, Any],
-    baseline: dict[str, Any],
+    baseline: BaselinePayload,
     hardware_payload: dict[str, Any],
-    problem_code: str,
+    problem_source: ProblemSource,
+    reference_source: str,
 ) -> dict[str, Any]:
     """Write the generated workspace files and their archived contract mirror."""
-    contract = build_workspace_contract(metadata=metadata)
+    contract = build_workspace_contract(metadata=metadata, problem_source=problem_source)
     problem_payload = dict(metadata)
-    problem_payload["baseline_runtime_ms"] = {
-        "eager": baseline.get("eager", {}).get("runtime_ms"),
-        "compile": baseline.get("compile", {}).get("runtime_ms"),
-    }
+    problem_payload["baseline_runtime_ms"] = baseline.runtime_ms
+    problem_payload["baseline_label"] = baseline.label
+    problem_payload["baseline_extras"] = dict(baseline.extras)
     write_json(target_dir / "problem.json", problem_payload)
     write_json(target_dir / "hardware.json", hardware_payload)
     write_json(target_dir / "workspace_contract.json", contract)
-    write_text(target_dir / "problem_reference.py", problem_code)
-    write_text(target_dir / CANDIDATE_FILENAME, candidate_template())
+    write_text(target_dir / problem_source.reference_filename, reference_source)
+    write_text(target_dir / problem_source.candidate_filename, problem_source.candidate_template())
     write_text(
         target_dir / "HARDWARE.md",
         render_hardware_markdown(HardwarePayloadView(hardware_payload)),
@@ -134,11 +155,12 @@ def write_contract_bundle(
             metadata=metadata,
             baseline=baseline,
             hardware_markdown_name="HARDWARE.md",
+            problem_source=problem_source,
         ),
     )
     write_text(target_dir / "AGENTS.md", render_workspace_agents_md(contract=contract))
     write_text(
         target_dir / "INITIAL_PROMPT.md",
-        render_initial_prompt(contract=contract, baseline=baseline),
+        render_initial_prompt(contract=contract, baseline=baseline, problem_source=problem_source),
     )
     return contract

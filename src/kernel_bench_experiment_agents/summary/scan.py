@@ -54,14 +54,14 @@ def _load_completion(problem_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def _baseline_means(contract_problem: dict[str, Any]) -> tuple[float | None, float | None]:
-    eager_mean = None
-    compile_mean = None
-    if isinstance(contract_problem, dict):
-        eager_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("eager"))
-    if compile_mean is None and isinstance(contract_problem, dict):
-        compile_mean = as_float(contract_problem.get("baseline_runtime_ms", {}).get("compile"))
-    return eager_mean, compile_mean
+def _baseline_runtime_ms(contract_problem: dict[str, Any]) -> tuple[float | None, str | None]:
+    if not isinstance(contract_problem, dict):
+        return None, None
+    value = as_float(contract_problem.get("baseline_runtime_ms"))
+    label = contract_problem.get("baseline_label")
+    if not isinstance(label, str):
+        label = None
+    return value, label
 
 
 def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict[str, Any] | None:
@@ -92,7 +92,7 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
     contract_problem_path = problem_dir / "contract" / "problem.json"
     contract_problem = read_json_file(contract_problem_path) if contract_problem_path.exists() else {}
     problem_name = contract_problem.get("problem_name") if isinstance(contract_problem, dict) else None
-    eager_mean, compile_mean = _baseline_means(contract_problem)
+    baseline_mean, baseline_label = _baseline_runtime_ms(contract_problem)
 
     row_token_usage = completion_payload.get("token_usage") if isinstance(completion_payload, dict) else None
     audit_payload = completion_payload.get("audit") if isinstance(completion_payload, dict) else None
@@ -123,34 +123,17 @@ def build_problem_row(*, problem_dir: Path, level: int, problem_id: int) -> dict
         "effective_correct_samples": effective_correct_samples,
         "best_correct_runtime_ms": effective_best_correct_runtime,
         "raw_best_correct_runtime_ms": raw_best_correct_runtime,
-        "raw_beats_eager": (
+        "raw_beats_baseline": (
             raw_best_correct_runtime is not None
-            and eager_mean is not None
-            and raw_best_correct_runtime < eager_mean
+            and baseline_mean is not None
+            and raw_best_correct_runtime < baseline_mean
         ),
-        "raw_beats_compile": (
-            raw_best_correct_runtime is not None
-            and compile_mean is not None
-            and raw_best_correct_runtime < compile_mean
-        ),
-        "raw_beats_both": (
-            raw_best_correct_runtime is not None
-            and eager_mean is not None
-            and compile_mean is not None
-            and raw_best_correct_runtime < eager_mean
-            and raw_best_correct_runtime < compile_mean
-        ),
-        "eager_baseline_ms": eager_mean,
-        "compile_baseline_ms": compile_mean,
-        "beats_eager": (
+        "baseline_runtime_ms": baseline_mean,
+        "baseline_label": baseline_label,
+        "beats_baseline": (
             effective_best_correct_runtime is not None
-            and eager_mean is not None
-            and effective_best_correct_runtime < eager_mean
-        ),
-        "beats_compile": (
-            effective_best_correct_runtime is not None
-            and compile_mean is not None
-            and effective_best_correct_runtime < compile_mean
+            and baseline_mean is not None
+            and effective_best_correct_runtime < baseline_mean
         ),
         "solver_state": (
             completion_payload.get("solver_state")

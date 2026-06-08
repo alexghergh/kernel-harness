@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.kernelbench.attempt_summary import solver_attempt_summary
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.problem_source import (
+    DEFAULT_PROBLEM_SOURCE,
+    ProblemSource,
+    get_problem_source,
+)
 from kernel_bench_experiment_agents.runtime.project import archive_problem_dir, workspace_dir, write_json, write_text
 
 
@@ -26,13 +30,23 @@ def load_workspace_metadata(workspace: Path) -> dict[str, Any]:
     return read_json_file(workspace / "problem.json")
 
 
+def workspace_problem_source(workspace: Path) -> ProblemSource:
+    """Look up the registered ProblemSource recorded in this workspace's problem.json."""
+    metadata = load_workspace_metadata(workspace)
+    name = metadata.get("problem_source") if isinstance(metadata, dict) else None
+    return get_problem_source(str(name) if name else DEFAULT_PROBLEM_SOURCE)
+
+
 def load_workspace_baseline(workspace: Path) -> dict[str, Any]:
+    """Return the unified single-baseline payload recorded for this workspace."""
     problem = read_json_file(workspace / "problem.json")
     baseline_runtime_ms = problem.get("baseline_runtime_ms") if isinstance(problem, dict) else None
-    baseline_runtime_ms = baseline_runtime_ms if isinstance(baseline_runtime_ms, dict) else {}
+    baseline_label = problem.get("baseline_label") if isinstance(problem, dict) else None
+    baseline_extras = problem.get("baseline_extras") if isinstance(problem, dict) else None
     return {
-        "eager": {"runtime_ms": baseline_runtime_ms.get("eager")},
-        "compile": {"runtime_ms": baseline_runtime_ms.get("compile")},
+        "runtime_ms": baseline_runtime_ms,
+        "label": baseline_label,
+        "extras": baseline_extras if isinstance(baseline_extras, dict) else {},
     }
 
 
@@ -77,7 +91,11 @@ def problem_workspace_paths(
 
 
 def workspace_candidate_path(workspace: Path) -> Path:
-    return workspace / CANDIDATE_FILENAME
+    return workspace / workspace_problem_source(workspace).candidate_filename
+
+
+def workspace_reference_path(workspace: Path) -> Path:
+    return workspace / workspace_problem_source(workspace).reference_filename
 
 
 def workspace_samples_dir(workspace: Path) -> Path:
@@ -100,8 +118,9 @@ def write_workspace_sample_copy(
     sample_id: int,
     candidate_src: str,
 ) -> None:
+    extension = workspace_problem_source(workspace).extension
     write_text(
-        workspace_samples_dir(workspace) / f"sample_{sample_id}.py",
+        workspace_samples_dir(workspace) / f"sample_{sample_id}{extension}",
         candidate_src,
     )
 
@@ -110,7 +129,8 @@ def write_workspace_best_sample(
     workspace: Path,
     payload: dict[str, Any] | None,
 ) -> None:
-    best_sample_path = workspace_samples_dir(workspace) / "best_sample.py"
+    extension = workspace_problem_source(workspace).extension
+    best_sample_path = workspace_samples_dir(workspace) / f"best_sample{extension}"
     best_result_path = workspace_samples_dir(workspace) / "best_result.json"
     if payload is None:
         if best_sample_path.exists():

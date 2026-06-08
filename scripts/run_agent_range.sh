@@ -32,11 +32,12 @@ DATA_ROOT="$(cd "${DATA_ROOT}" && pwd)"
 export DATA_ROOT
 
 prepare_shared_tool_state() {
-  python - <<'PY'
+  PROBLEM_SOURCE="${PROBLEM_SOURCE:-kernelbench}" python - <<'PY'
+import os
 from kernel_bench_experiment_agents.runtime.policy import write_shared_tool_state
 from kernel_bench_experiment_agents.runtime.project import state_dir
 
-write_shared_tool_state(state_dir() / "config")
+write_shared_tool_state(state_dir() / "config", problem_source=os.environ.get("PROBLEM_SOURCE") or None)
 PY
 }
 
@@ -49,7 +50,17 @@ case "${TOOL}" in
     ;;
 esac
 
-RUN_NAME="${RUN_NAME:-kernelbench-${TOOL}-h100-v6}"
+PROBLEM_SOURCE="${PROBLEM_SOURCE:-kernelbench}"
+export PROBLEM_SOURCE
+case "${PROBLEM_SOURCE}" in
+  kernelbench|cuda_source) ;;
+  *)
+    echo "Unsupported PROBLEM_SOURCE=${PROBLEM_SOURCE}. Expected kernelbench or cuda_source." >&2
+    exit 1
+    ;;
+esac
+
+RUN_NAME="${RUN_NAME:-${PROBLEM_SOURCE}-${TOOL}-h100-v6}"
 LEVEL="${LEVEL:-1}"
 MAX_PARALLEL_SOLVERS="${MAX_PARALLEL_SOLVERS:-1}"
 RUN_STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
@@ -92,7 +103,12 @@ trap report_elapsed_time EXIT
 echo "Range run ${RUN_NAME} started at ${RUN_STARTED_AT}" >&2
 prepare_shared_tool_state
 
-export TOOL RUN_NAME LEVEL SHARED_TOOL_STATE_PREPARED=1
+export TOOL RUN_NAME LEVEL PROBLEM_SOURCE SHARED_TOOL_STATE_PREPARED=1
+# Forward optional cuda_source / KernelBench knobs to child invocations so the
+# range launcher does not need to set them per problem.
+export PROBLEM_DIR="${PROBLEM_DIR:-}"
+export KERNELBENCH_ROOT="${KERNELBENCH_ROOT:-}"
+export KERNELBENCH_TIMINGS_DIR="${KERNELBENCH_TIMINGS_DIR:-}"
 
 action_run_one() {
   local pid="$1"

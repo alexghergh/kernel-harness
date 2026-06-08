@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.problem_source import ProblemSource
 from kernel_bench_experiment_agents.runtime.project import make_executable, write_text
 
 
@@ -43,11 +43,12 @@ def generate_run_wrapper(
     dataset_src: str,
     num_gpus: int,
     precision: str,
+    problem_source: ProblemSource,
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
         'kbharness run-candidate',
-        f'  --candidate "${{WORKSPACE}}/{CANDIDATE_FILENAME}"',
+        f'  --candidate "${{WORKSPACE}}/{problem_source.candidate_filename}"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
@@ -69,11 +70,12 @@ def generate_profile_wrapper(
     dataset_src: str,
     num_gpus: int,
     precision: str,
+    problem_source: ProblemSource,
 ) -> str:
     common = workspace_wrapper_common()
     command_lines = [
         'kbharness profile-ncu',
-        f'  --candidate "${{WORKSPACE}}/{CANDIDATE_FILENAME}"',
+        f'  --candidate "${{WORKSPACE}}/{problem_source.candidate_filename}"',
         f'  --run-name {shlex.quote(run_name)}',
         f'  --level {level}',
         f'  --problem-id {problem_id}',
@@ -168,6 +170,7 @@ def write_default_workspace_wrappers(
     dataset_src: str,
     num_gpus: int,
     precision: str,
+    problem_source: ProblemSource,
 ) -> list[Path]:
     wrappers = {
         "run_candidate.sh": generate_run_wrapper(
@@ -177,6 +180,7 @@ def write_default_workspace_wrappers(
             dataset_src=dataset_src,
             num_gpus=num_gpus,
             precision=precision,
+            problem_source=problem_source,
         ),
         "profile_ncu.sh": generate_profile_wrapper(
             run_name=run_name,
@@ -185,6 +189,7 @@ def write_default_workspace_wrappers(
             dataset_src=dataset_src,
             num_gpus=num_gpus,
             precision=precision,
+            problem_source=problem_source,
         ),
         "hardware_info.sh": generate_hardware_info_wrapper(),
         "goal_status.sh": generate_goal_status_wrapper(

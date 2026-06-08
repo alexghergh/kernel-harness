@@ -114,11 +114,15 @@ def goal_status_snapshot(
             best_runtime_ms = candidate_runtime(result)
         best_sample_id = best_payload.get("sample_id")
 
-    eager_ms = as_float(baseline.get("eager", {}).get("runtime_ms"))
-    compile_ms = as_float(baseline.get("compile", {}).get("runtime_ms"))
+    baseline_runtime_ms = as_float(baseline.get("runtime_ms"))
+    baseline_label = baseline.get("label")
+    baseline_extras = baseline.get("extras") if isinstance(baseline.get("extras"), dict) else {}
     best_result_warnings = _attempt_warnings(best_payload)
-    beats_eager = best_runtime_ms is not None and eager_ms is not None and best_runtime_ms < eager_ms
-    beats_compile = best_runtime_ms is not None and compile_ms is not None and best_runtime_ms < compile_ms
+    beats_baseline = (
+        best_runtime_ms is not None
+        and baseline_runtime_ms is not None
+        and best_runtime_ms < baseline_runtime_ms
+    )
 
     num_attempts = len(progress_entries)
     num_correct_attempts = sum(
@@ -173,7 +177,7 @@ def goal_status_snapshot(
         problem_id,
         tool=tool,
     )
-    resolved = beats_eager and beats_compile
+    resolved = beats_baseline
     recommended_actions = []
     if latest_attempt_blocked_reason and not resolved:
         if latest_attempt_blocked_reason.startswith("candidate rejected by harness validation:"):
@@ -182,16 +186,16 @@ def goal_status_snapshot(
             )
         else:
             recommended_actions.append(
-                "The latest attempted run does not count toward progress. KernelBench flagged it as suspicious or cheating. Discard it and keep iterating until you have a clean measured win."
+                "The latest attempted run does not count toward progress. The harness flagged it as suspicious or cheating. Discard it and keep iterating until you have a clean measured win."
             )
     if resolved:
         recommended_actions.append(
-            "STOP NOW. Both baselines are beaten. Call `complete_problem(summary='both baselines beaten')` immediately and exit. Do not submit any more candidates or profile runs — remaining budget time is irrelevant."
+            "STOP NOW. The baseline is beaten. Call `complete_problem(summary='baseline beaten')` immediately and exit. Do not submit any more candidates or profile runs — remaining budget time is irrelevant."
         )
     else:
         recommended_actions.extend(
             [
-                "Keep iterating until both baselines are beaten or another truthful terminal state is justified.",
+                "Keep iterating until the baseline is beaten or another truthful terminal state is justified.",
                 "Act as the planner-manager. Keep the main context focused on strategy and delegate measured evaluation to `runner` and Nsight profiling to `profiler` whenever those helper agents are available.",
                 "Re-read SPEC.md and HARDWARE.md before each major strategy change.",
                 "WHEN you are stuck or a candidate is slower than expected, use `profile_ncu`; read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
@@ -230,11 +234,10 @@ def goal_status_snapshot(
         "num_profile_runs": len(profiles),
         "best_correct_sample_id": best_sample_id,
         "best_correct_runtime_ms": best_runtime_ms,
-        "eager_baseline_ms": eager_ms,
-        "compile_baseline_ms": compile_ms,
-        "beats_eager": beats_eager,
-        "beats_compile": beats_compile,
-        "beats_both": resolved,
+        "baseline_runtime_ms": baseline_runtime_ms,
+        "baseline_label": baseline_label,
+        "baseline_extras": baseline_extras,
+        "beats_baseline": beats_baseline,
         "best_result_warnings": best_result_warnings,
         "has_correct_solution": best_payload is not None,
         "latest_attempt_sample_id": latest_attempt_sample_id,

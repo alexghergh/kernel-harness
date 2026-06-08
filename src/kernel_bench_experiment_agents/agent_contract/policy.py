@@ -9,7 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
+from kernel_bench_experiment_agents.problem_source import (
+    DEFAULT_PROBLEM_SOURCE,
+    ProblemSource,
+    get_problem_source,
+)
 
 MCP_SERVER_NAME = "kernelbench"
 
@@ -81,6 +85,10 @@ GPU_WRAPPER_PATHS: tuple[str, ...] = (
 )
 
 
+def _candidate_filename() -> str:
+    return get_problem_source(DEFAULT_PROBLEM_SOURCE).candidate_filename
+
+
 MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     McpToolSpec(
         name="workspace_overview",
@@ -99,7 +107,7 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     ),
     McpToolSpec(
         name="write_candidate",
-        purpose=f"write_candidate(content) -> validate and overwrite {CANDIDATE_FILENAME}; the only writable workspace file",
+        purpose="write_candidate(content) -> validate and overwrite the candidate file; the only writable workspace file",
         destructive=True,
     ),
     McpToolSpec(
@@ -139,7 +147,7 @@ WORKSPACE_STANDING_ORDERS: tuple[str, ...] = (
     "WHEN helper agents are available and you want Nsight Compute output or profile interpretation, spawn the `profiler` helper.",
     "When spawning `runner` or `profiler`, avoid full-history forks and other extra spawn options; pass only the task prompt.",
     "After every measured run or profile, re-read GOAL_STATUS.md or call `goal_status`; keep iterating if it still says UNRESOLVED.",
-    "Stay inside the benchmark contract: no cuBLAS, CUTLASS, Triton, ATen compute helpers, or extra CUDA streams.",
+    "Stay inside the benchmark contract: do not use the forbidden vendor libraries or shortcuts listed in SPEC.md.",
     "If one branch fails, start another one. Failed attempts are normal, not a stop signal.",
     "`run_candidate` and `profile_ncu` may take a while. Wait for them to finish instead of assuming they hung.",
 )
@@ -150,18 +158,16 @@ WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
     "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
     "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
-    "Do not switch to library wrappers or extra CUDA streams; they are forbidden by the benchmark contract.",
+    "Do not switch to forbidden vendor libraries (see SPEC.md for the exact list).",
     "Make a new implementation plan and continue without asking the user for permission.",
 )
 
-FIXED_WORKSPACE_RESOURCE_PATHS: tuple[str, ...] = (
+FIXED_WORKSPACE_DOC_PATHS: tuple[str, ...] = (
     "AGENTS.md",
     "INITIAL_PROMPT.md",
     "SPEC.md",
     "HARDWARE.md",
     "GOAL_STATUS.md",
-    "problem_reference.py",
-    CANDIDATE_FILENAME,
 )
 
 WORKSPACE_BROWSE_DIRS: tuple[str, ...] = (
@@ -169,12 +175,36 @@ WORKSPACE_BROWSE_DIRS: tuple[str, ...] = (
     "profiles/",
 )
 
-WORKSPACE_READ_PATHS: tuple[str, ...] = (
-    *FIXED_WORKSPACE_RESOURCE_PATHS,
-    *WORKSPACE_BROWSE_DIRS,
-)
 
-WORKSPACE_EDIT_PATHS: tuple[str, ...] = (CANDIDATE_FILENAME,)
+def fixed_workspace_resource_paths(problem_source: ProblemSource) -> tuple[str, ...]:
+    return (
+        *FIXED_WORKSPACE_DOC_PATHS,
+        problem_source.reference_filename,
+        problem_source.candidate_filename,
+    )
+
+
+def workspace_read_paths(problem_source: ProblemSource) -> tuple[str, ...]:
+    return (*fixed_workspace_resource_paths(problem_source), *WORKSPACE_BROWSE_DIRS)
+
+
+def workspace_edit_paths(problem_source: ProblemSource) -> tuple[str, ...]:
+    return (problem_source.candidate_filename,)
+
+
+# Compatibility shims — callers that did not have a problem_source available still get the
+# default-source paths so existing imports keep working. New code should pass the source.
+def _default_source() -> ProblemSource:
+    return get_problem_source(DEFAULT_PROBLEM_SOURCE)
+
+
+FIXED_WORKSPACE_RESOURCE_PATHS = fixed_workspace_resource_paths(_default_source())
+WORKSPACE_READ_PATHS = workspace_read_paths(_default_source())
+WORKSPACE_EDIT_PATHS = workspace_edit_paths(_default_source())
+
+REFERENCE_PATH_SENTINEL = "<reference>"
+CANDIDATE_PATH_SENTINEL = "<candidate>"
+
 
 HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
     HelperAgentSpec(
@@ -189,8 +219,8 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "SPEC.md",
             "HARDWARE.md",
             "GOAL_STATUS.md",
-            "problem_reference.py",
-            CANDIDATE_FILENAME,
+            REFERENCE_PATH_SENTINEL,
+            CANDIDATE_PATH_SENTINEL,
             "samples/",
             "samples/best_result.json",
         ),
@@ -210,8 +240,8 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "SPEC.md",
             "HARDWARE.md",
             "GOAL_STATUS.md",
-            "problem_reference.py",
-            CANDIDATE_FILENAME,
+            REFERENCE_PATH_SENTINEL,
+            CANDIDATE_PATH_SENTINEL,
             "profiles/latest.summary.txt",
             "profiles/latest.details.txt",
         ),
@@ -220,6 +250,16 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
         ),
     ),
 )
+
+
+def helper_spec_read_paths(spec: HelperAgentSpec, problem_source: ProblemSource) -> tuple[str, ...]:
+    """Resolve helper-spec read-path sentinels against the active problem source."""
+    return tuple(
+        problem_source.reference_filename if path == REFERENCE_PATH_SENTINEL
+        else problem_source.candidate_filename if path == CANDIDATE_PATH_SENTINEL
+        else path
+        for path in spec.read_paths
+    )
 
 
 
@@ -247,12 +287,21 @@ def _resolve_workspace_surface(
     return exact_paths, tuple(rooted_paths)
 
 
+def _workspace_source(workspace: Path) -> ProblemSource:
+    # Avoid a circular import at module load time.
+    from kernel_bench_experiment_agents.workspace.paths import workspace_problem_source
+
+    return workspace_problem_source(workspace)
+
+
 def workspace_read_surface(workspace: Path) -> tuple[set[Path], tuple[Path, ...]]:
-    return _resolve_workspace_surface(workspace, WORKSPACE_READ_PATHS)
+    return _resolve_workspace_surface(workspace, workspace_read_paths(_workspace_source(workspace)))
 
 
 def workspace_edit_surface(workspace: Path) -> set[Path]:
-    exact_paths, rooted_paths = _resolve_workspace_surface(workspace, WORKSPACE_EDIT_PATHS)
+    exact_paths, rooted_paths = _resolve_workspace_surface(
+        workspace, workspace_edit_paths(_workspace_source(workspace))
+    )
     if rooted_paths:
         raise RuntimeError("workspace edit surface must contain only exact file paths")
     return exact_paths

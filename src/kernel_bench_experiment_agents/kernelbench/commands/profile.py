@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from kernel_bench_experiment_agents.workspace.archive import archive_problem_profiles_dir, next_archive_profile_index
-from kernel_bench_experiment_agents.kernelbench.candidate.contract import CANDIDATE_FILENAME
-from kernel_bench_experiment_agents.kernelbench.candidate.snapshot import read_validated_candidate_source, write_profile_candidate_snapshot
+from kernel_bench_experiment_agents.problem_source import (
+    DEFAULT_PROBLEM_SOURCE,
+    EvalContext,
+    get_problem_source,
+)
 from kernel_bench_experiment_agents.runtime.common import emit_json
 from kernel_bench_experiment_agents.agent_contract.goal_status import write_goal_status_files
 from kernel_bench_experiment_agents.runtime.live_gpu_wait import (
@@ -100,6 +103,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
     """Profile one frozen candidate snapshot with Nsight Compute and persist the result."""
     candidate_path = Path(args.candidate).resolve()
     workspace: Path | None = None
+    workspace_metadata: dict[str, Any] = {}
     if args.workspace:
         workspace = workspace_path(args.workspace)
         validate_workspace_assignment(
@@ -108,13 +112,24 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             level=args.level,
             problem_id=args.problem_id,
         )
+        from kernel_bench_experiment_agents.workspace.paths import load_workspace_metadata as _load_workspace_metadata
+
+        workspace_metadata = _load_workspace_metadata(workspace)
+    source_name = (
+        getattr(args, "problem_source", None)
+        or workspace_metadata.get("problem_source")
+        or DEFAULT_PROBLEM_SOURCE
+    )
+    problem_source = get_problem_source(str(source_name))
+    problem_dir_arg = getattr(args, "problem_dir", None) or workspace_metadata.get("problem_dir")
+    if workspace is not None:
         expected_candidate_path = workspace_candidate_path(workspace)
         if candidate_path != expected_candidate_path:
             raise SystemExit(
-                f"Only {CANDIDATE_FILENAME} may be profiled from the problem workspace."
+                f"Only {problem_source.candidate_filename} may be profiled from the problem workspace."
             )
 
-    candidate_src = read_validated_candidate_source(candidate_path)
+    candidate_src = problem_source.read_validated_candidate_source(candidate_path)
     lease_name = f"profile:{args.run_name}:level_{args.level}:problem_{args.problem_id}"
     problem_archive_root = archive_problem_dir(args.run_name, args.level, args.problem_id)
     profiles_dir = archive_problem_profiles_dir(args.run_name, args.level, args.problem_id)
@@ -174,7 +189,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
         summary_path = report_prefix.with_suffix(".summary.txt")
         profile_json_path = report_prefix.with_suffix(".json")
         archive_report_prefix = relative_path_within(report_prefix, problem_archive_root)
-        snapshot_path = write_profile_candidate_snapshot(
+        snapshot_path = problem_source.write_profile_candidate_snapshot(
             profiles_dir=profiles_dir,
             profile_name=profile_name,
             candidate_src=candidate_src,
@@ -226,6 +241,23 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
             mark_live_gpu_wait_operation_started(live_gpu_wait_marker)
 
             isolated_env = isolated_gpu_environment(device_selector=lease.device_selector)
+            inner_command = problem_source.build_profile_command(
+                EvalContext(
+                    candidate_path=str(snapshot_path),
+                    output_path="",
+                    run_name=args.run_name,
+                    level=args.level,
+                    problem_id=args.problem_id,
+                    sample_id=args.sample_id or 0,
+                    gpu_id=lease.logical_gpu_id,
+                    workspace=str(workspace) if workspace else None,
+                    problem_dir=problem_dir_arg,
+                    precision=args.precision,
+                    kernelbench_root=args.kernelbench_root,
+                    dataset_src=args.dataset_src,
+                    sample_label=profile_name,
+                )
+            )
             command = [
                 "ncu",
                 "--set",
@@ -235,28 +267,8 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 "all",
                 "--export",
                 str(report_prefix),
-                sys.executable,
-                "-m",
-                "kernel_bench_experiment_agents.kernelbench.profiling.runner",
-                "--candidate",
-                str(snapshot_path),
-                "--level",
-                str(args.level),
-                "--problem-id",
-                str(args.problem_id),
-                "--dataset-src",
-                args.dataset_src,
-                "--gpu-id",
-                str(lease.logical_gpu_id),
-                "--run-name",
-                args.run_name,
-                "--sample-label",
-                profile_name,
-                "--precision",
-                args.precision,
+                *inner_command,
             ]
-            if args.kernelbench_root:
-                command.extend(["--kernelbench-root", args.kernelbench_root])
             gpu_id = lease.slot_id
             gpu_device_selector = lease.device_selector
             gpu_visible_devices = lease.isolated_visible_devices
@@ -367,25 +379,7 @@ def command_profile_ncu(args: argparse.Namespace) -> None:
                 "all",
                 "--export",
                 archive_report_prefix,
-                "python",
-                "-m",
-                "kernel_bench_experiment_agents.kernelbench.profiling.runner",
-                "--candidate",
-                archive_candidate_path,
-                "--level",
-                str(args.level),
-                "--problem-id",
-                str(args.problem_id),
-                "--dataset-src",
-                args.dataset_src,
-                "--gpu-id",
-                str(gpu_logical_id),
-                "--run-name",
-                args.run_name,
-                "--sample-label",
-                profile_name,
-                "--precision",
-                args.precision,
+                *inner_command,
             ],
             "details_command": ["ncu", "--import", f"{archive_report_prefix}.ncu-rep", "--page", "details"],
             "details_returncode": details_completed.returncode,

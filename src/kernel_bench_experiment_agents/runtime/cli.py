@@ -43,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--model", default="gpt-5.5")
     prepare.add_argument("--time-budget-minutes", type=int, default=720)
     prepare.add_argument("--precision", default="bf16")
+    prepare.add_argument("--problem-source", default=None,
+                        help="kernelbench (default) or cuda_source")
+    prepare.add_argument("--problem-dir", default=None,
+                        help="problem definition directory (cuda_source only)")
 
     run = subparsers.add_parser("run-candidate")
     run.add_argument("--candidate", required=True)
@@ -60,6 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--num-perf-trials", type=int, default=100)
     run.add_argument("--prompt-path", default=None)
     run.add_argument("--workspace", default=None)
+    run.add_argument("--problem-source", default=None)
+    run.add_argument("--problem-dir", default=None)
 
     profile = subparsers.add_parser("profile-ncu")
     profile.add_argument("--candidate", required=True)
@@ -74,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("--ncu-set", default="full")
     profile.add_argument("--precision", default="bf16")
     profile.add_argument("--workspace", default=None)
+    profile.add_argument("--problem-source", default=None)
+    profile.add_argument("--problem-dir", default=None)
 
     best = subparsers.add_parser("best-result")
     best.add_argument("--run-name", required=True)

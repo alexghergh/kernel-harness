@@ -136,15 +136,10 @@ def build_run_summary_payload(
     problems_with_compiled = sum(1 for row in problem_rows if row["compiled_samples"] > 0)
     problems_with_correct = sum(1 for row in problem_rows if row["effective_correct_samples"] > 0)
 
-    eager_comparable = [
+    baseline_comparable = [
         row
         for row in problem_rows
-        if row["best_correct_runtime_ms"] is not None and row["eager_baseline_ms"] is not None
-    ]
-    compile_comparable = [
-        row
-        for row in problem_rows
-        if row["best_correct_runtime_ms"] is not None and row["compile_baseline_ms"] is not None
+        if row["best_correct_runtime_ms"] is not None and row["baseline_runtime_ms"] is not None
     ]
 
     return {
@@ -174,21 +169,12 @@ def build_run_summary_payload(
         "cost_usd": _cost_totals(problem_rows),
         "token_usage": _token_usage_totals(problem_rows),
         "trace_counts": _trace_count_totals(problem_rows),
-        "beats_eager": {
-            "eligible_problems": len(eager_comparable),
-            "count": sum(1 for row in eager_comparable if row["beats_eager"]),
+        "beats_baseline": {
+            "eligible_problems": len(baseline_comparable),
+            "count": sum(1 for row in baseline_comparable if row["beats_baseline"]),
             "rate": (
-                sum(1 for row in eager_comparable if row["beats_eager"]) / len(eager_comparable)
-                if eager_comparable
-                else None
-            ),
-        },
-        "beats_compile": {
-            "eligible_problems": len(compile_comparable),
-            "count": sum(1 for row in compile_comparable if row["beats_compile"]),
-            "rate": (
-                sum(1 for row in compile_comparable if row["beats_compile"]) / len(compile_comparable)
-                if compile_comparable
+                sum(1 for row in baseline_comparable if row["beats_baseline"]) / len(baseline_comparable)
+                if baseline_comparable
                 else None
             ),
         },
