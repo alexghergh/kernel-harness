@@ -13,6 +13,6 @@
   "tolerance": 0.01,
   "build_flags": ["-O3", "-std=c++17", "--use_fast_math"],
   "libs": ["cublas"],
-  "arch": "sm_90",
+  "arch": "sm_90a",
   "baseline_label": "cublas"
 }
