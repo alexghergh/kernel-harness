@@ -60,6 +60,8 @@ from kernel_bench_experiment_agents.workspace.paths import (
     workspace_path,
     workspace_relpath,
     write_workspace_sample_copy,
+    write_workspace_sample_diagnostics,
+    write_workspace_sample_summary,
 )
 
 
@@ -342,6 +344,8 @@ def command_run_candidate(args: argparse.Namespace) -> None:
                     clear_live_gpu_wait_marker(live_gpu_wait_marker)
                     live_gpu_wait_marker = None
                     if workspace is not None:
+                        write_workspace_sample_summary(workspace, sample_id, payload)
+                        write_workspace_sample_diagnostics(workspace, sample_id, payload)
                         write_goal_status_files(
                             run_name=args.run_name,
                             level=args.level,

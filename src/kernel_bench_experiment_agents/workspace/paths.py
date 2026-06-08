@@ -125,6 +125,54 @@ def write_workspace_sample_copy(
     )
 
 
+def write_workspace_sample_summary(
+    workspace: Path,
+    sample_id: int,
+    payload: dict[str, Any],
+) -> None:
+    """Mirror the solver-facing attempt summary next to samples/sample_<id>.cu.
+
+    The agent cannot read the full archive payload (it lives outside the workspace
+    surface); this drops the summary into samples/ so each past attempt's outcome
+    stays readable via `read_workspace_file` after the immediate run_candidate
+    response has scrolled out of context.
+    """
+    summary = solver_attempt_summary(payload)
+    write_json(
+        workspace_samples_dir(workspace) / f"sample_{sample_id}.summary.json",
+        summary,
+    )
+
+
+def write_workspace_sample_diagnostics(
+    workspace: Path,
+    sample_id: int,
+    payload: dict[str, Any],
+) -> None:
+    """Persist the verbose nvcc + binary stderr/stdout into samples/ as plain text.
+
+    The runner captures these streams in `result.metadata` (`build_stderr`,
+    `build_stdout`, `stderr_tail`, `stdout_tail`). The MCP response carries only
+    paths to these files so the agent can pull the full diagnostic via
+    `read_workspace_file` instead of receiving multi-KB strings inline.
+    """
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    samples_dir = workspace_samples_dir(workspace)
+
+    file_writes = {
+        f"sample_{sample_id}.build_stderr.txt": metadata.get("build_stderr"),
+        f"sample_{sample_id}.build_stdout.txt": (
+            metadata.get("build_stdout") or metadata.get("build_stdout_tail")
+        ),
+        f"sample_{sample_id}.run_stderr.txt": metadata.get("stderr_tail"),
+        f"sample_{sample_id}.run_stdout.txt": metadata.get("stdout_tail"),
+    }
+    for filename, text in file_writes.items():
+        if isinstance(text, str) and text.strip():
+            write_text(samples_dir / filename, text)
+
+
 def write_workspace_best_sample(
     workspace: Path,
     payload: dict[str, Any] | None,

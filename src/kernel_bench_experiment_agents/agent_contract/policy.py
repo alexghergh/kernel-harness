@@ -58,7 +58,10 @@ class HelperAgentSpec:
     summary_focus: str
 
 
-ALLOWED_WEB_DOMAINS: tuple[str, ...] = ("docs.nvidia.com",)
+ALLOWED_WEB_DOMAINS: tuple[str, ...] = (
+    "docs.nvidia.com",
+    "developer.nvidia.com",
+)
 SOLVER_TERMINAL_STATES: tuple[str, ...] = ("done",)
 LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
     "budget_exhausted",

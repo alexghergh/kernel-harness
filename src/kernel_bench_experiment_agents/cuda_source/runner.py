@@ -86,6 +86,15 @@ def load_problem_metadata(problem_dir: Path) -> dict[str, Any]:
     return payload
 
 
+_DIAGNOSTIC_TEXT_CAP: int = 200_000
+
+
+def _tail(text: str | None, cap: int = _DIAGNOSTIC_TEXT_CAP) -> str:
+    if not text:
+        return ""
+    return text[-cap:]
+
+
 def _payload_for_compile_failure(build_result: BuildResult) -> dict[str, Any]:
     return {
         "compiled": False,
@@ -96,8 +105,8 @@ def _payload_for_compile_failure(build_result: BuildResult) -> dict[str, Any]:
         "ref_runtime_stats": None,
         "metadata": {
             "runtime_error": f"nvcc returned {build_result.returncode}",
-            "build_stdout": build_result.stdout[-4000:],
-            "build_stderr": build_result.stderr[-4000:],
+            "build_stdout": _tail(build_result.stdout),
+            "build_stderr": _tail(build_result.stderr),
             "build_command": build_result.command,
         },
         "raw_repr": f"nvcc returned {build_result.returncode}",
@@ -119,10 +128,10 @@ def _payload_for_execution_failure(
         "metadata": {
             "runtime_error": (
                 f"candidate binary exited with returncode={completed.returncode}; "
-                f"stderr: {(completed.stderr or '')[-2000:]}"
+                f"see workspace samples/ for full stderr"
             ),
-            "stdout_tail": (completed.stdout or "")[-2000:],
-            "stderr_tail": (completed.stderr or "")[-2000:],
+            "stdout_tail": _tail(completed.stdout),
+            "stderr_tail": _tail(completed.stderr),
             "build_command": build_result.command,
         },
         "raw_repr": f"binary returncode={completed.returncode}",
@@ -147,8 +156,8 @@ def _payload_for_parse_failure(
                 " The locked driver may have been altered, or the kernel may have produced"
                 " no output."
             ),
-            "stdout_tail": (completed.stdout or "")[-2000:],
-            "stderr_tail": (completed.stderr or "")[-2000:],
+            "stdout_tail": _tail(completed.stdout),
+            "stderr_tail": _tail(completed.stderr),
             "build_command": build_result.command,
         },
         "raw_repr": "no RESULT line",

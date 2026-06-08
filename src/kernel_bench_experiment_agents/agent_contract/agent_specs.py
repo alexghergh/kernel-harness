@@ -9,7 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from kernel_bench_experiment_agents.agent_contract.policy import MCP_SERVER_NAME, HELPER_SPECS, HelperAgentSpec
+from kernel_bench_experiment_agents.agent_contract.policy import (
+    ALLOWED_WEB_DOMAINS,
+    HELPER_SPECS,
+    HelperAgentSpec,
+    MCP_SERVER_NAME,
+)
 from kernel_bench_experiment_agents.agent_contract.prompts import (
     render_claude_helper_body,
     render_codex_helper_instructions,
@@ -32,9 +37,10 @@ def _codex_agent_toml(spec: HelperAgentSpec, problem_source: ProblemSource) -> s
 
 
 def _claude_agent_md(spec: HelperAgentSpec, problem_source: ProblemSource) -> str:
-    yaml_tools = "\n".join(
-        f"  - mcp__{MCP_SERVER_NAME}__{tool_name}" for tool_name in spec.mcp_tools
-    )
+    tool_entries: list[str] = ["WebSearch"]
+    tool_entries.extend(f"WebFetch(domain:{domain})" for domain in ALLOWED_WEB_DOMAINS)
+    tool_entries.extend(f"mcp__{MCP_SERVER_NAME}__{tool_name}" for tool_name in spec.mcp_tools)
+    yaml_tools = "\n".join(f"  - {entry}" for entry in tool_entries)
     return (
         "---\n"
         f"name: {spec.name}\n"
