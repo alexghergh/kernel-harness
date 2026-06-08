@@ -51,8 +51,13 @@ def main() -> None:
 
     # The parent command sets CUDA_VISIBLE_DEVICES via the GPU lease before
     # spawning this subprocess. Do not overwrite it here.
+    #
+    # Pass --profile-only so the locked driver skips the cuBLAS reference loop:
+    # NCU should record only the candidate kernel, not the cuBLAS GEMM that runs
+    # first in the normal run-candidate flow.
     env = os.environ.copy()
-    os.execve(str(build_result.binary_path), [str(build_result.binary_path)], env)
+    binary = str(build_result.binary_path)
+    os.execve(binary, [binary, "--profile-only"], env)
 
 
 if __name__ == "__main__":
