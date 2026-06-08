@@ -1,6 +1,6 @@
 {
   "name": "matmul_tensorcore",
-  "description": "Beat cuBLAS GemmEx (CUBLAS_COMPUTE_32F_FAST_16F, GEMM_DEFAULT_TENSOR_OP) on FP32 GEMM C=A*B with shapes m=10240, k=4096, n=8192. Custom kernel may use tensor cores via wmma/mma.h. cuBLAS/CUTLASS are forbidden inside the editable region.",
+  "description": "FP32 GEMM C=A*B with shapes m=10240, k=4096, n=8192. The locked reference is cuBLAS GemmEx (CUBLAS_COMPUTE_32F_FAST_16F, GEMM_DEFAULT_TENSOR_OP); on this host it lands somewhere in the 262–357 TFLOPS range depending on which algorithm cuBLAS dispatches (Ampere-style mma.sync vs Hopper wgmma). The bar to beat is set to ~600 TFLOPS / 1.145 ms, roughly 60% of H100's 989 TFLOPS dense FP16/FP32-accum peak — the realistic ceiling for a single tuned Hopper matmul kernel. cuBLAS/CUTLASS are forbidden inside the editable region; tensor-core PTX (mma.sync, wgmma), TMA, thread-block clusters / DSMEM, and mbarrier-based pipelines are all allowed.",
   "shapes": {
     "m": 10240,
     "k": 4096,
@@ -14,5 +14,7 @@
   "build_flags": ["-O3", "-std=c++17", "--use_fast_math"],
   "libs": ["cublas"],
   "arch": "sm_90a",
-  "baseline_label": "cublas"
+  "baseline_label": "h100_target_600tflops",
+  "skip_baseline_measurement": true,
+  "baseline_runtime_ms_hint": 1.145
 }
