@@ -169,6 +169,21 @@ def handle_list_workspace_dir(ctx: ServerContext, arguments: dict[str, Any]) -> 
 
 
 
+_READ_WORKSPACE_FILE_CHAR_CAP: int = 80_000
+
+
+def _coerce_positive_int(value: Any, *, name: str, default: int | None) -> int | None:
+    if value is None:
+        return default
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        raise RuntimeError(f"{name} must be an integer >= 1") from None
+    if coerced < 1:
+        raise RuntimeError(f"{name} must be >= 1")
+    return coerced
+
+
 def handle_read_workspace_file(ctx: ServerContext, arguments: dict[str, Any]) -> dict[str, Any]:
     raw_path = str(arguments.get("path") or "").strip()
     if not raw_path:
@@ -177,16 +192,78 @@ def handle_read_workspace_file(ctx: ServerContext, arguments: dict[str, Any]) ->
     assert_allowed_read(ctx, path)
     if not path.exists() or not path.is_file():
         raise RuntimeError(f"file does not exist: {raw_path}")
-    text = path.read_text(encoding="utf-8")
+
+    offset = _coerce_positive_int(arguments.get("offset"), name="offset", default=1) or 1
+    limit = _coerce_positive_int(arguments.get("limit"), name="limit", default=None)
+
+    full_text = path.read_text(encoding="utf-8")
+    lines = full_text.splitlines(keepends=True)
+    total_lines = len(lines)
+
+    start = offset - 1
+    if total_lines > 0 and start >= total_lines:
+        raise RuntimeError(
+            f"offset {offset} is past end of file (total_lines={total_lines})"
+        )
+
+    end = total_lines if limit is None else min(total_lines, start + limit)
+    sliced = lines[start:end]
+
+    truncated_by_chars = False
+    char_budget = _READ_WORKSPACE_FILE_CHAR_CAP
+    if sum(len(line) for line in sliced) > char_budget:
+        kept: list[str] = []
+        running = 0
+        for line in sliced:
+            if running + len(line) > char_budget and kept:
+                break
+            kept.append(line)
+            running += len(line)
+            if running >= char_budget:
+                break
+        sliced = kept
+        end = start + len(sliced)
+        truncated_by_chars = True
+
+    text = "".join(sliced)
+    returned_lines = end - start
+    truncated = end < total_lines
+    next_offset = end + 1 if truncated else None
+
+    body = text
+    if truncated:
+        reason = "char_cap" if truncated_by_chars else "limit"
+        body = (
+            f"{text.rstrip(chr(10))}\n"
+            f"[truncated by {reason}: returned lines {offset}..{end} of {total_lines}; "
+            f"call read_workspace_file again with offset={next_offset} to continue]\n"
+        )
+
     relative_path = safe_relative(path, ctx.workspace)
     append_trace_event(
         ctx,
         kind="file_read",
         tool_name="read_workspace_file",
         path=relative_path,
-        metadata={"bytes": len(text.encode("utf-8"))},
+        metadata={
+            "bytes": len(text.encode("utf-8")),
+            "offset": offset,
+            "returned_lines": returned_lines,
+            "total_lines": total_lines,
+            "truncated": truncated,
+        },
     )
-    return text_result(text, structured={"path": relative_path, "text": text})
+    return text_result(
+        body,
+        structured={
+            "path": relative_path,
+            "offset": offset,
+            "returned_lines": returned_lines,
+            "total_lines": total_lines,
+            "truncated": truncated,
+            "next_offset": next_offset,
+        },
+    )
 
 
 

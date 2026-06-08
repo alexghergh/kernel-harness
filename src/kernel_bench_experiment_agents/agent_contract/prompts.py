@@ -10,6 +10,7 @@ from typing import Any
 from kernel_bench_experiment_agents.problem_source import BaselinePayload, ProblemSource
 from kernel_bench_experiment_agents.runtime.common import as_float
 from kernel_bench_experiment_agents.agent_contract.policy import (
+    ALLOWED_WEB_DOMAINS,
     LAUNCHER_TERMINAL_STATES,
     MCP_SERVER_NAME,
     helper_spec_read_paths,
@@ -254,7 +255,7 @@ def render_initial_prompt(
         "WHEN helper agents are available and you want a measured evaluation, spawn the `runner` helper. WHEN helper agents are available and you want profiling or profile interpretation, spawn the `profiler` helper. When spawning these helpers, avoid full-history forks and other extra spawn options; pass only the task prompt.",
         "Work independently. There is no user approval step in this run. Do not ask for permission, confirmation, or whether to continue.",
         forbidden_line,
-        "Hosted WebSearch/WebFetch are restricted to docs.nvidia.com only.",
+        f"Hosted WebSearch/WebFetch are restricted to the allowed domains: {', '.join(ALLOWED_WEB_DOMAINS)}.",
         "Never overlap harness tool calls. Start a new one only after the previous one has returned.",
         "If a strategy fails, re-read the docs, profile when useful, consult allowed NVIDIA docs when needed, and start the next strategy yourself.",
         "If `write_candidate` or `run_candidate` says a write or run does not count because of validation or suspected cheating, discard that attempt, fix the exact issue it names, and keep going.",
@@ -280,7 +281,7 @@ def render_codex_helper_instructions(*, spec: Any, problem_source: ProblemSource
         f"Read local problem files only through `read_workspace_file`, and only for {read_list}.\n"
         "Do not inspect unrelated files, local config, or hidden harness state.\n"
         "Do not use ad hoc shell commands, Python snippets, or local file tools.\n"
-        "Hosted WebSearch/WebFetch, if available at all, are restricted to docs.nvidia.com only.\n"
+        f"Hosted WebSearch/WebFetch, if available at all, are restricted to: {', '.join(ALLOWED_WEB_DOMAINS)}.\n"
         "Benchmark constraints are strict: do not propose or use forbidden vendor libraries (see SPEC.md for the exact list).\n"
         "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
         "Never start a second harness MCP call while another one is still running.\n"
@@ -302,7 +303,7 @@ def render_claude_helper_body(*, spec: Any, problem_source: ProblemSource) -> st
         f"Read local problem files only through `read_workspace_file`, and only for {read_list}.\n"
         "Do not inspect unrelated files, local config, or hidden harness state.\n"
         "Do not use shell commands or Python snippets to inspect profiler outputs or parse files.\n"
-        "Hosted WebSearch/WebFetch, if available at all, are restricted to docs.nvidia.com only.\n"
+        f"Hosted WebSearch/WebFetch, if available at all, are restricted to: {', '.join(ALLOWED_WEB_DOMAINS)}.\n"
         "Benchmark constraints are strict: do not propose or use forbidden vendor libraries (see SPEC.md for the exact list).\n"
         "If one of the allowed MCP tools is slow, wait for it to finish instead of trying to inspect processes or the GPU.\n"
         "Never start a second harness MCP call while another one is still running.\n"
@@ -345,7 +346,7 @@ def render_goal_status_markdown(snapshot: dict[str, Any]) -> str:
             "- Never overlap MCP tool calls. Start a new harness tool call only after the previous one has fully returned.",
             "- Harness MCP tools are authoritative. If one is slow, wait for it. Do NOT monitor it with `ps`, `pgrep`, `top`, `htop`, `nvidia-smi`, `strace`, `/proc`, or build-tree inspection.",
             "- If the latest run was discarded as suspicious, cheating, or invalid, it does not count. Fix the exact reported issue and keep working.",
-            "- If stuck: call `profile_ncu`, read `HARDWARE.md`, search NVIDIA docs on docs.nvidia.com only, make a new plan, and try a new branch without asking for approval.",
+            f"- If stuck: call `profile_ncu`, read `HARDWARE.md`, search allowed docs on {', '.join(ALLOWED_WEB_DOMAINS)}, make a new plan, and try a new branch without asking for approval.",
             "- The benchmark contract forbids cuBLAS and CUTLASS inside the editable region; only the locked driver may call the reference.",
             "- The budget clock is wall time since workspace creation minus recorded GPU wait time and any live GPU lease wait currently in progress. End through `complete_problem` before remaining time reaches zero.",
             "- A plain assistant message is NEVER a valid way to end this run. The ONLY exit is `complete_problem(summary=...)`.",

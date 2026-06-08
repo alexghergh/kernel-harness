@@ -142,8 +142,15 @@ def list_workspace_dir(path: str = "samples") -> types.CallToolResult:
 
 
 @mcp_tool("read_workspace_file")
-def read_workspace_file(path: str) -> types.CallToolResult:
-    return invoke_tool("read_workspace_file", {"path": path})
+def read_workspace_file(
+    path: str,
+    offset: int = 1,
+    limit: int | None = None,
+) -> types.CallToolResult:
+    return invoke_tool(
+        "read_workspace_file",
+        {"path": path, "offset": offset, "limit": limit},
+    )
 
 
 @mcp_tool("write_candidate")

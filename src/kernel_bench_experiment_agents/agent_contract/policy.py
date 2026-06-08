@@ -61,6 +61,7 @@ class HelperAgentSpec:
 ALLOWED_WEB_DOMAINS: tuple[str, ...] = (
     "docs.nvidia.com",
     "developer.nvidia.com",
+    "research.colfax-intl.com",
 )
 SOLVER_TERMINAL_STATES: tuple[str, ...] = ("done",)
 LAUNCHER_TERMINAL_STATES: tuple[str, ...] = (
@@ -101,7 +102,13 @@ MCP_TOOL_SPECS: tuple[McpToolSpec, ...] = (
     ),
     McpToolSpec(
         name="read_workspace_file",
-        purpose="read_workspace_file(path) -> file text for one fixed resource or one listed text artifact under `samples/` or `profiles/`",
+        purpose=(
+            "read_workspace_file(path, offset?=1, limit?=null) -> file text for one fixed resource "
+            "or one listed text artifact under `samples/` or `profiles/`. Optional `offset` is the "
+            "1-indexed starting line and `limit` caps the number of lines returned. Large files are "
+            "auto-truncated to stay under the MCP response cap; the trailer reports `total_lines` "
+            "and `next_offset` so you can page through profiler dumps and other long outputs."
+        ),
         read_only=True,
     ),
     McpToolSpec(
@@ -155,7 +162,7 @@ WORKSPACE_STUCK_PROTOCOL: tuple[str, ...] = (
     "Re-read SPEC.md, HARDWARE.md, and GOAL_STATUS.md.",
     "WHEN you do not already have profiling for the current idea, call `profile_ncu`.",
     "Read `profiles/latest.summary.txt` first, then `profiles/latest.details.txt` if needed.",
-    "WHEN the next idea depends on hardware-specific behavior, use hosted web search on docs.nvidia.com only for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
+    f"WHEN the next idea depends on hardware-specific behavior, use hosted web search on the allowed domains ({', '.join(ALLOWED_WEB_DOMAINS)}) for topics like tensor cores, WMMA, async copy/pipelining, occupancy, bank conflicts, and memory hierarchy limits. Other domains are blocked by policy.",
     "WHEN choosing the next branch, inspect `samples/` and `profiles/` so you do not retry the same failed idea.",
     "Do not switch to forbidden vendor libraries (see SPEC.md for the exact list).",
     "Make a new implementation plan and continue without asking the user for permission.",
@@ -201,7 +208,14 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Execution-focused helper for one assigned optimization problem. "
             "The main solver should delegate measured evaluations to this helper by default so the main context stays focused on planning."
         ),
-        mcp_tools=("read_workspace_file", "run_candidate", "goal_status", "best_result"),
+        mcp_tools=(
+            "workspace_overview",
+            "list_workspace_dir",
+            "read_workspace_file",
+            "run_candidate",
+            "goal_status",
+            "best_result",
+        ),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -210,7 +224,7 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             REFERENCE_PATH_SENTINEL,
             CANDIDATE_PATH_SENTINEL,
             "samples/",
-            "samples/best_result.json",
+            "profiles/",
         ),
         summary_focus=(
             "Return a compact summary covering correctness failures, compiler failures, runtime measurements, the current best sample, and the most likely next implementation branch."
@@ -222,7 +236,14 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "Profiling helper for one assigned optimization problem. "
             "The main solver should delegate Nsight Compute work to this helper by default so the main context stays focused on planning."
         ),
-        mcp_tools=("read_workspace_file", "profile_ncu", "goal_status"),
+        mcp_tools=(
+            "workspace_overview",
+            "list_workspace_dir",
+            "read_workspace_file",
+            "profile_ncu",
+            "goal_status",
+            "best_result",
+        ),
         read_paths=(
             "AGENTS.md",
             "SPEC.md",
@@ -230,8 +251,8 @@ HELPER_SPECS: tuple[HelperAgentSpec, ...] = (
             "GOAL_STATUS.md",
             REFERENCE_PATH_SENTINEL,
             CANDIDATE_PATH_SENTINEL,
-            "profiles/latest.summary.txt",
-            "profiles/latest.details.txt",
+            "samples/",
+            "profiles/",
         ),
         summary_focus=(
             "Return short, actionable summaries focused on bottlenecks, dominant kernels, occupancy, memory behavior, and the most promising next optimization directions."

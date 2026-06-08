@@ -13,7 +13,7 @@
 #   RUN_NAME=kernelbench-codex-h100-v6
 #   LEVEL=1
 #   PROBLEM_ID=1
-#   MODEL=gpt-5.5|claude-opus-4-7
+#   MODEL=gpt-5.5|claude-opus-4-8
 #   TIME_BUDGET_MINUTES=180
 #   PRECISION=bf16
 #   KERNELBENCH_TIMINGS_DIR=/path/to/KernelBench/results/timing/<hardware>  # optional override
@@ -141,7 +141,7 @@ LEVEL="${LEVEL:-1}"
 PROBLEM_ID="${PROBLEM_ID:-1}"
 DATASET_SRC="${DATASET_SRC:-local}"
 if [[ "${TOOL}" == "claude" ]]; then
-  MODEL="${MODEL:-claude-opus-4-7}"
+  MODEL="${MODEL:-claude-opus-4-8}"
 else
   MODEL="${MODEL:-gpt-5.5}"
 fi
