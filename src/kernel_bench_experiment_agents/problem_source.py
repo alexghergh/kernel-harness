@@ -141,5 +141,3 @@ def get_problem_source(name: str | None) -> ProblemSource:
     return _REGISTRY[key]
 
 
-def known_problem_sources() -> tuple[str, ...]:
-    return (PROBLEM_SOURCE_KERNELBENCH, PROBLEM_SOURCE_CUDA)

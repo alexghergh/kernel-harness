@@ -52,25 +52,19 @@ The client-specific enforcement differs slightly:
 
 ## Install KernelBench and this harness into the same environment
 
-Create and activate the Python environment you want to use for both repos. The important part is that **KernelBench and this harness are installed into the same active environment**.
-
-Example:
+**Both KernelBench and this harness must live in the same active Python environment.** With `uv`:
 
 ```bash
-pyenv create <env-name>
-pyenv activate <env-name>
-
-cd /path/to/KernelBench
-uv pip install -e .
-
-cd /path/to/kernel-bench-experiment-agents
+uv venv .venv --python 3.11
+source .venv/bin/activate
+uv pip install -e /path/to/KernelBench
 uv pip install -e .
 ```
 
-Before local or batch runs on cluster nodes, activate the intended Python environment and load CUDA if your cluster requires it.
+Before local or batch runs on cluster nodes, activate the venv and load CUDA if your cluster requires it.
 
 ```bash
-pyenv activate <env-name>
+source .venv/bin/activate
 module load cuda
 ```
 

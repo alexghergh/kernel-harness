@@ -282,14 +282,11 @@ def write_shared_tool_state(
     config_root: Path,
     *,
     repo_root: Path | None = None,
-    problem_source: ProblemSource | str | None = None,
+    problem_source: ProblemSource | str = DEFAULT_PROBLEM_SOURCE,
 ) -> list[Path]:
-    if isinstance(problem_source, str):
-        resolved_source: ProblemSource = get_problem_source(problem_source)
-    elif problem_source is None:
-        resolved_source = get_problem_source(DEFAULT_PROBLEM_SOURCE)
-    else:
-        resolved_source = problem_source
+    resolved_source: ProblemSource = (
+        get_problem_source(problem_source) if isinstance(problem_source, str) else problem_source
+    )
     config_root = ensure_dir(config_root.expanduser().resolve())
     codex_dir = ensure_dir(config_root / "codex")
     claude_dir = ensure_dir(config_root / "claude")

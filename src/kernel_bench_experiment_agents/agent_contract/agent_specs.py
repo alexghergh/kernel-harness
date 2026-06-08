@@ -14,16 +14,8 @@ from kernel_bench_experiment_agents.agent_contract.prompts import (
     render_claude_helper_body,
     render_codex_helper_instructions,
 )
-from kernel_bench_experiment_agents.problem_source import (
-    DEFAULT_PROBLEM_SOURCE,
-    ProblemSource,
-    get_problem_source,
-)
+from kernel_bench_experiment_agents.problem_source import ProblemSource
 from kernel_bench_experiment_agents.runtime.project import write_text
-
-
-def _resolve_source(problem_source: ProblemSource | None) -> ProblemSource:
-    return problem_source if problem_source is not None else get_problem_source(DEFAULT_PROBLEM_SOURCE)
 
 
 def _codex_agent_toml(spec: HelperAgentSpec, problem_source: ProblemSource) -> str:
@@ -76,9 +68,8 @@ def write_shared_helper_agent_specs(
     *,
     codex_home: Path,
     claude_config_dir: Path,
-    problem_source: ProblemSource | None = None,
+    problem_source: ProblemSource,
 ) -> list[Path]:
-    problem_source = _resolve_source(problem_source)
     written: list[Path] = []
     written.extend(_write_codex_specs(codex_home / "agents", problem_source))
     written.extend(_write_claude_specs(claude_config_dir / "agents", problem_source))
@@ -88,9 +79,8 @@ def write_shared_helper_agent_specs(
 def write_archive_helper_agent_specs(
     *,
     archive_contract_dir: Path,
-    problem_source: ProblemSource | None = None,
+    problem_source: ProblemSource,
 ) -> list[Path]:
-    problem_source = _resolve_source(problem_source)
     written: list[Path] = []
     written.extend(_write_codex_specs(archive_contract_dir / "helper_agents" / "codex", problem_source))
     written.extend(_write_claude_specs(archive_contract_dir / "helper_agents" / "claude", problem_source))

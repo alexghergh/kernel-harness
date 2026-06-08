@@ -23,19 +23,14 @@ from kernel_bench_experiment_agents.agent_contract.prompts import (
     render_workspace_agents_md,
     render_workspace_spec_md,
 )
-from kernel_bench_experiment_agents.problem_source import (
-    DEFAULT_PROBLEM_SOURCE,
-    ProblemSource,
-    get_problem_source,
-)
+from kernel_bench_experiment_agents.problem_source import ProblemSource
 
 
 def build_workspace_contract(
     *,
     metadata: dict[str, Any],
-    problem_source: ProblemSource | None = None,
+    problem_source: ProblemSource,
 ) -> dict[str, Any]:
-    problem_source = problem_source if problem_source is not None else get_problem_source(DEFAULT_PROBLEM_SOURCE)
     return {
         "assignment": {
             "run_name": metadata["run_name"],

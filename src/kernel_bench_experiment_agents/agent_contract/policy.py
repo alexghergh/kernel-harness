@@ -9,11 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from kernel_bench_experiment_agents.problem_source import (
-    DEFAULT_PROBLEM_SOURCE,
-    ProblemSource,
-    get_problem_source,
-)
+from kernel_bench_experiment_agents.problem_source import ProblemSource
 
 MCP_SERVER_NAME = "kernelbench"
 
@@ -190,17 +186,6 @@ def workspace_read_paths(problem_source: ProblemSource) -> tuple[str, ...]:
 
 def workspace_edit_paths(problem_source: ProblemSource) -> tuple[str, ...]:
     return (problem_source.candidate_filename,)
-
-
-# Compatibility shims — callers that did not have a problem_source available still get the
-# default-source paths so existing imports keep working. New code should pass the source.
-def _default_source() -> ProblemSource:
-    return get_problem_source(DEFAULT_PROBLEM_SOURCE)
-
-
-FIXED_WORKSPACE_RESOURCE_PATHS = fixed_workspace_resource_paths(_default_source())
-WORKSPACE_READ_PATHS = workspace_read_paths(_default_source())
-WORKSPACE_EDIT_PATHS = workspace_edit_paths(_default_source())
 
 REFERENCE_PATH_SENTINEL = "<reference>"
 CANDIDATE_PATH_SENTINEL = "<candidate>"

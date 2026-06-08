@@ -158,7 +158,10 @@ def write_contract_bundle(
             problem_source=problem_source,
         ),
     )
-    write_text(target_dir / "AGENTS.md", render_workspace_agents_md(contract=contract))
+    write_text(
+        target_dir / "AGENTS.md",
+        render_workspace_agents_md(contract=contract, problem_source=problem_source),
+    )
     write_text(
         target_dir / "INITIAL_PROMPT.md",
         render_initial_prompt(contract=contract, baseline=baseline, problem_source=problem_source),

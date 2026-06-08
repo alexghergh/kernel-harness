@@ -15,12 +15,17 @@ from typing import Any
 from mcp import types
 from mcp.server.fastmcp import FastMCP
 
-from kernel_bench_experiment_agents.agent_contract.policy import MCP_TOOL_SPECS, McpToolSpec
+from kernel_bench_experiment_agents.agent_contract.policy import (
+    MCP_TOOL_SPECS,
+    McpToolSpec,
+    fixed_workspace_resource_paths,
+)
+from kernel_bench_experiment_agents.workspace.paths import workspace_problem_source
 from . import SERVER_NAME
 from .context import ServerContext, load_context
 from .filesystem import assert_allowed_read, resolve_workspace_path, safe_relative
 from .handlers import TOOL_HANDLERS, append_trace_event
-from .resources import RESOURCE_PATHS, workspace_resource_name, workspace_resource_uri
+from .resources import workspace_resource_name, workspace_resource_uri
 
 
 mcp = FastMCP(SERVER_NAME)
@@ -203,10 +208,18 @@ def register_fixed_workspace_resource(relative_path: str):
     )(reader)
 
 
-_REGISTERED_FIXED_RESOURCES = tuple(
-    register_fixed_workspace_resource(relative_path) for relative_path in RESOURCE_PATHS
-)
+def _register_workspace_resources() -> None:
+    """Register the workspace's read-only fixed resources for the active problem source.
+
+    Resource filenames differ between sources (e.g. ``problem_reference.py`` vs ``reference.cu``),
+    so registration has to wait until the workspace metadata is readable.
+    """
+    ctx = server_context()
+    source = workspace_problem_source(ctx.workspace)
+    for relative_path in fixed_workspace_resource_paths(source):
+        register_fixed_workspace_resource(relative_path)
 
 
 def run() -> None:
+    _register_workspace_resources()
     mcp.run(transport="stdio")

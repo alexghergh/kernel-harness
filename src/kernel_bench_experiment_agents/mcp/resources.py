@@ -3,13 +3,13 @@
 Resources stay intentionally narrow and read-only: a fixed set of canonical docs/code files.
 History browsing for `samples/` and `profiles/` stays on explicit MCP tools so the agent can see
 past attempts without getting a vague "read any path" resource template.
+
+The actual list of registered resources is computed per-workspace at server startup from the
+active problem source; see ``app._register_workspace_resources``.
 """
 
 from __future__ import annotations
 
-from kernel_bench_experiment_agents.agent_contract.policy import FIXED_WORKSPACE_RESOURCE_PATHS
-
-RESOURCE_PATHS: tuple[str, ...] = FIXED_WORKSPACE_RESOURCE_PATHS
 RESOURCE_URI_PREFIX = "kb://workspace/"
 
 
